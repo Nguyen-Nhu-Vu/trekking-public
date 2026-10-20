@@ -1,4 +1,8 @@
 <?php
+// Start the session before loading any application output.
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    session_start();
+}
 // Vercel entry point for the existing multi-page PHP website.
 // Only explicitly recognized web page directories are routed.
 $root = dirname(__DIR__);
