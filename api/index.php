@@ -1,4 +1,3 @@
-
 <?php
 // Vercel PHP router for Trekking
 // Save as UTF-8 without BOM.
