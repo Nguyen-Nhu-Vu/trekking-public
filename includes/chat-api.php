@@ -1,4 +1,3 @@
-
 <?php
 // VNN Travel - Chat API
 // Shared conversation history stored in Aiven MySQL
