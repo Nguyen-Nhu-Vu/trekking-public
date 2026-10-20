@@ -1,8 +1,8 @@
 
 <?php
-// config/database.php
+// Database configuration for XAMPP and Vercel
 
-if (session_status() === PHP_SESSION_NONE) {
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
@@ -10,10 +10,11 @@ $host = getenv('DB_HOST') ?: 'localhost';
 $port = getenv('DB_PORT') ?: '3306';
 $dbname = getenv('DB_NAME') ?: 'trekking_db';
 $username = getenv('DB_USER') ?: 'root';
-$password = getenv('DB_PASSWORD');
-$password = $password === false ? '' : $password;
 
-$isOnline = getenv('DB_HOST') !== false;
+$password = getenv('DB_PASSWORD');
+if ($password === false) {
+    $password = '';
+}
 
 try {
     $options = [
@@ -23,26 +24,31 @@ try {
         PDO::ATTR_TIMEOUT => 10
     ];
 
-    if ($isOnline) {
+    if (getenv('DB_HOST')) {
         $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
     }
 
+    $dsn = "mysql:host={$host};port={$port};dbname={$dbname};charset=utf8mb4";
+
     $pdo = new PDO(
-        "mysql:host={$host};port={$port};dbname={$dbname};charset=utf8mb4",
+        $dsn,
         $username,
         $password,
         $options
     );
 
 } catch (PDOException $e) {
-    error_log('Database error: ' . $e->getMessage());
+    error_log("Database connection error: " . $e->getMessage());
     http_response_code(500);
-    exit('Không thể kết nối cơ sở dữ liệu.');
+    exit("Không thể kết nối cơ sở dữ liệu.");
 }
 
 if (!defined('BASE_URL')) {
     $base = getenv('BASE_URL');
-    define('BASE_URL', $base !== false && $base !== ''
-        ? rtrim($base, '/') . '/'
-        : '/trekking/');
+
+    if ($base !== false && $base !== '') {
+        define('BASE_URL', rtrim($base, '/') . '/');
+    } else {
+        define('BASE_URL', '/trekking/');
+    }
 }
