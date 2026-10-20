@@ -1,8 +1,6 @@
 <?php
-// Connection settings for XAMPP locally and Aiven on Vercel.
-// This file must be saved UTF-8 WITHOUT BOM, with no output before <?php.
 
-if (session_status() === PHP_SESSION_NONE) {
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
