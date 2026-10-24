@@ -1,7 +1,8 @@
-
 <?php
-// VNN Travel - Trang lien he
-// Gui AJAX khong tai lai trang, hien thong bao thanh cong.
+// VNN Travel - Lien he va ho tro
+// AJAX contact form - JSON response - No page reload
+
+ob_start();
 
 $page_title = "Liên Hệ & Hỗ Trợ";
 $active_menu = 'contact';
@@ -9,74 +10,113 @@ $active_menu = 'contact';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-// Xu ly yeu cau gui tin nhan
+$contactResult = null;
+
+function contactJson($success, $message, $status = 200)
+{
+    // Loai bo output khong mong muon truoc JSON
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+
+    echo json_encode([
+        'success' => $success,
+        'message' => $message
+    ], JSON_UNESCAPED_UNICODE);
+
+    exit;
+}
+
+// Xu ly gui form
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $isAjax = (
-        ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest'
+        strtolower(
+            $_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''
+        ) === 'xmlhttprequest'
     );
 
-    $fullname = trim((string)($_POST['fullname'] ?? ''));
-    $email = trim((string)($_POST['email'] ?? ''));
-    $phone = trim((string)($_POST['phone'] ?? ''));
-    $message = trim((string)($_POST['message'] ?? ''));
+    $fullname = trim((string) ($_POST['fullname'] ?? ''));
+    $email = trim((string) ($_POST['email'] ?? ''));
+    $phone = trim((string) ($_POST['phone'] ?? ''));
+    $message = trim((string) ($_POST['message'] ?? ''));
 
     $success = false;
     $responseMessage = '';
+    $statusCode = 200;
 
-    if ($fullname === '' || $email === '' || $message === '') {
-        $responseMessage = 'Vui lòng nhập đầy đủ họ tên, email và nội dung cần hỗ trợ!';
+    if (
+        $fullname === '' ||
+        $email === '' ||
+        $message === ''
+    ) {
+        $responseMessage =
+            'Vui lòng nhập đầy đủ họ tên, email và nội dung hỗ trợ.';
+        $statusCode = 422;
+
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $responseMessage = 'Địa chỉ email không hợp lệ!';
+        $responseMessage = 'Địa chỉ email không hợp lệ.';
+        $statusCode = 422;
+
     } elseif (
         mb_strlen($fullname, 'UTF-8') > 150 ||
         mb_strlen($email, 'UTF-8') > 254 ||
         mb_strlen($phone, 'UTF-8') > 30 ||
         mb_strlen($message, 'UTF-8') > 5000
     ) {
-        $responseMessage = 'Nội dung quá dài. Vui lòng kiểm tra lại!';
+        $responseMessage = 'Nội dung nhập quá dài.';
+        $statusCode = 422;
+
     } else {
+
         try {
+            // Su dung bang contacts hien co
             $stmt = $pdo->prepare("
                 INSERT INTO contacts
                     (fullname, email, phone, message)
-                VALUES (?, ?, ?, ?)
+                VALUES
+                    (:fullname, :email, :phone, :message)
             ");
 
             $stmt->execute([
-                $fullname,
-                $email,
-                $phone,
-                $message
+                ':fullname' => $fullname,
+                ':email' => $email,
+                ':phone' => $phone,
+                ':message' => $message
             ]);
 
             $success = true;
             $responseMessage =
-                'Tin nhắn của bạn đã được gửi thành công! '
-                . 'VNN Travel sẽ liên hệ lại sớm nhất.';
+                'Tin nhắn đã được gửi thành công! '
+                . 'VNN Travel sẽ liên hệ lại với bạn sớm nhất.';
 
         } catch (Throwable $e) {
-            error_log('Contact form error: ' . $e->getMessage());
+            error_log(
+                'VNN Contact Error: ' . $e->getMessage()
+            );
+
+            $success = false;
+            $statusCode = 500;
             $responseMessage =
-                'Không thể gửi tin nhắn lúc này. Vui lòng thử lại.';
+                'Không thể lưu tin nhắn lúc này. '
+                . 'Vui lòng thử lại sau.';
         }
     }
 
-    // Phan hoi JSON cho JavaScript
+    // Tra ve JSON sach cho AJAX
     if ($isAjax) {
-        http_response_code($success ? 200 : 400);
-        header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
-
-        echo json_encode([
-            'success' => $success,
-            'message' => $responseMessage
-        ], JSON_UNESCAPED_UNICODE);
-
-        exit;
+        contactJson(
+            $success,
+            $responseMessage,
+            $statusCode
+        );
     }
 
-    // Ho tro truong hop JavaScript bi tat
+    // Truong hop trinh duyet khong co JavaScript
     $contactResult = [
         'success' => $success,
         'message' => $responseMessage
@@ -87,55 +127,88 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
+.contact-page {
+    padding-top: 45px;
+    padding-bottom: 65px;
+    min-height: 65vh;
+}
+
 .contact-main-box {
     background: #ffffff;
     padding: 40px;
-    border-radius: 12px;
-    box-shadow: var(--shadow);
+    border-radius: 14px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
 }
 
-.contact-feedback {
-    display: none;
-    padding: 15px 18px;
-    border-radius: 10px;
+.contact-title {
+    color: #185b30;
+    font-size: 25px;
+    font-weight: 800;
+    margin-bottom: 15px;
+}
+
+.contact-description {
+    color: #64748b;
+    line-height: 1.7;
+    margin-bottom: 25px;
+}
+
+.contact-detail {
+    margin-bottom: 15px;
+    font-size: 15px;
+    color: #334155;
+}
+
+.contact-detail i {
+    color: #f97316;
+    width: 25px;
+}
+
+.contact-form-group {
     margin-bottom: 18px;
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 1.6;
 }
 
-.contact-feedback.success {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: #166534;
-    background: #dcfce7;
-    border: 1px solid #86efac;
+.contact-form-group label {
+    display: block;
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 9px;
 }
 
-.contact-feedback.error {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: #b91c1c;
-    background: #fee2e2;
-    border: 1px solid #fecaca;
+.contact-form-group .form-control {
+    width: 100%;
+    border: 1px solid #dce3ed;
+    border-radius: 9px;
+    padding: 13px 15px;
+    font-size: 15px;
+    outline: none;
+}
+
+.contact-form-group .form-control:focus {
+    border-color: #f97316;
+    box-shadow: 0 0 0 2px rgba(249,115,22,0.08);
+}
+
+.contact-form-group textarea {
+    min-height: 115px;
+    resize: vertical;
 }
 
 .contact-submit-btn {
     width: 100%;
-    padding: 12px;
-    background: #185b30;
-    color: #ffffff;
+    padding: 14px 16px;
     border: none;
-    border-radius: 8px;
+    border-radius: 9px;
+    background: #176534;
+    color: #ffffff;
     cursor: pointer;
-    font-weight: 700;
-    transition: background 0.2s;
+    font-weight: 800;
+    font-size: 15px;
 }
 
 .contact-submit-btn:hover {
-    background: #166534;
+    background: #14532d;
 }
 
 .contact-submit-btn:disabled {
@@ -143,63 +216,88 @@ require_once __DIR__ . '/../includes/header.php';
     cursor: wait;
 }
 
-.contact-details-row {
-    margin-bottom: 15px;
-    font-size: 0.95rem;
+.contact-feedback {
+    display: none;
+    padding: 15px 18px;
+    border-radius: 11px;
+    margin-bottom: 20px;
+    font-size: 14px;
+    line-height: 1.6;
+    font-weight: 600;
+    align-items: center;
+    gap: 12px;
 }
 
-.contact-details-row i {
-    color: var(--accent);
-    width: 24px;
+.contact-feedback.success {
+    display: flex;
+    color: #166534;
+    background: #dcfce7;
+    border: 1px solid #86efac;
 }
 
-@media(max-width: 768px) {
+.contact-feedback.error {
+    display: flex;
+    color: #b91c1c;
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+}
+
+.contact-feedback i {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
     .contact-main-box {
         padding: 22px;
+    }
+
+    .contact-page {
+        padding-top: 20px;
     }
 }
 </style>
 
-<div class="container section" id="contact-section">
+<section class="contact-page container section">
 
     <div class="grid grid-2 contact-main-box">
 
         <!-- THONG TIN LIEN HE -->
         <div>
 
-            <h2 style="color:var(--primary);margin-bottom:15px;">
+            <h2 class="contact-title">
                 LIÊN HỆ VỚI CHÚNG TÔI
             </h2>
 
-            <p style="color:#64748b;line-height:1.7;margin-bottom:25px;">
+            <p class="contact-description">
                 Bạn có câu hỏi về lịch khởi hành, yêu cầu thiết kế
                 tour riêng cho cơ quan / nhóm bạn hoặc cần tư vấn
                 chọn giày, balo? Đừng ngần ngại để lại lời nhắn!
             </p>
 
-            <div class="contact-details-row">
+            <div class="contact-detail">
                 <i class="fa-solid fa-location-dot"></i>
                 Số 18 Hoàng Quốc Việt, Cầu Giấy, Hà Nội
             </div>
 
-            <div class="contact-details-row">
+            <div class="contact-detail">
                 <i class="fa-solid fa-phone"></i>
                 Hotline: 0988.888.888
             </div>
 
-            <div class="contact-details-row">
+            <div class="contact-detail">
                 <i class="fa-solid fa-envelope"></i>
                 contact@vnntravel.vn
             </div>
 
-            <div class="contact-details-row">
+            <div class="contact-detail">
                 <i class="fa-solid fa-clock"></i>
                 08:00 - 21:00 (Từ Thứ Hai đến Chủ Nhật)
             </div>
 
         </div>
 
-        <!-- FORM LIEN HE -->
+        <!-- BIEU MAU LIEN HE -->
         <div>
 
             <div
@@ -209,7 +307,7 @@ require_once __DIR__ . '/../includes/header.php';
                 aria-live="polite"
             ></div>
 
-            <?php if (isset($contactResult)): ?>
+            <?php if ($contactResult !== null): ?>
                 <div class="contact-feedback <?= $contactResult['success'] ? 'success' : 'error' ?>"
                      style="display:flex;">
                     <?= htmlspecialchars(
@@ -222,63 +320,66 @@ require_once __DIR__ . '/../includes/header.php';
 
             <form
                 id="contact-form"
-                action=""
                 method="POST"
+                action="<?= htmlspecialchars(
+                    $_SERVER['REQUEST_URI'] ?? '',
+                    ENT_QUOTES,
+                    'UTF-8'
+                ) ?>"
             >
 
-                <div class="form-group">
+                <div class="contact-form-group">
                     <label for="contact-fullname">
                         Họ và tên *
                     </label>
 
                     <input
-                        id="contact-fullname"
                         type="text"
+                        id="contact-fullname"
                         name="fullname"
                         class="form-control"
-                        required
-                        maxlength="150"
                         placeholder="Nguyễn Văn A"
+                        maxlength="150"
+                        required
                     >
                 </div>
 
                 <div class="grid grid-2">
 
-                    <div class="form-group">
+                    <div class="contact-form-group">
                         <label for="contact-email">
                             Địa chỉ Email *
                         </label>
 
                         <input
-                            id="contact-email"
                             type="email"
+                            id="contact-email"
                             name="email"
                             class="form-control"
-                            required
-                            maxlength="254"
                             placeholder="email@gmail.com"
+                            maxlength="254"
+                            required
                         >
                     </div>
 
-                    <div class="form-group">
+                    <div class="contact-form-group">
                         <label for="contact-phone">
                             Số điện thoại
                         </label>
 
                         <input
-                            id="contact-phone"
                             type="tel"
+                            id="contact-phone"
                             name="phone"
                             class="form-control"
-                            maxlength="30"
                             placeholder="09xxxxxxxx"
+                            maxlength="30"
                         >
                     </div>
 
                 </div>
 
-                <div class="form-group">
-
+                <div class="contact-form-group">
                     <label for="contact-message">
                         Nội dung cần hỗ trợ *
                     </label>
@@ -288,32 +389,29 @@ require_once __DIR__ . '/../includes/header.php';
                         name="message"
                         class="form-control"
                         rows="4"
-                        required
                         maxlength="5000"
                         placeholder="Nhập câu hỏi của bạn..."
+                        required
                     ></textarea>
-
                 </div>
 
                 <button
-                    id="contact-submit"
                     type="submit"
-                    class="btn btn-primary contact-submit-btn"
+                    id="contact-submit"
+                    class="contact-submit-btn"
                 >
                     <i class="fa-solid fa-paper-plane"></i>
                     GỬI TIN NHẮN LIÊN HỆ
                 </button>
 
             </form>
-
         </div>
-
     </div>
-
-</div>
+</section>
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
+    'use strict';
 
     const form = document.getElementById('contact-form');
     const button = document.getElementById('contact-submit');
@@ -321,15 +419,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (!form || !button || !feedback) return;
 
-    let sending = false;
+    let isSending = false;
 
-    function showFeedback(message, success) {
+    function showMessage(message, success) {
         feedback.className =
             'contact-feedback ' + (success ? 'success' : 'error');
 
         feedback.replaceChildren();
 
         const icon = document.createElement('i');
+
         icon.className = success
             ? 'fa-solid fa-circle-check'
             : 'fa-solid fa-circle-exclamation';
@@ -337,23 +436,18 @@ document.addEventListener('DOMContentLoaded', function () {
         const text = document.createElement('span');
         text.textContent = message;
 
-        feedback.appendChild(icon);
-        feedback.appendChild(text);
+        feedback.append(icon, text);
     }
 
-    form.addEventListener('submit', async function (event) {
-
-        // Ngan trinh duyet tai lai trang
+    form.addEventListener('submit', async function(event) {
         event.preventDefault();
 
-        if (sending) return;
+        if (isSending || !form.reportValidity()) return;
 
-        if (!form.reportValidity()) return;
-
-        sending = true;
+        isSending = true;
         button.disabled = true;
 
-        const oldButtonContent = button.innerHTML;
+        const originalButton = button.innerHTML;
 
         button.innerHTML =
             '<i class="fa-solid fa-spinner fa-spin"></i> ĐANG GỬI...';
@@ -362,13 +456,11 @@ document.addEventListener('DOMContentLoaded', function () {
         feedback.replaceChildren();
 
         try {
-            const formData = new FormData(form);
-
             const response = await fetch(
-                window.location.pathname,
+                form.action || window.location.href,
                 {
                     method: 'POST',
-                    body: formData,
+                    body: new FormData(form),
                     credentials: 'same-origin',
                     cache: 'no-store',
                     headers: {
@@ -379,57 +471,57 @@ document.addEventListener('DOMContentLoaded', function () {
             );
 
             const raw = await response.text();
-
             let result;
 
             try {
                 result = JSON.parse(raw);
-            } catch (error) {
+            } catch (parseError) {
+                console.error(
+                    'Contact API returned non-JSON:',
+                    response.status,
+                    raw.slice(0, 500)
+                );
+
                 throw new Error(
-                    'Máy chủ trả về dữ liệu không hợp lệ. Vui lòng thử lại.'
+                    'Máy chủ chưa phản hồi đúng định dạng. ' +
+                    'Vui lòng kiểm tra kết nối hoặc nhật ký Vercel.'
                 );
             }
 
             if (!response.ok || !result.success) {
                 throw new Error(
-                    result.message || 'Không thể gửi tin nhắn.'
+                    result.message ||
+                    'Không thể gửi tin nhắn lúc này.'
                 );
             }
 
-            // Thong bao thanh cong
-            showFeedback(
+            showMessage(
                 result.message ||
-                'Tin nhắn của bạn đã được gửi thành công!',
+                'Tin nhắn đã được gửi thành công!',
                 true
             );
 
-            // Chi xoa thong tin form khi server xac nhan da luu
+            // Chi reset khi server xac nhan thanh cong
             form.reset();
 
-            // Khong cuon trang ve dau, khong chuyen huong
-
         } catch (error) {
+            console.error('Contact error:', error);
 
-            console.error('Contact form error:', error);
-
-            showFeedback(
-                error.message ||
-                'Có lỗi xảy ra. Vui lòng thử lại.',
+            showMessage(
+                error.message || 'Có lỗi xảy ra. Vui lòng thử lại.',
                 false
             );
 
-            // Giu nguyen noi dung nguoi dung da nhap
-
+            // Giu nguyen thong tin da nhap
         } finally {
-
-            sending = false;
+            isSending = false;
             button.disabled = false;
-            button.innerHTML = oldButtonContent;
+            button.innerHTML = originalButton;
         }
-
     });
-
-});
+})();
 </script>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+require_once __DIR__ . '/../includes/footer.php';
+?>
