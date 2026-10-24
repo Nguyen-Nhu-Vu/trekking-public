@@ -1,7 +1,8 @@
 
 <?php
 // VNN Travel - Tour toi da dang ky
-// Xem lai QR chuyen khoan khi chua thanh toan
+// Fix headers already sent
+// Xem lai QR thanh toan khi chua duoc xac nhan
 
 $page_title = 'Tour Tôi Đã Đăng Ký';
 $active_menu = 'tour';
@@ -9,10 +10,11 @@ $active_menu = 'tour';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-requireLogin();
+$base = rtrim(
+    defined('BASE_URL') ? BASE_URL : '/',
+    '/'
+) . '/';
 
-$user_id = (int)$_SESSION['user_id'];
-$base = rtrim(BASE_URL, '/') . '/';
 $qrImage = $base . 'assets/images/momo-qr-vu.jpg';
 
 function mt_h($value) {
@@ -60,12 +62,10 @@ function mt_token($value) {
         }
     }
 
-    $value = strtoupper($value);
-
     return preg_replace(
         '/[^A-Z0-9]/',
         '',
-        $value
+        strtoupper($value)
     );
 }
 
@@ -73,56 +73,50 @@ function mt_phone($value) {
     return preg_replace('/\D+/', '', (string)$value);
 }
 
-// Tao lai noi dung CK tu booking luu trong MySQL
 function mt_transfer($booking) {
-    $code = (string)$booking['booking_code'];
-
-    $tourName = substr(
-        mt_token($booking['tour_title']),
-        0,
-        22
-    );
-
-    $customerName = mt_token(
-        $booking['fullname']
-    );
-
-    $phone = mt_phone(
-        $booking['phone']
-    );
-
     return 'TOUR ' .
-        $code . ' ' .
-        $tourName . ' ' .
-        $customerName . ' ' .
-        $phone;
+        $booking['booking_code'] . ' ' .
+        substr(mt_token($booking['tour_title']), 0, 22) . ' ' .
+        mt_token($booking['fullname']) . ' ' .
+        mt_phone($booking['phone']);
 }
 
-function mt_status($status) {
-    return trim((string)$status);
+function mt_normalize_status($status) {
+    $value = trim(mb_strtolower(
+        (string)$status,
+        'UTF-8'
+    ));
+
+    return $value;
 }
 
 function mt_is_paid($status) {
-    $status = mt_status($status);
-
-    return in_array($status, [
-        'Đã thanh toán',
-        'Thanh toán thành công',
-        'paid',
-        'completed'
-    ], true);
+    return in_array(
+        mt_normalize_status($status),
+        [
+            'đã thanh toán',
+            'thanh toán thành công',
+            'paid',
+            'completed'
+        ],
+        true
+    );
 }
 
 function mt_is_cancelled($status) {
-    return in_array(mt_status($status), [
-        'Đã hủy',
-        'Đã huỷ',
-        'cancelled',
-        'canceled'
-    ], true);
+    return in_array(
+        mt_normalize_status($status),
+        [
+            'đã hủy',
+            'đã huỷ',
+            'cancelled',
+            'canceled'
+        ],
+        true
+    );
 }
 
-function mt_image_url($image, $base) {
+function mt_image($image, $base) {
     $image = trim((string)$image);
 
     if ($image === '') {
@@ -144,21 +138,44 @@ function mt_image_url($image, $base) {
     return $base . ltrim($image, '/');
 }
 
-// Lay tat ca tour thuoc tai khoan dang dang nhap
-$stmt = $pdo->prepare("
-    SELECT
-        b.*,
-        t.title AS tour_title,
-        t.image AS tour_image
-    FROM tour_bookings b
-    INNER JOIN tours t ON b.tour_id = t.id
-    WHERE b.user_id = ?
-    ORDER BY b.id DESC
-");
+// Khong goi requireLogin vi no redirect bang header().
+// Trang nay tu xu ly khi session khong hop le.
 
-$stmt->execute([$user_id]);
+$userId = isset($_SESSION['user_id'])
+    ? (int)$_SESSION['user_id']
+    : 0;
 
-$bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$loggedIn = $userId > 0;
+$bookings = [];
+$loadError = '';
+
+if ($loggedIn) {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT
+                b.*,
+                t.title AS tour_title,
+                t.image AS tour_image
+            FROM tour_bookings b
+            INNER JOIN tours t ON b.tour_id = t.id
+            WHERE b.user_id = ?
+            ORDER BY b.id DESC
+        ");
+
+        $stmt->execute([$userId]);
+
+        $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    } catch (Throwable $e) {
+        error_log(
+            'My Tours Error: ' . $e->getMessage()
+        );
+
+        $loadError =
+            'Không thể tải danh sách tour. ' .
+            'Vui lòng thử lại sau.';
+    }
+}
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -192,8 +209,8 @@ require_once __DIR__ . '/../includes/header.php';
     font-weight: 700;
 }
 
-.mt-booking-card {
-    background: #ffffff;
+.mt-card {
+    background: white;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
     margin-bottom: 23px;
@@ -201,7 +218,7 @@ require_once __DIR__ . '/../includes/header.php';
     box-shadow: 0 5px 20px rgba(0,0,0,.05);
 }
 
-.mt-booking-main {
+.mt-main {
     padding: 24px;
 }
 
@@ -219,16 +236,15 @@ require_once __DIR__ . '/../includes/header.php';
     gap: 17px;
 }
 
-.mt-tour-image {
+.mt-image {
     width: 95px;
     height: 85px;
     object-fit: cover;
     border-radius: 11px;
     background: #e2e8f0;
-    flex-shrink: 0;
 }
 
-.mt-tour-title {
+.mt-title {
     font-size: 19px;
     font-weight: 800;
     color: #0f172a;
@@ -236,9 +252,9 @@ require_once __DIR__ . '/../includes/header.php';
     line-height: 1.4;
 }
 
-.mt-booking-code {
-    color: #64748b;
+.mt-code-label {
     font-size: 14px;
+    color: #64748b;
 }
 
 .mt-status {
@@ -264,25 +280,25 @@ require_once __DIR__ . '/../includes/header.php';
     color: #991b1b;
 }
 
-.mt-booking-details {
+.mt-details {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 16px;
     padding: 20px;
     background: #f8fafc;
     border-radius: 12px;
 }
 
-.mt-detail-label {
-    font-size: 13px;
+.mt-label {
     color: #64748b;
+    font-size: 13px;
     margin-bottom: 8px;
 }
 
-.mt-detail-value {
+.mt-value {
+    color: #0f172a;
     font-size: 15px;
     font-weight: 800;
-    color: #0f172a;
     overflow-wrap: anywhere;
 }
 
@@ -299,10 +315,10 @@ require_once __DIR__ . '/../includes/header.php';
     flex-wrap: wrap;
 }
 
-.mt-pay-toggle {
+.mt-button {
     background: #176534;
-    color: #ffffff;
-    border: none;
+    color: white;
+    border: 0;
     border-radius: 10px;
     padding: 13px 20px;
     font-size: 15px;
@@ -310,7 +326,7 @@ require_once __DIR__ . '/../includes/header.php';
     cursor: pointer;
 }
 
-.mt-pay-toggle:hover {
+.mt-button:hover {
     background: #14532d;
 }
 
@@ -333,37 +349,29 @@ require_once __DIR__ . '/../includes/header.php';
 
 .mt-payment-grid {
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: 260px 1fr;
     gap: 25px;
-    align-items: start;
 }
 
-.mt-qr-image {
+.mt-qr {
+    display: block;
     width: 100%;
     height: auto;
-    display: block;
     border: 1px solid #fbcfe8;
     border-radius: 14px;
-    background: #fff;
+    background: white;
 }
 
-.mt-payment-information {
+.mt-pay-info {
     padding: 21px;
-    background: #ffffff;
+    background: white;
     border: 1px solid #e2e8f0;
     border-radius: 13px;
 }
 
-.mt-payment-information h4 {
+.mt-pay-info h4 {
     font-size: 18px;
-    color: #0f172a;
     margin: 0 0 17px;
-}
-
-.mt-payment-label {
-    color: #64748b;
-    font-size: 14px;
-    margin-bottom: 7px;
 }
 
 .mt-payment-price {
@@ -373,118 +381,121 @@ require_once __DIR__ . '/../includes/header.php';
     margin-bottom: 20px;
 }
 
-.mt-transfer-content {
+.mt-transfer {
     background: #fff7ed;
     border: 1px solid #fed7aa;
     border-radius: 10px;
     padding: 16px;
+    color: #c2410c;
     font-size: 16px;
     font-weight: 800;
-    color: #c2410c;
     overflow-wrap: anywhere;
     margin: 12px 0;
     user-select: all;
 }
 
-.mt-copy-button {
+.mt-copy {
     padding: 12px 18px;
     background: #14532d;
-    border: none;
+    border: 0;
     border-radius: 10px;
     color: white;
     font-weight: 700;
     cursor: pointer;
 }
 
-.mt-payment-note {
+.mt-note {
     margin-top: 19px;
-    background: #f0fdf4;
-    color: #166534;
     padding: 15px;
     border-radius: 10px;
-    font-size: 14px;
-    line-height: 1.8;
-}
-
-.mt-completed {
+    background: #f0fdf4;
     color: #166534;
-    background: #dcfce7;
-    border-radius: 10px;
-    padding: 13px 17px;
-    font-weight: 700;
+    line-height: 1.8;
+    font-size: 14px;
 }
 
-.mt-cancelled {
-    color: #991b1b;
-    background: #fee2e2;
-    border-radius: 10px;
-    padding: 13px 17px;
-    font-weight: 700;
-}
-
-.mt-empty {
-    background: white;
+.mt-message {
+    max-width: 680px;
+    margin: 35px auto;
+    padding: 40px 25px;
+    border-radius: 16px;
     text-align: center;
-    padding: 55px 20px;
-    border-radius: 15px;
+    background: white;
+    box-shadow: 0 5px 20px rgba(0,0,0,.05);
 }
 
-.mt-empty i {
-    font-size: 42px;
-    color: #94a3b8;
-    margin-bottom: 15px;
-}
-
-.mt-empty h3 {
-    color: #0f172a;
+.mt-message h3 {
+    color: #14532d;
     margin-bottom: 12px;
 }
 
-.mt-empty a {
-    display: inline-block;
-    margin-top: 15px;
-    text-decoration: none;
-    background: #14532d;
-    color: white;
-    padding: 12px 20px;
-    border-radius: 9px;
+.mt-message p {
+    color: #64748b;
+    line-height: 1.7;
 }
 
-@media(max-width: 850px) {
-    .mt-booking-details {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+.mt-message a {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 12px 22px;
+    background: #14532d;
+    color: white;
+    text-decoration: none;
+    border-radius: 10px;
+    font-weight: 700;
+}
+
+.mt-result {
+    padding: 13px 17px;
+    border-radius: 10px;
+    font-weight: 700;
+}
+
+.mt-result.paid {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.mt-result.cancelled {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+@media(max-width:850px) {
+    .mt-details {
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .mt-payment-grid {
         grid-template-columns: 1fr;
     }
 
-    .mt-qr-image {
+    .mt-qr {
         max-width: 300px;
         margin: auto;
     }
 }
 
-@media(max-width: 550px) {
+@media(max-width:550px) {
     .mt-top {
         flex-direction: column;
     }
 
-    .mt-booking-details {
+    .mt-details {
         grid-template-columns: 1fr 1fr;
     }
 
-    .mt-booking-main,
+    .mt-main,
     .mt-payment {
         padding: 17px;
     }
 
-    .mt-tour-image {
+    .mt-image {
         width: 70px;
         height: 70px;
     }
 
-    .mt-tour-title {
+    .mt-title {
         font-size: 16px;
     }
 }
@@ -503,38 +514,83 @@ require_once __DIR__ . '/../includes/header.php';
         </h2>
 
         <p style="color:#64748b">
-            Theo dõi lịch trình, trạng thái đăng ký
-            và thanh toán tour của bạn.
+            Theo dõi lịch trình và thanh toán tour của bạn.
         </p>
     </div>
 
-    <?php if (!empty($bookings)): ?>
+    <?php if (!$loggedIn): ?>
+
+        <div class="mt-message">
+
+            <i class="fa-solid fa-lock"
+               style="font-size:40px;color:#14532d"></i>
+
+            <h3>Vui lòng đăng nhập</h3>
+
+            <p>
+                Bạn cần đăng nhập để xem các tour
+                đã đăng ký và thông tin thanh toán.
+            </p>
+
+            <a href="<?= mt_h($base) ?>auth/login.php">
+                <i class="fa-solid fa-right-to-bracket"></i>
+                Đăng nhập
+            </a>
+
+        </div>
+
+    <?php elseif ($loadError !== ''): ?>
+
+        <div class="mt-message">
+            <h3>Không thể tải dữ liệu</h3>
+            <p><?= mt_h($loadError) ?></p>
+        </div>
+
+    <?php elseif (empty($bookings)): ?>
+
+        <div class="mt-message">
+            <i class="fa-solid fa-mountain-sun"
+               style="font-size:40px;color:#94a3b8"></i>
+
+            <h3>Bạn chưa đăng ký tour nào</h3>
+
+            <p>
+                Hãy khám phá các hành trình trekking
+                và lựa chọn chuyến đi phù hợp.
+            </p>
+
+            <a href="<?= mt_h($base) ?>tours/tour.php">
+                Khám phá tour trekking
+            </a>
+        </div>
+
+    <?php else: ?>
 
         <?php foreach ($bookings as $booking): ?>
 
             <?php
-            $status = mt_status($booking['status']);
+            $status = trim(
+                (string)$booking['status']
+            );
 
             $isPaid = mt_is_paid($status);
             $isCancelled = mt_is_cancelled($status);
-
             $canPay = !$isPaid && !$isCancelled;
 
             $paymentId = 'payment-' . (int)$booking['id'];
-
             $transferId = 'transfer-' . (int)$booking['id'];
 
             $transfer = mt_transfer($booking);
 
-            $image = mt_image_url(
+            $image = mt_image(
                 $booking['tour_image'],
                 $base
             );
             ?>
 
-            <article class="mt-booking-card">
+            <article class="mt-card">
 
-                <div class="mt-booking-main">
+                <div class="mt-main">
 
                     <div class="mt-top">
 
@@ -542,7 +598,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                             <?php if ($image !== ''): ?>
                                 <img
-                                    class="mt-tour-image"
+                                    class="mt-image"
                                     src="<?= mt_h($image) ?>"
                                     alt="Ảnh tour"
                                     loading="lazy"
@@ -550,16 +606,18 @@ require_once __DIR__ . '/../includes/header.php';
                             <?php endif; ?>
 
                             <div>
-                                <div class="mt-tour-title">
+
+                                <div class="mt-title">
                                     <?= mt_h($booking['tour_title']) ?>
                                 </div>
 
-                                <div class="mt-booking-code">
+                                <div class="mt-code-label">
                                     Mã đặt tour:
                                     <strong>
                                         <?= mt_h($booking['booking_code']) ?>
                                     </strong>
                                 </div>
+
                             </div>
 
                         </div>
@@ -570,49 +628,51 @@ require_once __DIR__ . '/../includes/header.php';
 
                     </div>
 
-                    <div class="mt-booking-details">
+                    <div class="mt-details">
 
                         <div>
-                            <div class="mt-detail-label">
+                            <div class="mt-label">
                                 Ngày khởi hành
                             </div>
 
-                            <div class="mt-detail-value">
-                                <?= !empty($booking['departure_date'])
-                                    ? date(
+                            <div class="mt-value">
+                                <?php if (!empty($booking['departure_date'])): ?>
+                                    <?= date(
                                         'd/m/Y',
                                         strtotime($booking['departure_date'])
-                                    )
-                                    : 'Đang cập nhật' ?>
+                                    ) ?>
+                                <?php else: ?>
+                                    Đang cập nhật
+                                <?php endif; ?>
                             </div>
                         </div>
 
                         <div>
-                            <div class="mt-detail-label">
+                            <div class="mt-label">
                                 Số người tham gia
                             </div>
 
-                            <div class="mt-detail-value">
+                            <div class="mt-value">
                                 <?= (int)$booking['number_people'] ?> người
                             </div>
                         </div>
 
                         <div>
-                            <div class="mt-detail-label">
+                            <div class="mt-label">
                                 Số điện thoại
                             </div>
 
-                            <div class="mt-detail-value">
+                            <div class="mt-value">
                                 <?= mt_h($booking['phone']) ?>
                             </div>
                         </div>
 
                         <div>
-                            <div class="mt-detail-label">
+                            <div class="mt-label">
                                 Tổng tiền
                             </div>
 
-                            <div class="mt-detail-value mt-price">
+                            <div class="mt-value mt-price">
                                 <?= mt_money($booking['total_price']) ?>
                             </div>
                         </div>
@@ -625,7 +685,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                             <button
                                 type="button"
-                                class="mt-pay-toggle"
+                                class="mt-button"
                                 aria-controls="<?= mt_h($paymentId) ?>"
                                 aria-expanded="false"
                                 onclick="toggleTourPayment(this, '<?= mt_h($paymentId) ?>')"
@@ -634,21 +694,21 @@ require_once __DIR__ . '/../includes/header.php';
                                 Xem thanh toán
                             </button>
 
-                            <span style="color:#c2410c;font-size:14px">
+                            <span style="font-size:14px;color:#c2410c">
                                 <i class="fa-solid fa-clock"></i>
                                 Chưa xác nhận thanh toán
                             </span>
 
                         <?php elseif ($isPaid): ?>
 
-                            <div class="mt-completed">
+                            <div class="mt-result paid">
                                 <i class="fa-solid fa-circle-check"></i>
                                 Thanh toán đã được xác nhận
                             </div>
 
                         <?php else: ?>
 
-                            <div class="mt-cancelled">
+                            <div class="mt-result cancelled">
                                 <i class="fa-solid fa-circle-xmark"></i>
                                 Đăng ký đã hủy
                             </div>
@@ -673,24 +733,20 @@ require_once __DIR__ . '/../includes/header.php';
 
                         <div class="mt-payment-grid">
 
-                            <!-- ANH QR MOMO -->
                             <div>
                                 <img
+                                    class="mt-qr"
                                     src="<?= mt_h($qrImage) ?>"
-                                    class="mt-qr-image"
-                                    alt="Mã QR thanh toán"
+                                    alt="Mã QR thanh toán MoMo"
                                     loading="lazy"
                                 >
                             </div>
 
-                            <!-- THONG TIN CHUYEN KHOAN -->
-                            <div class="mt-payment-information">
+                            <div class="mt-pay-info">
 
-                                <h4>
-                                    Thông tin thanh toán
-                                </h4>
+                                <h4>Thông tin thanh toán</h4>
 
-                                <div class="mt-payment-label">
+                                <div class="mt-label">
                                     Số tiền cần chuyển
                                 </div>
 
@@ -698,25 +754,25 @@ require_once __DIR__ . '/../includes/header.php';
                                     <?= mt_money($booking['total_price']) ?>
                                 </div>
 
-                                <div class="mt-payment-label">
+                                <div class="mt-label">
                                     Nội dung chuyển khoản bắt buộc
                                 </div>
 
                                 <div
-                                    class="mt-transfer-content"
                                     id="<?= mt_h($transferId) ?>"
+                                    class="mt-transfer"
                                 ><?= mt_h($transfer) ?></div>
 
                                 <button
                                     type="button"
-                                    class="mt-copy-button"
+                                    class="mt-copy"
                                     onclick="copyTourContent('<?= mt_h($transferId) ?>')"
                                 >
                                     <i class="fa-solid fa-copy"></i>
                                     Sao chép nội dung
                                 </button>
 
-                                <div class="mt-payment-note">
+                                <div class="mt-note">
 
                                     <strong>
                                         <i class="fa-solid fa-circle-info"></i>
@@ -725,20 +781,19 @@ require_once __DIR__ . '/../includes/header.php';
 
                                     <p>
                                         Vui lòng chuyển đúng số tiền
-                                        và nội dung chuyển khoản.
+                                        và nội dung hiển thị.
                                     </p>
 
                                     <p>
                                         Nếu đã chuyển khoản, bạn
                                         không cần chuyển lại.
-                                        Hãy chờ quản lý kiểm tra
-                                        và xác nhận giao dịch.
+                                        Hãy chờ quản lý xác nhận.
                                     </p>
 
                                     <p>
                                         Bạn có thể quay lại trang này
-                                        để xem QR bất cứ lúc nào
-                                        trước khi thanh toán được xác nhận.
+                                        để xem QR trước khi thanh toán
+                                        được xác nhận.
                                     </p>
 
                                 </div>
@@ -755,27 +810,6 @@ require_once __DIR__ . '/../includes/header.php';
 
         <?php endforeach; ?>
 
-    <?php else: ?>
-
-        <div class="mt-empty">
-
-            <i class="fa-solid fa-mountain-sun"></i>
-
-            <h3>
-                Bạn chưa đăng ký tour nào
-            </h3>
-
-            <p>
-                Hãy khám phá và lựa chọn hành trình
-                trekking phù hợp với bạn.
-            </p>
-
-            <a href="<?= mt_h($base) ?>tours/tour.php">
-                Khám phá tour trekking
-            </a>
-
-        </div>
-
     <?php endif; ?>
 
 </div>
@@ -783,25 +817,24 @@ require_once __DIR__ . '/../includes/header.php';
 
 <script>
 function toggleTourPayment(button, elementId) {
-
     const panel = document.getElementById(elementId);
 
     if (!panel) return;
 
-    const isOpening = !panel.classList.contains('open');
+    const opening = !panel.classList.contains('open');
 
-    panel.classList.toggle('open', isOpening);
+    panel.classList.toggle('open', opening);
 
     button.setAttribute(
         'aria-expanded',
-        isOpening ? 'true' : 'false'
+        opening ? 'true' : 'false'
     );
 
-    button.innerHTML = isOpening
+    button.innerHTML = opening
         ? '<i class="fa-solid fa-chevron-up"></i> Ẩn thanh toán'
         : '<i class="fa-solid fa-qrcode"></i> Xem thanh toán';
 
-    if (isOpening) {
+    if (opening) {
         panel.scrollIntoView({
             behavior: 'smooth',
             block: 'nearest'
@@ -810,25 +843,20 @@ function toggleTourPayment(button, elementId) {
 }
 
 async function copyTourContent(elementId) {
-
     const element = document.getElementById(elementId);
 
     if (!element) return;
 
-    const content = element.textContent.trim();
+    const text = element.textContent.trim();
 
     try {
-        await navigator.clipboard.writeText(content);
-
+        await navigator.clipboard.writeText(text);
         alert('Đã sao chép nội dung chuyển khoản!');
-
     } catch (error) {
-
         window.prompt(
             'Sao chép nội dung chuyển khoản:',
-            content
+            text
         );
-
     }
 }
 </script>
