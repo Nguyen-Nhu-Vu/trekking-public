@@ -1,5 +1,7 @@
-
 <?php
+// VNN Travel - Thanh toan cua hang
+// Chi su dung COD - Thanh toan khi nhan hang
+
 ob_start();
 
 $page_title = 'Thanh toán đơn hàng';
@@ -12,210 +14,461 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$base = rtrim(defined('BASE_URL') ? BASE_URL : '/', '/') . '/';
-$qrImage = $base . 'assets/images/momo-qr-vu.jpg';
+$base = rtrim(
+    defined('BASE_URL') ? BASE_URL : '/',
+    '/'
+) . '/';
 
-function ck_h($value) {
-    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+function cod_h($value) {
+    return htmlspecialchars(
+        (string)$value,
+        ENT_QUOTES,
+        'UTF-8'
+    );
 }
 
-function ck_money($value) {
-    return number_format((float)$value, 0, ',', '.') . ' đ';
+function cod_money($value) {
+    return number_format(
+        (float)$value, 0, ',', '.'
+    ) . ' đ';
 }
 
-function ck_name($value) {
-    $value = trim((string)$value);
-    if (class_exists('Transliterator')) {
-        $t = Transliterator::create('Any-Latin; Latin-ASCII');
-        if ($t) $value = $t->transliterate($value);
+function cod_phone($value) {
+    return preg_replace('/\D+/', '', (string)$value);
+}
+
+function cod_columns(PDO $pdo, $table) {
+    $stmt = $pdo->query("SHOW COLUMNS FROM `$table`");
+    $result = [];
+
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $column) {
+        $result[$column['Field']] = $column;
     }
 
-    $value = strtr($value, ['đ'=>'d', 'Đ'=>'D']);
-    $value = strtoupper($value);
-    return preg_replace('/[^A-Z0-9]/', '', $value) ?: 'KHACHHANG';
+    return $result;
 }
 
-function ck_phone($value) {
-    return preg_replace('/\D/', '', (string)$value);
-}
-
-function ck_columns($pdo, $table) {
-    $stmt = $pdo->query("SHOW COLUMNS FROM `" . $table . "`");
-    return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'Field');
-}
-
-function ck_field(&$data, $columns, $names, $value) {
+function cod_field(&$data, $columns, $names, $value) {
     foreach ($names as $name) {
-        if (in_array($name, $columns, true)) {
+        if (isset($columns[$name])) {
             $data[$name] = $value;
             return;
         }
     }
 }
 
-function ck_insert($pdo, $table, $data) {
-    if (!$data) throw new Exception('Thiếu dữ liệu lưu đơn');
+// Chon gia tri hop le cua cot ENUM trong MySQL.
+function cod_enum_value($columns, $field, $preferred) {
+    if (!isset($columns[$field])) {
+        return null;
+    }
 
-    $fields = array_keys($data);
-    foreach ($fields as $field) {
-        if (!preg_match('/^[a-zA-Z0-9_]+$/', $field)) {
-            throw new Exception('Tên cột không hợp lệ');
+    $type = $columns[$field]['Type'];
+
+    if (!preg_match('/^enum\((.*)\)$/is', $type, $m)) {
+        return $preferred[0];
+    }
+
+    preg_match_all(
+        "/'((?:[^'\\\\]|\\\\.)*)'/",
+        $m[1],
+        $matches
+    );
+
+    $allowed = array_map(
+        'stripcslashes',
+        $matches[1]
+    );
+
+    foreach ($preferred as $value) {
+        if (in_array($value, $allowed, true)) {
+            return $value;
         }
     }
 
-    $cols = '`' . implode('`,`', $fields) . '`';
-    $holders = implode(',', array_fill(0, count($fields), '?'));
-
-    $stmt = $pdo->prepare(
-        "INSERT INTO `$table` ($cols) VALUES ($holders)"
+    throw new RuntimeException(
+        "Cột $field chưa có trạng thái phù hợp."
     );
+}
+
+function cod_insert(PDO $pdo, $table, $data) {
+    if (!$data) {
+        throw new RuntimeException('Thiếu dữ liệu đơn hàng.');
+    }
+
+    $columns = array_keys($data);
+
+    foreach ($columns as $column) {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
+            throw new RuntimeException('Tên cột không hợp lệ.');
+        }
+    }
+
+    $fields = '`' . implode('`,`', $columns) . '`';
+
+    $placeholders = implode(
+        ',',
+        array_fill(0, count($columns), '?')
+    );
+
+    $sql = "INSERT INTO `$table` ($fields)
+            VALUES ($placeholders)";
+
+    $stmt = $pdo->prepare($sql);
     $stmt->execute(array_values($data));
 
     return (int)$pdo->lastInsertId();
 }
 
-function ck_cart() {
+function cod_cart() {
     $cart = $_SESSION['cart'] ?? [];
-    if (!is_array($cart)) return [];
+
+    if (!is_array($cart)) {
+        return [];
+    }
 
     $items = [];
-    foreach ($cart as $key => $row) {
-        if (!is_array($row)) continue;
 
-        $qty = max(1, (int)($row['quantity'] ?? $row['qty'] ?? 1));
-        $price = (float)($row['price'] ?? $row['sale_price'] ?? $row['unit_price'] ?? 0);
+    foreach ($cart as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $qty = max(
+            1,
+            (int)($row['quantity'] ?? $row['qty'] ?? 1)
+        );
+
+        $price = (float)(
+            $row['price']
+            ?? $row['sale_price']
+            ?? $row['unit_price']
+            ?? 0
+        );
 
         $items[] = [
-            'id' => (int)($row['product_id'] ?? $row['id'] ?? 0),
-            'name' => (string)($row['name'] ?? $row['product_name'] ?? 'Sản phẩm'),
-            'size' => (string)($row['size'] ?? $row['variant'] ?? ''),
-            'image' => (string)($row['image'] ?? $row['thumbnail'] ?? ''),
+            'id' => (int)(
+                $row['product_id']
+                ?? $row['id']
+                ?? 0
+            ),
+            'name' => (string)(
+                $row['name']
+                ?? $row['product_name']
+                ?? 'Sản phẩm'
+            ),
+            'size' => (string)(
+                $row['size']
+                ?? $row['variant']
+                ?? ''
+            ),
             'qty' => $qty,
             'price' => $price,
             'total' => $price * $qty
         ];
     }
+
     return $items;
 }
 
-$items = ck_cart();
+$items = cod_cart();
 $total = array_sum(array_column($items, 'total'));
 
-if (empty($_SESSION['checkout_order_code'])) {
-    $_SESSION['checkout_order_code'] =
-        'DH' . date('ymdHis') . random_int(100,999);
+if (empty($_SESSION['cod_order_code'])) {
+    $_SESSION['cod_order_code'] =
+        'DH' . date('ymd') . strtoupper(
+            bin2hex(random_bytes(3))
+        );
 }
 
-$orderCode = $_SESSION['checkout_order_code'];
-$success = $_SESSION['checkout_success'] ?? null;
-
-if ($success) {
-    unset($_SESSION['checkout_success']);
-}
+$orderCode = $_SESSION['cod_order_code'];
 
 $user = $_SESSION['user'] ?? [];
 $error = '';
+$success = null;
+
+if (
+    isset($_GET['success']) &&
+    !empty($_SESSION['cod_success'])
+) {
+    $success = $_SESSION['cod_success'];
+    unset($_SESSION['cod_success']);
+}
 
 $old = [
-    'fullname' => $_POST['fullname'] ?? ($user['fullname'] ?? ''),
-    'phone' => $_POST['phone'] ?? ($user['phone'] ?? ''),
-    'email' => $_POST['email'] ?? ($user['email'] ?? ''),
-    'address' => $_POST['address'] ?? ($user['address'] ?? ''),
-    'note' => $_POST['note'] ?? '',
-    'payment_method' => $_POST['payment_method'] ?? 'cod'
+    'fullname' => $_POST['fullname']
+        ?? ($user['fullname'] ?? ''),
+    'phone' => $_POST['phone']
+        ?? ($user['phone'] ?? ''),
+    'email' => $_POST['email']
+        ?? ($user['email'] ?? ''),
+    'address' => $_POST['address']
+        ?? ($user['address'] ?? ''),
+    'note' => $_POST['note'] ?? ''
 ];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
-
-    $name = trim($old['fullname']);
-    $phone = ck_phone($old['phone']);
-    $email = trim($old['email']);
-    $address = trim($old['address']);
-    $note = trim($old['note']);
-    $method = $old['payment_method'];
-
-    $transfer = 'SHOP ' . $orderCode . ' ' .
-        ck_name($name) . ' ' . $phone;
+// Tao don hang COD
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    && isset($_POST['place_order'])
+) {
+    $name = trim((string)$old['fullname']);
+    $phone = cod_phone($old['phone']);
+    $email = trim((string)$old['email']);
+    $address = trim((string)$old['address']);
+    $note = trim((string)$old['note']);
 
     if (!$items) {
         $error = 'Giỏ hàng đang trống.';
-    } elseif (!$name || strlen($phone) < 9 || !$address) {
-        $error = 'Vui lòng nhập đúng họ tên, số điện thoại và địa chỉ.';
-    } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = 'Email không hợp lệ.';
-    } elseif (!in_array($method, ['cod','qr'], true)) {
-        $error = 'Phương thức thanh toán không hợp lệ.';
+    } elseif (
+        $name === '' ||
+        strlen($phone) < 9 ||
+        $address === ''
+    ) {
+        $error =
+            'Vui lòng nhập đầy đủ họ tên, số điện thoại và địa chỉ.';
+    } elseif (
+        $email !== '' &&
+        !filter_var($email, FILTER_VALIDATE_EMAIL)
+    ) {
+        $error = 'Địa chỉ email không hợp lệ.';
     } else {
         try {
             $pdo->beginTransaction();
 
-            $columns = ck_columns($pdo, 'orders');
+            $columns = cod_columns($pdo, 'orders');
             $data = [];
 
-            ck_field($data,$columns,['order_code','code','order_no'],$orderCode);
-            ck_field($data,$columns,['user_id','customer_id'],(int)($_SESSION['user_id'] ?? 0) ?: null);
-            ck_field($data,$columns,['customer_name','fullname','full_name','name'],$name);
-            ck_field($data,$columns,['phone','phone_number','mobile'],$phone);
-            ck_field($data,$columns,['email'],$email);
-            ck_field($data,$columns,['address','shipping_address'],$address);
+            cod_field(
+                $data, $columns,
+                ['order_code','code','order_no'],
+                $orderCode
+            );
 
-            $fullNote = $note;
-            if ($method === 'qr') {
-                $fullNote .= "\n[CHỜ THANH TOÁN CHUYỂN KHOẢN]";
-                $fullNote .= "\nNội dung: " . $transfer;
+            $userId = (int)(
+                $_SESSION['user_id']
+                ?? ($user['id'] ?? 0)
+            );
+
+            cod_field(
+                $data, $columns,
+                ['user_id','customer_id'],
+                $userId ?: null
+            );
+
+            cod_field(
+                $data, $columns,
+                ['customer_name','fullname','full_name','name'],
+                $name
+            );
+
+            cod_field(
+                $data, $columns,
+                ['phone','phone_number','mobile'],
+                $phone
+            );
+
+            cod_field(
+                $data, $columns,
+                ['email'],
+                $email
+            );
+
+            cod_field(
+                $data, $columns,
+                ['address','shipping_address'],
+                $address
+            );
+
+            cod_field(
+                $data, $columns,
+                ['note','notes','message'],
+                $note
+            );
+
+            cod_field(
+                $data, $columns,
+                ['subtotal'],
+                $total
+            );
+
+            cod_field(
+                $data, $columns,
+                ['shipping_fee','shipping'],
+                0
+            );
+
+            cod_field(
+                $data, $columns,
+                ['total_amount','total','grand_total'],
+                $total
+            );
+
+            // Chi thanh toan khi nhan hang.
+            $methodColumn = null;
+
+            foreach (['payment_method'] as $candidate) {
+                if (isset($columns[$candidate])) {
+                    $methodColumn = $candidate;
+                    break;
+                }
             }
 
-            ck_field($data,$columns,['note','notes','message'],trim($fullNote));
-            ck_field($data,$columns,['subtotal'],$total);
-            ck_field($data,$columns,['shipping_fee','shipping'],0);
-            ck_field($data,$columns,['total_amount','total','grand_total'],$total);
-            ck_field($data,$columns,['payment_method'],$method);
-            ck_field($data,$columns,['payment_status'],'pending');
-            ck_field($data,$columns,['status'],'pending');
-            ck_field($data,$columns,['transfer_content'],$transfer);
-            ck_field($data,$columns,['created_at'],date('Y-m-d H:i:s'));
+            if ($methodColumn !== null) {
+                $data[$methodColumn] = cod_enum_value(
+                    $columns,
+                    $methodColumn,
+                    [
+                        'cod',
+                        'COD',
+                        'cash',
+                        'Cash',
+                        'Thanh toán khi nhận hàng'
+                    ]
+                );
+            }
 
-            $orderId = ck_insert($pdo,'orders',$data);
+            // Trang thai thanh toan: chua thu tien.
+            if (isset($columns['payment_status'])) {
+                $data['payment_status'] = cod_enum_value(
+                    $columns,
+                    'payment_status',
+                    [
+                        'pending',
+                        'unpaid',
+                        'Chưa thanh toán',
+                        'Chờ thanh toán',
+                        'Chờ xác nhận',
+                        'Pending'
+                    ]
+                );
+            }
 
-            $itemColumns = ck_columns($pdo,'order_items');
+            // Trang thai don hang tu dong chon tu ENUM.
+            if (isset($columns['status'])) {
+                $data['status'] = cod_enum_value(
+                    $columns,
+                    'status',
+                    [
+                        'Chờ xác nhận',
+                        'Chờ xử lý',
+                        'Chờ duyệt',
+                        'pending',
+                        'Pending',
+                        'Mới',
+                        'new',
+                        'Đang xử lý'
+                    ]
+                );
+            }
+
+            cod_field(
+                $data, $columns,
+                ['created_at'],
+                date('Y-m-d H:i:s')
+            );
+
+            $orderId = cod_insert(
+                $pdo,
+                'orders',
+                $data
+            );
+
+            // Luu san pham cua don hang
+            $itemColumns = cod_columns(
+                $pdo,
+                'order_items'
+            );
 
             foreach ($items as $item) {
-                $d = [];
-                ck_field($d,$itemColumns,['order_id'],$orderId);
-                ck_field($d,$itemColumns,['product_id','item_id'],$item['id']);
-                ck_field($d,$itemColumns,['product_name','name','item_name'],$item['name']);
-                ck_field($d,$itemColumns,['size','variant'],$item['size']);
-                ck_field($d,$itemColumns,['price','unit_price'],$item['price']);
-                ck_field($d,$itemColumns,['quantity','qty'],$item['qty']);
-                ck_field($d,$itemColumns,['subtotal','line_total','total'],$item['total']);
-                ck_insert($pdo,'order_items',$d);
+                $detail = [];
+
+                cod_field(
+                    $detail, $itemColumns,
+                    ['order_id'],
+                    $orderId
+                );
+
+                cod_field(
+                    $detail, $itemColumns,
+                    ['product_id','item_id'],
+                    $item['id']
+                );
+
+                cod_field(
+                    $detail, $itemColumns,
+                    ['product_name','name','item_name'],
+                    $item['name']
+                );
+
+                cod_field(
+                    $detail, $itemColumns,
+                    ['size','variant'],
+                    $item['size']
+                );
+
+                cod_field(
+                    $detail, $itemColumns,
+                    ['price','unit_price'],
+                    $item['price']
+                );
+
+                cod_field(
+                    $detail, $itemColumns,
+                    ['quantity','qty'],
+                    $item['qty']
+                );
+
+                cod_field(
+                    $detail, $itemColumns,
+                    ['subtotal','line_total','total'],
+                    $item['total']
+                );
+
+                cod_insert(
+                    $pdo,
+                    'order_items',
+                    $detail
+                );
             }
 
             $pdo->commit();
 
-            $_SESSION['checkout_success'] = [
-                'id' => $orderId,
+            // Chi xoa gio hang khi da luu thanh cong
+            $_SESSION['cart'] = [];
+            $_SESSION['cart_count'] = 0;
+
+            $_SESSION['cod_success'] = [
                 'code' => $orderCode,
                 'name' => $name,
                 'phone' => $phone,
                 'address' => $address,
                 'total' => $total,
-                'method' => $method,
-                'transfer' => $transfer
+                'items' => $items
             ];
 
-            // Chi xoa gio sau khi database luu thanh cong
-            $_SESSION['cart'] = [];
-            $_SESSION['cart_count'] = 0;
-            unset($_SESSION['checkout_order_code']);
+            unset($_SESSION['cod_order_code']);
 
-            header('Location: ' . $base . 'shop/checkout.php?success=1');
+            header(
+                'Location: ' .
+                $base .
+                'shop/checkout.php?success=1',
+                true,
+                303
+            );
             exit;
 
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            error_log('Checkout: ' . $e->getMessage());
-            $error = 'Không thể tạo đơn hàng. Vui lòng thử lại.';
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log(
+                'COD Checkout: ' . $e->getMessage()
+            );
+
+            $error =
+                'Không thể tạo đơn hàng. Vui lòng thử lại.';
         }
     }
 }
@@ -224,397 +477,482 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-.vnn-checkout {
-    padding: 40px 16px 70px;
-    background: #f8fafc;
-    min-height: 65vh;
+.cod-page {
+    background:#f8fafc;
+    padding:40px 15px 70px;
+    min-height:70vh;
 }
-.vnn-wrap {max-width:1160px;margin:auto}
-.vnn-heading {
-    text-align:center;color:#14532d;
-    font-size:28px;margin-bottom:28px
+
+.cod-container {
+    max-width:1160px;
+    margin:0 auto;
 }
-.vnn-grid {display:grid;grid-template-columns:1.1fr .9fr;gap:25px}
-.vnn-card {
-    background:white;padding:25px;border-radius:16px;
-    box-shadow:0 5px 22px #0000000d
+
+.cod-title {
+    color:#14532d;
+    text-align:center;
+    font-size:29px;
+    font-weight:800;
+    margin-bottom:30px;
 }
-.vnn-card h3 {font-size:19px;margin:0 0 18px}
-.vnn-group {margin-bottom:16px}
-.vnn-group label {display:block;font-weight:700;margin-bottom:7px}
-.vnn-group input,.vnn-group textarea {
-    width:100%;padding:12px;border:1px solid #d8e0ea;
-    border-radius:9px;box-sizing:border-box;font:inherit
+
+.cod-grid {
+    display:grid;
+    grid-template-columns:1.1fr .9fr;
+    gap:24px;
 }
-.vnn-group textarea {min-height:95px}
-.vnn-two {display:grid;grid-template-columns:1fr 1fr;gap:15px}
-.vnn-method {
-    display:block;margin:12px 0;padding:17px;
-    border:1px solid #dae2ea;border-radius:12px;
-    cursor:pointer;background:#fff
+
+.cod-card {
+    background:white;
+    padding:26px;
+    border-radius:17px;
+    box-shadow:0 5px 22px rgba(0,0,0,.06);
 }
-.vnn-method:has(input:checked) {
-    border-color:#16a34a;background:#f0fdf4
+
+.cod-card h3 {
+    font-size:19px;
+    font-weight:800;
+    color:#0f172a;
+    margin:0 0 22px;
 }
-.vnn-method strong {margin-left:8px}
-.vnn-method p {
-    color:#64748b;font-size:14px;
-    line-height:1.6;margin:10px 0 0
+
+.cod-field {
+    margin-bottom:18px;
 }
-.vnn-qr {
-    display:none;background:#fff7fb;
-    border:2px dashed #f9a8d4;padding:20px;
-    border-radius:15px;margin-top:18px
+
+.cod-field label {
+    display:block;
+    font-weight:700;
+    color:#0f172a;
+    margin-bottom:9px;
 }
-.vnn-qr.show {display:block}
-.vnn-qr-inner {
-    display:grid;grid-template-columns:230px 1fr;
-    align-items:start;gap:20px
+
+.cod-field input,
+.cod-field textarea {
+    width:100%;
+    border:1px solid #d7e0eb;
+    border-radius:10px;
+    padding:13px 15px;
+    font:inherit;
+    box-sizing:border-box;
+    outline:none;
 }
-.vnn-qr img {
-    width:100%;height:auto;border-radius:12px;
-    background:white
+
+.cod-field input:focus,
+.cod-field textarea:focus {
+    border-color:#16a34a;
+    box-shadow:0 0 0 3px rgba(22,163,74,.08);
 }
-.vnn-transfer {
-    padding:15px;background:white;
-    border:1px solid #e5e7eb;border-radius:12px
+
+.cod-field textarea {
+    min-height:110px;
+    resize:vertical;
 }
-.vnn-transfer-code {
-    font-weight:800;color:#c2410c;
-    background:#fff7ed;border:1px solid #fed7aa;
-    border-radius:8px;padding:12px;
-    overflow-wrap:anywhere;margin:12px 0
+
+.cod-two {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
 }
-.vnn-copy {
-    background:#14532d;color:white;border:0;
-    border-radius:8px;padding:10px 15px;cursor:pointer
+
+.cod-payment {
+    background:#f0fdf4;
+    border:1px solid #86efac;
+    border-radius:12px;
+    padding:19px;
+    margin-top:15px;
 }
-.vnn-item {
-    padding:12px 0;border-bottom:1px solid #e5e7eb
+
+.cod-payment strong {
+    color:#14532d;
+    font-size:17px;
 }
-.vnn-row {
-    display:flex;justify-content:space-between;
-    gap:12px;margin:12px 0
+
+.cod-payment p {
+    color:#475569;
+    font-size:14px;
+    line-height:1.7;
+    margin:10px 0 0;
 }
-.vnn-total {
-    color:#ea580c;font-size:21px;
-    font-weight:800;border-top:1px solid #ddd;
-    padding-top:16px
+
+.cod-item {
+    padding:15px 0;
+    border-bottom:1px solid #e5e7eb;
 }
-.vnn-submit {
-    display:block;width:100%;background:#f97316;
-    border:0;border-radius:12px;color:white;
-    font-weight:800;font-size:17px;
-    padding:15px;cursor:pointer;margin-top:22px
+
+.cod-item-name {
+    color:#0f172a;
+    font-weight:800;
+    margin-bottom:7px;
 }
-.vnn-alert {padding:17px;border-radius:10px;margin-bottom:20px}
-.vnn-error {background:#fee2e2;color:#b91c1c}
-.vnn-ok {background:#dcfce7;color:#166534}
-.vnn-success {max-width:850px;margin:auto}
-.vnn-details {display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.vnn-detail {
-    background:#f8fafc;border-radius:10px;padding:14px;
-    overflow-wrap:anywhere
+
+.cod-item-meta {
+    color:#64748b;
+    font-size:14px;
+    margin-bottom:8px;
 }
-.vnn-note {font-size:14px;color:#64748b;line-height:1.7}
+
+.cod-row {
+    display:flex;
+    justify-content:space-between;
+    gap:15px;
+    margin:13px 0;
+}
+
+.cod-total {
+    border-top:1px solid #e5e7eb;
+    padding-top:17px;
+    color:#ea580c;
+    font-size:21px;
+    font-weight:900;
+}
+
+.cod-submit {
+    width:100%;
+    padding:16px;
+    border:0;
+    border-radius:12px;
+    color:#fff;
+    background:#ea580c;
+    font-weight:800;
+    font-size:17px;
+    cursor:pointer;
+    margin-top:20px;
+}
+
+.cod-submit:disabled {
+    opacity:.6;
+    cursor:wait;
+}
+
+.cod-error {
+    background:#fee2e2;
+    color:#b91c1c;
+    padding:17px;
+    border-radius:11px;
+    margin-bottom:20px;
+}
+
+.cod-success {
+    max-width:800px;
+    margin:auto;
+}
+
+.cod-success-icon {
+    font-size:50px;
+    color:#16a34a;
+    text-align:center;
+}
+
+.cod-success h2 {
+    text-align:center;
+    color:#14532d;
+    margin:15px 0;
+}
+
+.cod-success-note {
+    background:#dcfce7;
+    color:#166534;
+    padding:18px;
+    border-radius:12px;
+    text-align:center;
+    line-height:1.8;
+    margin:22px 0;
+}
+
+.cod-info {
+    background:#f8fafc;
+    padding:20px;
+    border-radius:12px;
+}
+
+.cod-link {
+    display:inline-block;
+    background:#14532d;
+    color:white;
+    text-decoration:none;
+    padding:13px 20px;
+    border-radius:10px;
+    margin-top:20px;
+    font-weight:700;
+}
+
 @media(max-width:850px) {
-    .vnn-grid,.vnn-qr-inner,.vnn-two,.vnn-details {
-        grid-template-columns:1fr
+    .cod-grid {
+        grid-template-columns:1fr;
+    }
+
+    .cod-two {
+        grid-template-columns:1fr;
+    }
+
+    .cod-card {
+        padding:20px;
     }
 }
 </style>
 
-<div class="vnn-checkout">
-<div class="vnn-wrap">
+<section class="cod-page">
+<div class="cod-container">
 
-<h1 class="vnn-heading">THANH TOÁN ĐƠN HÀNG</h1>
+<h1 class="cod-title">THANH TOÁN ĐƠN HÀNG</h1>
 
 <?php if ($success): ?>
 
-<div class="vnn-card vnn-success">
+<div class="cod-card cod-success">
 
-    <div class="vnn-alert vnn-ok">
-        <strong>Đặt hàng thành công!</strong>
-        Đơn hàng của bạn đã được lưu vào hệ thống.
+    <div class="cod-success-icon">
+        <i class="fa-solid fa-circle-check"></i>
     </div>
 
-    <div class="vnn-details">
-        <div class="vnn-detail">
-            <small>Mã đơn hàng</small>
-            <h3><?= ck_h($success['code']) ?></h3>
-        </div>
-        <div class="vnn-detail">
-            <small>Khách hàng</small>
-            <h3><?= ck_h($success['name']) ?></h3>
-        </div>
-        <div class="vnn-detail">
-            <small>Số điện thoại</small>
-            <h3><?= ck_h($success['phone']) ?></h3>
-        </div>
-        <div class="vnn-detail">
-            <small>Tổng tiền</small>
-            <h3><?= ck_money($success['total']) ?></h3>
-        </div>
+    <h2>ĐẶT HÀNG THÀNH CÔNG!</h2>
+
+    <div class="cod-success-note">
+        Đơn hàng của bạn đã được ghi nhận thành công.
+        Nhân viên VNN Travel sẽ liên hệ để xác nhận
+        và giao hàng trong thời gian sớm nhất.
     </div>
 
-    <?php if ($success['method'] === 'qr'): ?>
+    <div class="cod-info">
 
-    <h3 style="margin-top:25px">
-        Thanh toán bằng hình thức chuyển khoản
-    </h3>
-
-    <div class="vnn-qr show">
-        <div class="vnn-qr-inner">
-
-            <img src="<?= ck_h($qrImage) ?>"
-                 alt="Mã QR thanh toán">
-
-            <div class="vnn-transfer">
-                <p><strong>Số tiền cần chuyển</strong></p>
-                <h3 style="color:#ea580c">
-                    <?= ck_money($success['total']) ?>
-                </h3>
-
-                <p><strong>Nội dung chuyển khoản bắt buộc</strong></p>
-
-                <div class="vnn-transfer-code" id="transfer-success">
-                    <?= ck_h($success['transfer']) ?>
-                </div>
-
-                <button type="button" class="vnn-copy"
-                    onclick="copyTransfer('transfer-success')">
-                    Sao chép nội dung
-                </button>
-
-                <p class="vnn-note">
-                    Vui lòng chuyển đúng số tiền và nội dung.
-                    Đơn hàng hiện đang chờ thanh toán.
-                    Quản lý sẽ kiểm tra giao dịch và xác nhận thủ công.
-                </p>
-            </div>
+        <div class="cod-row">
+            <span>Mã đơn hàng</span>
+            <strong><?= cod_h($success['code']) ?></strong>
         </div>
+
+        <div class="cod-row">
+            <span>Khách hàng</span>
+            <strong><?= cod_h($success['name']) ?></strong>
+        </div>
+
+        <div class="cod-row">
+            <span>Số điện thoại</span>
+            <strong><?= cod_h($success['phone']) ?></strong>
+        </div>
+
+        <div class="cod-row">
+            <span>Địa chỉ giao hàng</span>
+            <strong><?= cod_h($success['address']) ?></strong>
+        </div>
+
+        <div class="cod-row">
+            <span>Phương thức thanh toán</span>
+            <strong>Thanh toán khi nhận hàng (COD)</strong>
+        </div>
+
+        <div class="cod-row cod-total">
+            <span>Tổng tiền cần thanh toán</span>
+            <strong><?= cod_money($success['total']) ?></strong>
+        </div>
+
     </div>
 
-    <?php else: ?>
-
-    <p class="vnn-note" style="margin-top:22px">
-        Phương thức: Thanh toán khi nhận hàng (COD).
-        Nhân viên sẽ liên hệ xác nhận đơn hàng.
+    <p style="margin-top:20px;color:#64748b">
+        Bạn chỉ thanh toán khi nhận được hàng.
+        Giỏ hàng đã được xóa sau khi lưu đơn thành công.
     </p>
 
-    <?php endif; ?>
-
-    <div style="margin-top:25px">
-        <a href="<?= $base ?>shop/shop.php" class="vnn-copy"
-           style="text-decoration:none;display:inline-block">
-            Tiếp tục mua hàng
+    <div style="text-align:center">
+        <a href="<?= cod_h($base) ?>index.php"
+           class="cod-link">
+            Về trang chủ
         </a>
     </div>
+
 </div>
 
 <?php elseif (!$items): ?>
 
-<div class="vnn-card" style="text-align:center">
+<div class="cod-card" style="text-align:center">
     <h3>Giỏ hàng đang trống</h3>
-    <a href="<?= $base ?>shop/shop.php">Quay lại cửa hàng</a>
+
+    <p>Bạn chưa có sản phẩm nào để thanh toán.</p>
+
+    <a href="<?= cod_h($base) ?>index.php"
+       class="cod-link">
+        Tiếp tục mua hàng
+    </a>
 </div>
 
 <?php else: ?>
 
 <?php if ($error): ?>
-<div class="vnn-alert vnn-error"><?= ck_h($error) ?></div>
+<div class="cod-error">
+    <i class="fa-solid fa-circle-exclamation"></i>
+    <?= cod_h($error) ?>
+</div>
 <?php endif; ?>
 
-<form method="POST" id="checkout-form">
+<form method="POST" id="cod-form">
+
 <input type="hidden" name="place_order" value="1">
 
-<div class="vnn-grid">
-<div class="vnn-card">
+<div class="cod-grid">
 
-    <h3>Thông tin giao hàng</h3>
+    <div class="cod-card">
 
-    <div class="vnn-group">
-        <label>Họ và tên *</label>
-        <input name="fullname" id="ck-name" required
-               value="<?= ck_h($old['fullname']) ?>">
-    </div>
+        <h3>
+            <i class="fa-solid fa-truck"></i>
+            Thông tin giao hàng
+        </h3>
 
-    <div class="vnn-two">
-        <div class="vnn-group">
-            <label>Số điện thoại *</label>
-            <input name="phone" id="ck-phone" required
-                   inputmode="tel"
-                   value="<?= ck_h($old['phone']) ?>">
+        <div class="cod-field">
+            <label>Họ và tên *</label>
+
+            <input type="text"
+                   name="fullname"
+                   value="<?= cod_h($old['fullname']) ?>"
+                   required>
         </div>
 
-        <div class="vnn-group">
-            <label>Email</label>
-            <input type="email" name="email"
-                   value="<?= ck_h($old['email']) ?>">
-        </div>
-    </div>
+        <div class="cod-two">
 
-    <div class="vnn-group">
-        <label>Địa chỉ giao hàng *</label>
-        <input name="address" required
-               value="<?= ck_h($old['address']) ?>">
-    </div>
+            <div class="cod-field">
+                <label>Số điện thoại *</label>
 
-    <div class="vnn-group">
-        <label>Ghi chú</label>
-        <textarea name="note"><?= ck_h($old['note']) ?></textarea>
-    </div>
+                <input type="tel"
+                       name="phone"
+                       value="<?= cod_h($old['phone']) ?>"
+                       required>
+            </div>
 
-    <h3>Phương thức thanh toán</h3>
+            <div class="cod-field">
+                <label>Email</label>
 
-    <label class="vnn-method">
-        <input type="radio" name="payment_method" value="cod"
-               <?= $old['payment_method']==='cod' ? 'checked' : '' ?>>
-        <strong>Thanh toán khi nhận hàng (COD)</strong>
-        <p>Thanh toán trực tiếp khi nhận sản phẩm.</p>
-    </label>
-
-    <label class="vnn-method">
-        <input type="radio" name="payment_method" value="qr"
-               <?= $old['payment_method']==='qr' ? 'checked' : '' ?>>
-        <strong>Thanh toán bằng hình thức chuyển khoản</strong>
-        <p>Quét mã QR và nhập đúng nội dung chuyển khoản.</p>
-    </label>
-
-    <div id="qr-panel" class="vnn-qr">
-        <div class="vnn-qr-inner">
-
-            <img src="<?= ck_h($qrImage) ?>"
-                 alt="QR thanh toán">
-
-            <div class="vnn-transfer">
-                <strong>Nội dung chuyển khoản</strong>
-                <p class="vnn-note">
-                    Cú pháp: SHOP + Mã đơn + Tên khách + SĐT đầy đủ
-                </p>
-
-                <div class="vnn-transfer-code" id="transfer-preview"></div>
-
-                <button type="button" class="vnn-copy"
-                    onclick="copyTransfer('transfer-preview')">
-                    Sao chép nội dung
-                </button>
-
-                <p class="vnn-note">
-                    Số tiền: <strong><?= ck_money($total) ?></strong>
-                </p>
+                <input type="email"
+                       name="email"
+                       value="<?= cod_h($old['email']) ?>">
             </div>
 
         </div>
-    </div>
 
-</div>
+        <div class="cod-field">
+            <label>Địa chỉ giao hàng *</label>
 
-<div class="vnn-card">
-    <h3>Đơn hàng của bạn</h3>
-
-    <?php foreach ($items as $item): ?>
-    <div class="vnn-item">
-        <strong><?= ck_h($item['name']) ?></strong>
-
-        <?php if ($item['size']): ?>
-            <div>Phân loại: <?= ck_h($item['size']) ?></div>
-        <?php endif; ?>
-
-        <div class="vnn-row">
-            <span><?= (int)$item['qty'] ?> × <?= ck_money($item['price']) ?></span>
-            <strong><?= ck_money($item['total']) ?></strong>
+            <input type="text"
+                   name="address"
+                   value="<?= cod_h($old['address']) ?>"
+                   required>
         </div>
+
+        <div class="cod-field">
+            <label>Ghi chú đơn hàng</label>
+
+            <textarea name="note"><?= cod_h($old['note']) ?></textarea>
+        </div>
+
+        <h3>Phương thức thanh toán</h3>
+
+        <div class="cod-payment">
+
+            <strong>
+                <i class="fa-solid fa-money-bill-wave"></i>
+                Thanh toán khi nhận hàng (COD)
+            </strong>
+
+            <p>
+                Bạn không cần chuyển khoản trước.
+                Khi nhân viên giao sản phẩm đến địa chỉ
+                đã đăng ký, bạn kiểm tra và thanh toán
+                trực tiếp khi nhận hàng.
+            </p>
+
+        </div>
+
     </div>
-    <?php endforeach; ?>
 
-    <div class="vnn-row">
-        <span>Tạm tính</span>
-        <strong><?= ck_money($total) ?></strong>
+    <div class="cod-card">
+
+        <h3>
+            <i class="fa-solid fa-box"></i>
+            Đơn hàng của bạn
+        </h3>
+
+        <?php foreach ($items as $item): ?>
+
+        <div class="cod-item">
+
+            <div class="cod-item-name">
+                <?= cod_h($item['name']) ?>
+            </div>
+
+            <?php if ($item['size'] !== ''): ?>
+                <div class="cod-item-meta">
+                    Phân loại:
+                    <?= cod_h($item['size']) ?>
+                </div>
+            <?php endif; ?>
+
+            <div class="cod-row">
+                <span>
+                    <?= (int)$item['qty'] ?>
+                    ×
+                    <?= cod_money($item['price']) ?>
+                </span>
+
+                <strong>
+                    <?= cod_money($item['total']) ?>
+                </strong>
+            </div>
+
+        </div>
+
+        <?php endforeach; ?>
+
+        <div class="cod-row">
+            <span>Tạm tính</span>
+            <strong><?= cod_money($total) ?></strong>
+        </div>
+
+        <div class="cod-row">
+            <span>Phí giao hàng</span>
+            <strong>Miễn phí</strong>
+        </div>
+
+        <div class="cod-row cod-total">
+            <span>Tổng cộng</span>
+            <strong><?= cod_money($total) ?></strong>
+        </div>
+
+        <button type="submit"
+                class="cod-submit"
+                id="cod-submit">
+            <i class="fa-solid fa-check"></i>
+            XÁC NHẬN ĐẶT HÀNG
+        </button>
+
+        <p style="color:#64748b;font-size:13px;line-height:1.7">
+            Đơn hàng sẽ được gửi đến bộ phận quản lý.
+            Bạn chỉ thanh toán khi nhận hàng.
+        </p>
+
     </div>
 
-    <div class="vnn-row">
-        <span>Phí giao hàng</span>
-        <strong>Miễn phí</strong>
-    </div>
-
-    <div class="vnn-row vnn-total">
-        <span>Tổng cộng</span>
-        <span><?= ck_money($total) ?></span>
-    </div>
-
-    <button type="submit" class="vnn-submit" id="submit-order">
-        XÁC NHẬN ĐẶT HÀNG
-    </button>
-
-    <p class="vnn-note">
-        Đơn hàng chỉ được tạo khi bạn xác nhận.
-        Chuyển khoản sẽ được kiểm tra thủ công, không tự động
-        đánh dấu đã thanh toán.
-    </p>
-</div>
 </div>
 </form>
 
 <?php endif; ?>
 
 </div>
-</div>
+</section>
 
 <script>
-const ckOrderCode = <?= json_encode($orderCode) ?>;
+const codForm = document.getElementById('cod-form');
 
-function transferName(text) {
-    return (text || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/đ/g,'d')
-        .replace(/Đ/g,'D')
-        .toUpperCase()
-        .replace(/[^A-Z0-9]/g,'') || 'KHACHHANG';
+if (codForm) {
+    codForm.addEventListener('submit', function() {
+        if (!codForm.checkValidity()) return;
+
+        const button = document.getElementById('cod-submit');
+
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'ĐANG XỬ LÝ ĐƠN HÀNG...';
+        }
+    });
 }
-
-function updateCheckout() {
-    const panel = document.getElementById('qr-panel');
-    if (!panel) return;
-
-    const method = document.querySelector(
-        'input[name="payment_method"]:checked'
-    )?.value || 'cod';
-
-    panel.classList.toggle('show', method === 'qr');
-
-    const name = document.getElementById('ck-name')?.value || '';
-    const phone = (document.getElementById('ck-phone')?.value || '')
-        .replace(/\D/g,'');
-
-    document.getElementById('transfer-preview').textContent =
-        'SHOP ' + ckOrderCode + ' ' +
-        transferName(name) + ' ' + phone;
-}
-
-async function copyTransfer(id) {
-    const text = document.getElementById(id)?.textContent.trim();
-    if (!text) return;
-
-    try {
-        await navigator.clipboard.writeText(text);
-        alert('Đã sao chép nội dung chuyển khoản!');
-    } catch (e) {
-        window.prompt('Sao chép nội dung này:', text);
-    }
-}
-
-document.querySelectorAll('input[name="payment_method"]')
-    .forEach(el => el.addEventListener('change', updateCheckout));
-
-document.getElementById('ck-name')
-    ?.addEventListener('input', updateCheckout);
-
-document.getElementById('ck-phone')
-    ?.addEventListener('input', updateCheckout);
-
-updateCheckout();
 </script>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+require_once __DIR__ . '/../includes/footer.php';
+?>
