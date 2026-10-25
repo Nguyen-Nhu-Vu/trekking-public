@@ -1,7 +1,7 @@
 <?php
-// VNN TRAVEL - THANH TOAN COD
-// Aiven MySQL: orders + order_details
-// Popup dat hang thanh cong
+// VNN TRAVEL - THANH TOAN DON HANG
+// COD ONLY - AIVEN MYSQL
+// Popup thong bao dat hang thanh cong
 
 ob_start();
 
@@ -21,7 +21,7 @@ $base = rtrim(
 ) . '/';
 
 // ====================================
-// HAM HO TRO
+// CAC HAM HO TRO
 // ====================================
 
 function cod_h($value) {
@@ -53,9 +53,9 @@ function cod_log($message) {
     error_log('COD Checkout: ' . $message);
 }
 
-// Doc ENUM bang INFORMATION_SCHEMA.
-// Khong dung SHOW COLUMNS LIKE ?
-// vi cau lenh do gay loi SQL 1064.
+// Doc gia tri ENUM trong MySQL.
+// Su dung INFORMATION_SCHEMA de tranh loi SQL 1064.
+
 function cod_enum(PDO $pdo, $column, $choices) {
 
     $stmt = $pdo->prepare("
@@ -105,7 +105,7 @@ function cod_enum(PDO $pdo, $column, $choices) {
 }
 
 // ====================================
-// TAI KHOAN DANG NHAP
+// KIEM TRA TAI KHOAN
 // ====================================
 
 $userId = (int)($_SESSION['user_id'] ?? 0);
@@ -115,6 +115,7 @@ $success = null;
 
 if ($userId > 0) {
     try {
+
         $stmt = $pdo->prepare("
             SELECT id, fullname, phone, email
             FROM users
@@ -123,6 +124,7 @@ if ($userId > 0) {
         ");
 
         $stmt->execute([$userId]);
+
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$user) {
@@ -130,13 +132,15 @@ if ($userId > 0) {
         }
 
     } catch (Throwable $e) {
+
         cod_log('User: ' . $e->getMessage());
+
         $error = 'Không thể kiểm tra tài khoản.';
     }
 }
 
 // ====================================
-// GIO HANG
+// DOC GIO HANG
 // ====================================
 
 $items = [];
@@ -179,6 +183,7 @@ try {
             ");
 
             $stmt->execute([$id]);
+
             $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$product) {
@@ -219,11 +224,14 @@ try {
         : 'Không thể tải giỏ hàng.';
 }
 
+// ====================================
+// TINH TONG TIEN
+// ====================================
+
 $subtotal = array_sum(
     array_column($items, 'total')
 );
 
-// Mien phi giao hang tu 1 trieu.
 $shippingFee = (
     $subtotal > 0 &&
     $subtotal < 1000000
@@ -232,7 +240,7 @@ $shippingFee = (
 $total = $subtotal + $shippingFee;
 
 // ====================================
-// MA DON HANG / TOKEN
+// TOKEN VA MA DON HANG
 // ====================================
 
 if (empty($_SESSION['cod_token'])) {
@@ -250,7 +258,7 @@ if (empty($_SESSION['cod_order_code'])) {
 $orderCode = $_SESSION['cod_order_code'];
 
 // ====================================
-// DU LIEU FORM
+// THONG TIN KHACH HANG
 // ====================================
 
 $old = [
@@ -265,7 +273,7 @@ $old = [
 ];
 
 // ====================================
-// XAC NHAN DAT HANG
+// XU LY XAC NHAN DAT HANG
 // ====================================
 
 if (
@@ -301,7 +309,8 @@ if (
         (string)$old['notes']
     );
 
-    // Form cu da dat thanh cong.
+    // Kiem tra form da thanh cong truoc do.
+
     if (
         !empty($_SESSION['cod_completed']) &&
         $submittedCode !== '' &&
@@ -316,7 +325,7 @@ if (
 
     } elseif ($error !== '') {
 
-        // Giu nguyen loi.
+        // Giu thong bao loi truoc do.
 
     } elseif ($userId <= 0) {
 
@@ -355,14 +364,14 @@ if (
     ) {
 
         $error =
-            'Vui lòng nhập đủ thông tin giao hàng.';
+            'Vui lòng nhập đầy đủ thông tin giao hàng.';
 
     } elseif (
         $email !== '' &&
         !filter_var($email, FILTER_VALIDATE_EMAIL)
     ) {
 
-        $error = 'Email không hợp lệ.';
+        $error = 'Địa chỉ email không hợp lệ.';
 
     } else {
 
@@ -370,9 +379,11 @@ if (
 
             $pdo->beginTransaction();
 
-            // Kiem tra tai khoan.
+            // KIEM TRA TAI KHOAN
+
             $stmt = $pdo->prepare("
-                SELECT id FROM users
+                SELECT id
+                FROM users
                 WHERE id = ?
                 LIMIT 1
             ");
@@ -385,7 +396,8 @@ if (
                 );
             }
 
-            // Kiem tra ma don da ton tai.
+            // KIEM TRA MA DON HANG TRUNG
+
             $stmt = $pdo->prepare("
                 SELECT id
                 FROM orders
@@ -397,11 +409,12 @@ if (
 
             if ($stmt->fetchColumn()) {
                 throw new RuntimeException(
-                    'Yêu cầu này đã được ghi nhận. Vui lòng kiểm tra đơn hàng của bạn.'
+                    'Đơn hàng này đã được ghi nhận.'
                 );
             }
 
-            // Kiem tra san pham va ton kho.
+            // KIEM TRA SAN PHAM
+
             $verified = [];
             $verifiedSubtotal = 0;
 
@@ -415,6 +428,7 @@ if (
             foreach ($items as $item) {
 
                 $productStmt->execute([$item['id']]);
+
                 $product = $productStmt->fetch(PDO::FETCH_ASSOC);
 
                 if (
@@ -431,7 +445,7 @@ if (
                 ) {
                     throw new RuntimeException(
                         'Sản phẩm "' . $product['name'] .
-                        '" không đủ hàng trong kho.'
+                        '" không đủ số lượng trong kho.'
                     );
                 }
 
@@ -458,7 +472,8 @@ if (
             $verifiedTotal =
                 $verifiedSubtotal + $verifiedShipping;
 
-            // Lay dung gia tri ENUM MySQL.
+            // LAY GIA TRI ENUM HOP LE
+
             $orderStatus = cod_enum(
                 $pdo,
                 'status',
@@ -481,9 +496,9 @@ if (
                 ]
             );
 
-            // =================================
-            // TAO DON HANG
-            // =================================
+            // ====================================
+            // TAO DON HANG TRONG MYSQL
+            // ====================================
 
             $stmt = $pdo->prepare("
                 INSERT INTO orders
@@ -526,9 +541,9 @@ if (
                 );
             }
 
-            // =================================
-            // LUU CHI TIET DON HANG
-            // =================================
+            // ====================================
+            // LUU CHI TIET SAN PHAM
+            // ====================================
 
             $detailStmt = $pdo->prepare("
                 INSERT INTO order_details
@@ -553,15 +568,15 @@ if (
                 ]);
             }
 
-            // =================================
-            // TRU TON KHO
-            // =================================
+            // ====================================
+            // CAP NHAT TON KHO
+            // ====================================
 
             $stockStmt = $pdo->prepare("
                 UPDATE products
                 SET stock = stock - ?
                 WHERE id = ?
-                AND stock >= ?
+                  AND stock >= ?
             ");
 
             foreach ($verified as $item) {
@@ -579,12 +594,13 @@ if (
                 }
             }
 
-            // Hoan tat giao dich.
+            // LUU GIAO DICH
+
             $pdo->commit();
 
-            // =================================
-            // THONG BAO THANH CONG
-            // =================================
+            // ====================================
+            // KET QUA DAT HANG THANH CONG
+            // ====================================
 
             $success = [
                 'id' => $orderId,
@@ -602,7 +618,8 @@ if (
                 'order' => $success
             ];
 
-            // Xoa gio hang sau khi luu xong.
+            // CHI XOA GIO HANG KHI LUU THANH CONG
+
             $_SESSION['cart'] = [];
             $_SESSION['cart_count'] = 0;
 
@@ -757,6 +774,10 @@ require_once __DIR__ . '/../includes/header.php';
     cursor: pointer;
 }
 
+.cod-submit:hover {
+    background: #c2410c;
+}
+
 .cod-submit:disabled {
     opacity: .6;
 }
@@ -791,7 +812,9 @@ require_once __DIR__ . '/../includes/header.php';
     line-height: 1.8;
 }
 
-/* POPUP THANH CONG */
+/* =====================================
+   POPUP DAT HANG THANH CONG
+   ===================================== */
 
 .cod-overlay {
     position: fixed;
@@ -850,6 +873,10 @@ require_once __DIR__ . '/../includes/header.php';
     cursor: pointer;
 }
 
+.cod-close:hover {
+    background: #e2e8f0;
+}
+
 .cod-check {
     display: flex;
     align-items: center;
@@ -870,9 +897,10 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .cod-modal-desc {
-    color: #64748b;
-    line-height: 1.7;
-    margin-bottom: 20px;
+    color: #475569;
+    line-height: 1.8;
+    margin-bottom: 22px;
+    font-size: 15px;
 }
 
 .cod-order-box {
@@ -914,6 +942,10 @@ require_once __DIR__ . '/../includes/header.php';
     cursor: pointer;
 }
 
+.cod-modal-button:hover {
+    background: #166534;
+}
+
 body.cod-modal-open {
     overflow: hidden;
 }
@@ -947,263 +979,279 @@ body.cod-modal-open {
 
 <?php if ($success): ?>
 
-<!-- GIU TRANG NEN, POPUP TU DONG HIEN -->
+    <div class="cod-card cod-empty">
 
-<div class="cod-card cod-empty">
-
-    <h3 style="color:#14532d">
-        Đơn hàng đã được ghi nhận
-    </h3>
-
-    <p>
-        Mã đơn hàng:
-        <strong><?= cod_h($success['code']) ?></strong>
-    </p>
-
-    <p>
-        Cảm ơn bạn đã mua sắm tại VNN Travel.
-    </p>
-
-    <button type="button"
-            class="cod-submit"
-            onclick="openCodPopup()">
-        Xem thông báo đặt hàng
-    </button>
-
-    <a class="cod-link"
-       href="<?= cod_h($base) ?>shop/shop.php">
-        Tiếp tục mua sắm
-    </a>
-
-</div>
-
-<?php elseif ($userId <= 0): ?>
-
-<div class="cod-card cod-empty">
-
-    <h3>Vui lòng đăng nhập</h3>
-
-    <p>
-        Bạn cần đăng nhập để đặt hàng
-        và theo dõi lịch sử mua hàng.
-    </p>
-
-    <a class="cod-link"
-       href="<?= cod_h($base) ?>auth/login.php">
-        Đăng nhập
-    </a>
-
-</div>
-
-<?php elseif (!$items && $error === ''): ?>
-
-<div class="cod-card cod-empty">
-
-    <h3>Giỏ hàng đang trống</h3>
-
-    <a class="cod-link"
-       href="<?= cod_h($base) ?>shop/shop.php">
-        Tiếp tục mua sắm
-    </a>
-
-</div>
-
-<?php else: ?>
-
-<?php if ($error !== ''): ?>
-
-<div class="cod-error">
-    <i class="fa-solid fa-circle-exclamation"></i>
-    <?= cod_h($error) ?>
-</div>
-
-<?php endif; ?>
-
-<form method="POST" id="codForm">
-
-<input type="hidden"
-       name="place_order"
-       value="1">
-
-<input type="hidden"
-       name="cod_token"
-       value="<?= cod_h($_SESSION['cod_token']) ?>">
-
-<input type="hidden"
-       name="order_code"
-       value="<?= cod_h($orderCode) ?>">
-
-<div class="cod-grid">
-
-    <!-- THONG TIN GIAO HANG -->
-
-    <div class="cod-card">
-
-        <h3>
-            <i class="fa-solid fa-truck"></i>
-            Thông tin giao hàng
+        <h3 style="color:#14532d">
+            Đơn hàng đã được ghi nhận
         </h3>
 
-        <div class="cod-field">
+        <p>
+            Mã đơn hàng:
+            <strong><?= cod_h($success['code']) ?></strong>
+        </p>
 
-            <label>Họ và tên *</label>
+        <p>
+            Cảm ơn bạn đã mua sắm tại VNN Travel!
+        </p>
 
-            <input type="text"
-                   name="fullname"
-                   required
-                   value="<?= cod_h($old['fullname']) ?>">
-
-        </div>
-
-        <div class="cod-two">
-
-            <div class="cod-field">
-
-                <label>Số điện thoại *</label>
-
-                <input type="tel"
-                       name="phone"
-                       required
-                       value="<?= cod_h($old['phone']) ?>">
-
-            </div>
-
-            <div class="cod-field">
-
-                <label>Email</label>
-
-                <input type="email"
-                       name="email"
-                       value="<?= cod_h($old['email']) ?>">
-
-            </div>
-
-        </div>
-
-        <div class="cod-field">
-
-            <label>Địa chỉ giao hàng *</label>
-
-            <input type="text"
-                   name="address"
-                   required
-                   value="<?= cod_h($old['address']) ?>">
-
-        </div>
-
-        <div class="cod-field">
-
-            <label>Ghi chú đơn hàng</label>
-
-            <textarea name="notes"><?= cod_h($old['notes']) ?></textarea>
-
-        </div>
-
-        <h3>Phương thức thanh toán</h3>
-
-        <div class="cod-payment">
-
-            <strong>
-                <i class="fa-solid fa-money-bill-wave"></i>
-                Thanh toán khi nhận hàng (COD)
-            </strong>
-
-            <p>
-                Bạn không cần chuyển khoản trước.
-                Hãy thanh toán trực tiếp khi
-                nhận được sản phẩm.
-            </p>
-
-        </div>
-
-    </div>
-
-    <!-- THONG TIN DON HANG -->
-
-    <div class="cod-card">
-
-        <h3>
-            <i class="fa-solid fa-box"></i>
-            Đơn hàng của bạn
-        </h3>
-
-        <?php foreach ($items as $item): ?>
-
-        <div class="cod-item">
-
-            <div class="cod-item-name">
-                <?= cod_h($item['name']) ?>
-            </div>
-
-            <?php if ($item['size'] !== ''): ?>
-                <p class="cod-muted">
-                    Phân loại:
-                    <?= cod_h($item['size']) ?>
-                </p>
-            <?php endif; ?>
-
-            <div class="cod-row">
-
-                <span>
-                    <?= (int)$item['qty'] ?>
-                    × <?= cod_money($item['price']) ?>
-                </span>
-
-                <strong>
-                    <?= cod_money($item['total']) ?>
-                </strong>
-
-            </div>
-
-        </div>
-
-        <?php endforeach; ?>
-
-        <div class="cod-row">
-
-            <span>Tạm tính</span>
-            <strong><?= cod_money($subtotal) ?></strong>
-
-        </div>
-
-        <div class="cod-row">
-
-            <span>Phí giao hàng</span>
-
-            <strong>
-                <?= $shippingFee == 0
-                    ? 'Miễn phí'
-                    : cod_money($shippingFee) ?>
-            </strong>
-
-        </div>
-
-        <div class="cod-row cod-total">
-
-            <span>Tổng cộng</span>
-            <strong><?= cod_money($total) ?></strong>
-
-        </div>
-
-        <button type="submit"
+        <button type="button"
                 class="cod-submit"
-                id="codSubmit">
+                onclick="openCodPopup()">
 
-            <i class="fa-solid fa-check"></i>
-            XÁC NHẬN ĐẶT HÀNG
+            Xem thông báo đặt hàng
 
         </button>
 
-        <p class="cod-muted">
-            Đơn hàng sẽ được gửi đến bộ phận quản lý.
-            Bạn chỉ thanh toán khi nhận hàng.
-        </p>
+        <a class="cod-link"
+           href="<?= cod_h($base) ?>shop/shop.php">
+
+            Tiếp tục mua sắm
+
+        </a>
 
     </div>
 
-</div>
+<?php elseif ($userId <= 0): ?>
 
-</form>
+    <div class="cod-card cod-empty">
+
+        <h3>Vui lòng đăng nhập</h3>
+
+        <p>
+            Bạn cần đăng nhập để đặt hàng
+            và theo dõi lịch sử mua hàng.
+        </p>
+
+        <a class="cod-link"
+           href="<?= cod_h($base) ?>auth/login.php">
+
+            Đăng nhập
+
+        </a>
+
+    </div>
+
+<?php elseif (!$items && $error === ''): ?>
+
+    <div class="cod-card cod-empty">
+
+        <h3>Giỏ hàng đang trống</h3>
+
+        <a class="cod-link"
+           href="<?= cod_h($base) ?>shop/shop.php">
+
+            Tiếp tục mua sắm
+
+        </a>
+
+    </div>
+
+<?php else: ?>
+
+    <?php if ($error !== ''): ?>
+
+        <div class="cod-error">
+
+            <i class="fa-solid fa-circle-exclamation"></i>
+
+            <?= cod_h($error) ?>
+
+        </div>
+
+    <?php endif; ?>
+
+    <form method="POST" id="codForm">
+
+        <input type="hidden"
+               name="place_order"
+               value="1">
+
+        <input type="hidden"
+               name="cod_token"
+               value="<?= cod_h($_SESSION['cod_token']) ?>">
+
+        <input type="hidden"
+               name="order_code"
+               value="<?= cod_h($orderCode) ?>">
+
+        <div class="cod-grid">
+
+            <!-- THONG TIN GIAO HANG -->
+
+            <div class="cod-card">
+
+                <h3>
+                    <i class="fa-solid fa-truck"></i>
+                    Thông tin giao hàng
+                </h3>
+
+                <div class="cod-field">
+
+                    <label>Họ và tên *</label>
+
+                    <input type="text"
+                           name="fullname"
+                           required
+                           value="<?= cod_h($old['fullname']) ?>">
+
+                </div>
+
+                <div class="cod-two">
+
+                    <div class="cod-field">
+
+                        <label>Số điện thoại *</label>
+
+                        <input type="tel"
+                               name="phone"
+                               required
+                               value="<?= cod_h($old['phone']) ?>">
+
+                    </div>
+
+                    <div class="cod-field">
+
+                        <label>Email</label>
+
+                        <input type="email"
+                               name="email"
+                               value="<?= cod_h($old['email']) ?>">
+
+                    </div>
+
+                </div>
+
+                <div class="cod-field">
+
+                    <label>Địa chỉ giao hàng *</label>
+
+                    <input type="text"
+                           name="address"
+                           required
+                           value="<?= cod_h($old['address']) ?>">
+
+                </div>
+
+                <div class="cod-field">
+
+                    <label>Ghi chú đơn hàng</label>
+
+                    <textarea name="notes"><?= cod_h($old['notes']) ?></textarea>
+
+                </div>
+
+                <h3>Phương thức thanh toán</h3>
+
+                <div class="cod-payment">
+
+                    <strong>
+                        <i class="fa-solid fa-money-bill-wave"></i>
+                        Thanh toán khi nhận hàng (COD)
+                    </strong>
+
+                    <p>
+                        Bạn không cần chuyển khoản trước.
+                        Thanh toán trực tiếp khi nhận sản phẩm.
+                    </p>
+
+                </div>
+
+            </div>
+
+            <!-- THONG TIN DON HANG -->
+
+            <div class="cod-card">
+
+                <h3>
+                    <i class="fa-solid fa-box"></i>
+                    Đơn hàng của bạn
+                </h3>
+
+                <?php foreach ($items as $item): ?>
+
+                    <div class="cod-item">
+
+                        <div class="cod-item-name">
+                            <?= cod_h($item['name']) ?>
+                        </div>
+
+                        <?php if ($item['size'] !== ''): ?>
+
+                            <p class="cod-muted">
+                                Phân loại:
+                                <?= cod_h($item['size']) ?>
+                            </p>
+
+                        <?php endif; ?>
+
+                        <div class="cod-row">
+
+                            <span>
+                                <?= (int)$item['qty'] ?>
+                                × <?= cod_money($item['price']) ?>
+                            </span>
+
+                            <strong>
+                                <?= cod_money($item['total']) ?>
+                            </strong>
+
+                        </div>
+
+                    </div>
+
+                <?php endforeach; ?>
+
+                <div class="cod-row">
+
+                    <span>Tạm tính</span>
+
+                    <strong>
+                        <?= cod_money($subtotal) ?>
+                    </strong>
+
+                </div>
+
+                <div class="cod-row">
+
+                    <span>Phí giao hàng</span>
+
+                    <strong>
+                        <?= $shippingFee == 0
+                            ? 'Miễn phí'
+                            : cod_money($shippingFee) ?>
+                    </strong>
+
+                </div>
+
+                <div class="cod-row cod-total">
+
+                    <span>Tổng cộng</span>
+
+                    <strong>
+                        <?= cod_money($total) ?>
+                    </strong>
+
+                </div>
+
+                <button type="submit"
+                        class="cod-submit"
+                        id="codSubmit">
+
+                    <i class="fa-solid fa-check"></i>
+                    XÁC NHẬN ĐẶT HÀNG
+
+                </button>
+
+                <p class="cod-muted">
+                    Đơn hàng sẽ được gửi đến bộ phận quản lý.
+                    Bạn chỉ thanh toán khi nhận hàng.
+                </p>
+
+            </div>
+
+        </div>
+
+    </form>
 
 <?php endif; ?>
 
@@ -1212,7 +1260,9 @@ body.cod-modal-open {
 
 <?php if ($success): ?>
 
-<!-- CUA SO THONG BAO THANH CONG -->
+<!-- =====================================
+     POPUP THONG BAO THANH CONG
+     ===================================== -->
 
 <div class="cod-overlay show"
      id="codOverlay"
@@ -1223,26 +1273,39 @@ body.cod-modal-open {
          aria-modal="true"
          aria-labelledby="codSuccessTitle">
 
+        <!-- NUT X GOC PHAI -->
+
         <button type="button"
                 class="cod-close"
-                aria-label="Đóng"
+                aria-label="Đóng thông báo"
                 onclick="closeCodPopup()">
+
             &times;
+
         </button>
 
+        <!-- DAU TICH XANH -->
+
         <div class="cod-check">
+
             <i class="fa-solid fa-check"></i>
+
         </div>
 
         <h2 id="codSuccessTitle">
             Đặt hàng thành công!
         </h2>
 
+        <!-- NOI DUNG THONG BAO MOI -->
+
         <p class="cod-modal-desc">
-            Đơn hàng đã được ghi nhận.
-            VNN Travel sẽ liên hệ để xác nhận
-            và tiến hành giao hàng.
+            Đơn hàng của bạn đã được đặt thành công
+            và sẽ sớm được giao đến tay bạn.
+            Cảm ơn bạn đã tin tưởng và mua sắm
+            tại VNN Travel!
         </p>
+
+        <!-- THONG TIN DON HANG -->
 
         <div class="cod-order-box">
 
@@ -1268,7 +1331,7 @@ body.cod-modal-open {
 
             <div class="cod-row">
 
-                <span>Thanh toán</span>
+                <span>Phương thức thanh toán</span>
 
                 <strong>COD</strong>
 
@@ -1290,8 +1353,8 @@ body.cod-modal-open {
 
             <i class="fa-solid fa-circle-info"></i>
 
-            Bạn chỉ thanh toán khi nhận hàng.
-            Không cần quét QR hoặc chuyển khoản trước.
+            Thanh toán khi nhận hàng.
+            Bạn không cần chuyển khoản trước.
 
         </div>
 
@@ -1310,6 +1373,10 @@ body.cod-modal-open {
 <?php endif; ?>
 
 <script>
+// =====================================
+// CHONG BAM NUT DAT HANG NHIEU LAN
+// =====================================
+
 const codForm = document.getElementById('codForm');
 
 if (codForm) {
@@ -1329,7 +1396,12 @@ if (codForm) {
     });
 }
 
+// =====================================
+// POPUP DAT HANG THANH CONG
+// =====================================
+
 const codOverlay = document.getElementById('codOverlay');
+
 let codPreviousFocus = null;
 
 function openCodPopup() {
@@ -1345,7 +1417,9 @@ function openCodPopup() {
     const closeBtn =
         codOverlay.querySelector('.cod-close');
 
-    if (closeBtn) closeBtn.focus();
+    if (closeBtn) {
+        closeBtn.focus();
+    }
 }
 
 function closeCodPopup() {
@@ -1363,6 +1437,8 @@ function closeCodPopup() {
         codPreviousFocus.focus();
     }
 }
+
+// BAM ESC DE DONG
 
 document.addEventListener('keydown', function(event) {
 
@@ -1386,7 +1462,9 @@ document.addEventListener('keydown', function(event) {
             )
         );
 
-        if (!buttons.length) return;
+        if (!buttons.length) {
+            return;
+        }
 
         const first = buttons[0];
         const last = buttons[buttons.length - 1];
@@ -1395,21 +1473,28 @@ document.addEventListener('keydown', function(event) {
             event.shiftKey &&
             document.activeElement === first
         ) {
+
             event.preventDefault();
             last.focus();
+
         } else if (
             !event.shiftKey &&
             document.activeElement === last
         ) {
+
             event.preventDefault();
             first.focus();
         }
     }
 });
 
+// TU DONG MO POPUP SAU KHI DAT HANG
+
 if (codOverlay) {
     openCodPopup();
 }
 </script>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+require_once __DIR__ . '/../includes/footer.php';
+?>
