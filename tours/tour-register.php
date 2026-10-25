@@ -1,7 +1,8 @@
-
 <?php
-// VNN Travel - Dang ky Tour va thanh toan
-// Khong redirect sau POST, tranh loi headers already sent.
+// VNN Travel - Dang ky tour theo ngay khoi hanh
+// So cho = suc chua dot - tong nguoi da dat chua huy
+
+ob_start();
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -10,110 +11,96 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
-function vtr_h($v) {
+function tr_h($v) {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
 
-function vtr_money($v) {
-    return number_format((float)$v, 0, ',', '.') . ' đ';
-}
-
-function vtr_phone($v) {
-    return preg_replace('/\D+/', '', (string)$v);
-}
-
-function vtr_token($v) {
-    $v = strtr((string)$v, ['đ' => 'd', 'Đ' => 'D']);
-    if (class_exists('Transliterator')) {
-        $t = Transliterator::create('Any-Latin; Latin-ASCII');
-        if ($t) $v = $t->transliterate($v);
-    } else {
-        $v = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $v) ?: $v;
+function tr_valid_date($date) {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return false;
     }
-    return preg_replace('/[^A-Z0-9]/', '', strtoupper($v));
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    return $d && $d->format('Y-m-d') === $date;
 }
 
-function vtr_code(PDO $pdo) {
-    $s = $pdo->query(
-        "SHOW COLUMNS FROM tour_bookings LIKE 'booking_code'"
-    );
-    $column = $s->fetch(PDO::FETCH_ASSOC);
-    if (!$column || !preg_match(
-        '/^(?:var)?char\((\d+)\)/i',
-        $column['Type'],
-        $m
-    )) {
-        throw new RuntimeException('Không xác định được cột booking_code.');
-    }
-    $length = (int)$m[1];
-    if ($length < 8) {
-        throw new RuntimeException('Cột booking_code quá ngắn.');
-    }
-    for ($i = 0; $i < 12; $i++) {
-        $code = 'TB' . substr(
-            strtoupper(bin2hex(random_bytes(12))),
-            0,
-            min($length - 2, 24)
-        );
-        $check = $pdo->prepare(
-            "SELECT id FROM tour_bookings WHERE booking_code=? LIMIT 1"
-        );
-        $check->execute([$code]);
-        if (!$check->fetch()) return $code;
-    }
-    throw new RuntimeException('Không tạo được mã đặt tour.');
+function tr_departures(PDO $pdo, int $tourId) {
+    $stmt = $pdo->prepare("
+        SELECT
+            d.id,
+            d.departure_date,
+            d.available_slots AS capacity,
+            GREATEST(
+                0,
+                d.available_slots - COALESCE((
+                    SELECT SUM(b.number_people)
+                    FROM tour_bookings b
+                    WHERE b.tour_id = d.tour_id
+                      AND b.departure_date = d.departure_date
+                      AND LOWER(TRIM(b.status)) NOT IN (
+                          'đã hủy',
+                          'đã huỷ',
+                          'hủy',
+                          'huỷ',
+                          'cancelled',
+                          'canceled',
+                          'rejected',
+                          'từ chối'
+                      )
+                ), 0)
+            ) AS remaining
+        FROM tour_departures d
+        WHERE d.tour_id = ?
+          AND d.departure_date >= CURDATE()
+          AND d.status = 1
+        ORDER BY d.departure_date ASC
+    ");
+
+    $stmt->execute([$tourId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function vtr_retryable(Throwable $e) {
-    if (!($e instanceof PDOException)) return false;
-    return in_array((int)($e->errorInfo[1] ?? 0), [1205,1213], true)
-        || (string)$e->getCode() === '40001';
-}
-
-$base = rtrim(defined('BASE_URL') ? BASE_URL : '/', '/') . '/';
-$qrImage = $base . 'assets/images/momo-qr-vu.jpg';
 $tourId = (int)($_GET['id'] ?? 0);
-$error = '';
-$payment = null;
-$success = false;
+$selectedDate = trim((string)(
+    $_POST['departure_date']
+    ?? $_GET['departure']
+    ?? ''
+));
 
-$tour = null;
-if ($tourId > 0) {
-    $s = $pdo->prepare("SELECT * FROM tours WHERE id=?");
-    $s->execute([$tourId]);
-    $tour = $s->fetch(PDO::FETCH_ASSOC);
+$error = '';
+$user = null;
+$departures = [];
+
+$stmt = $pdo->prepare("
+    SELECT *
+    FROM tours
+    WHERE id = ? AND status = 1
+    LIMIT 1
+");
+$stmt->execute([$tourId]);
+$tour = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$tour) {
+    header("Location: " . BASE_URL . "tours/tour.php");
+    exit;
 }
 
-$page_title = $tour
-    ? 'Đăng ký tour: ' . $tour['title']
-    : 'Không tìm thấy tour';
-$active_menu = 'tour';
+$page_title = 'Đăng Ký Tour: ' . $tour['title'];
 
-$departures = [];
-$user = null;
+$departures = tr_departures($pdo, $tourId);
 
-if ($tour) {
-    $s = $pdo->prepare(
-        "SELECT * FROM tour_departures
-         WHERE tour_id=? AND departure_date >= CURDATE()
-           AND status=1
-         ORDER BY departure_date"
-    );
-    $s->execute([$tourId]);
-    $departures = $s->fetchAll(PDO::FETCH_ASSOC);
+if ($selectedDate === '' && !empty($departures)) {
+    $selectedDate = $departures[0]['departure_date'];
 }
 
 if (!empty($_SESSION['user_id'])) {
-    $s = $pdo->prepare("SELECT * FROM users WHERE id=?");
-    $s->execute([(int)$_SESSION['user_id']]);
-    $user = $s->fetch(PDO::FETCH_ASSOC);
+    $u = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+    $u->execute([(int)$_SESSION['user_id']]);
+    $user = $u->fetch(PDO::FETCH_ASSOC);
 }
 
-$tokenKey = 'vnn_booking_token_' . $tourId;
-$doneKey = 'vnn_last_booking_' . $tourId;
-
-if (empty($_SESSION[$tokenKey])) {
-    $_SESSION[$tokenKey] = bin2hex(random_bytes(16));
+if (empty($_SESSION['tour_booking_token'])) {
+    $_SESSION['tour_booking_token'] =
+        bin2hex(random_bytes(16));
 }
 
 $old = [
@@ -121,550 +108,713 @@ $old = [
     'phone' => $_POST['phone'] ?? ($user['phone'] ?? ''),
     'email' => $_POST['email'] ?? ($user['email'] ?? ''),
     'emergency_contact' => $_POST['emergency_contact'] ?? '',
-    'departure_date' => $_POST['departure_date']
-        ?? $_GET['departure']
-        ?? ($departures[0]['departure_date'] ?? ''),
     'number_people' => $_POST['number_people'] ?? 1,
     'notes' => $_POST['notes'] ?? ''
 ];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
-    $submittedToken = (string)($_POST['booking_token'] ?? '');
-    $name = trim((string)$old['fullname']);
-    $phone = vtr_phone($old['phone']);
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $fullname = trim((string)$old['fullname']);
+    $phone = trim((string)$old['phone']);
     $email = trim((string)$old['email']);
-    $emergency = vtr_phone($old['emergency_contact']);
-    $date = trim((string)$old['departure_date']);
-    $people = (int)$old['number_people'];
+    $emergency = trim((string)$old['emergency_contact']);
     $notes = trim((string)$old['notes']);
 
+    $numberPeople = filter_var(
+        $old['number_people'],
+        FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1]]
+    );
+
+    $submittedToken = (string)(
+        $_POST['tour_booking_token'] ?? ''
+    );
+
     if (
-        $submittedToken &&
-        !empty($_SESSION[$doneKey]) &&
-        hash_equals(
-            (string)($_SESSION[$doneKey]['token'] ?? ''),
+        !$submittedToken ||
+        !hash_equals(
+            $_SESSION['tour_booking_token'],
             $submittedToken
         )
     ) {
-        $payment = $_SESSION[$doneKey]['payment'];
-        $success = true;
+        $error = 'Phiên đăng ký không hợp lệ. Vui lòng tải lại trang.';
+
     } elseif (
-        !$submittedToken ||
-        !hash_equals($_SESSION[$tokenKey], $submittedToken)
+        $fullname === '' ||
+        $phone === '' ||
+        $email === '' ||
+        $emergency === ''
     ) {
-        $error = 'Phiên đặt tour đã hết hạn. Vui lòng tải lại trang.';
-    } elseif (
-        !$name || strlen($phone) < 9 ||
-        strlen($emergency) < 9 ||
-        !filter_var($email, FILTER_VALIDATE_EMAIL)
-    ) {
-        $error = 'Vui lòng nhập đầy đủ thông tin hợp lệ.';
-    } elseif ($people < 1 || $people > 100) {
-        $error = 'Số người tham gia không hợp lệ.';
-    } elseif (
-        !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) ||
-        !checkdate(
-            (int)substr($date,5,2),
-            (int)substr($date,8,2),
-            (int)substr($date,0,4)
-        ) ||
-        $date < date('Y-m-d')
-    ) {
+        $error = 'Vui lòng nhập đầy đủ các thông tin bắt buộc.';
+
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = 'Địa chỉ email không hợp lệ.';
+
+    } elseif (!tr_valid_date($selectedDate)) {
         $error = 'Ngày khởi hành không hợp lệ.';
-    } elseif (!$user) {
-        $error = 'Vui lòng đăng nhập tài khoản để đăng ký tour.';
+
+    } elseif ($numberPeople === false) {
+        $error = 'Số người tham gia phải là số nguyên lớn hơn 0.';
+
     } else {
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
-            try {
-                $pdo->beginTransaction();
 
-                $s = $pdo->prepare(
-                    "SELECT * FROM tours
-                     WHERE id=? AND status=1 FOR UPDATE"
+        try {
+            $pdo->beginTransaction();
+
+            // Khoa dung dong ngay khoi hanh.
+            // Nhieu nguoi dat cung luc se khong vuot suc chua.
+
+            $lockStmt = $pdo->prepare("
+                SELECT id, available_slots
+                FROM tour_departures
+                WHERE tour_id = ?
+                  AND departure_date = ?
+                  AND departure_date >= CURDATE()
+                  AND status = 1
+                FOR UPDATE
+            ");
+
+            $lockStmt->execute([
+                $tourId,
+                $selectedDate
+            ]);
+
+            $departure = $lockStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$departure) {
+                throw new RuntimeException(
+                    'Đợt khởi hành đã chọn không còn khả dụng.'
                 );
-                $s->execute([$tourId]);
-                $locked = $s->fetch(PDO::FETCH_ASSOC);
+            }
 
-                if (!$locked) {
-                    throw new RuntimeException('Tour không còn hoạt động.');
+            // Tong so nguoi da dat trong dot nay.
+            // Don huy khong chiem cho.
+
+            $bookedStmt = $pdo->prepare("
+                SELECT COALESCE(SUM(number_people), 0)
+                FROM tour_bookings
+                WHERE tour_id = ?
+                  AND departure_date = ?
+                  AND LOWER(TRIM(status)) NOT IN (
+                      'đã hủy',
+                      'đã huỷ',
+                      'hủy',
+                      'huỷ',
+                      'cancelled',
+                      'canceled',
+                      'rejected',
+                      'từ chối'
+                  )
+            ");
+
+            $bookedStmt->execute([
+                $tourId,
+                $selectedDate
+            ]);
+
+            $booked = (int)$bookedStmt->fetchColumn();
+
+            $remaining = max(
+                0,
+                (int)$departure['available_slots'] - $booked
+            );
+
+            if ($remaining <= 0) {
+                throw new RuntimeException(
+                    'Đợt khởi hành này đã hết chỗ. ' .
+                    'Vui lòng chọn ngày khác.'
+                );
+            }
+
+            if ($numberPeople > $remaining) {
+                throw new RuntimeException(
+                    'Ngày ' .
+                    date('d/m/Y', strtotime($selectedDate)) .
+                    ' chỉ còn ' . $remaining .
+                    ' chỗ. Vui lòng giảm số người tham gia.'
+                );
+            }
+
+            // Lien ket tai khoan theo session hoac email.
+
+            $currentUserId = (int)(
+                $_SESSION['user_id'] ?? 0
+            );
+
+            if ($currentUserId > 0) {
+                $check = $pdo->prepare(
+                    "SELECT id FROM users WHERE id = ?"
+                );
+                $check->execute([$currentUserId]);
+                if (!$check->fetchColumn()) {
+                    $currentUserId = 0;
                 }
+            }
 
-                if ((int)$locked['available_slots'] < $people) {
-                    throw new RuntimeException(
-                        'Tour không đủ chỗ trống.'
+            if ($currentUserId <= 0) {
+
+                $check = $pdo->prepare("
+                    SELECT id
+                    FROM users
+                    WHERE LOWER(email) = LOWER(?)
+                    LIMIT 1
+                ");
+
+                $check->execute([$email]);
+                $existingUser = $check->fetch(PDO::FETCH_ASSOC);
+
+                if ($existingUser) {
+                    $currentUserId = (int)$existingUser['id'];
+                } else {
+                    $password = password_hash(
+                        bin2hex(random_bytes(12)),
+                        PASSWORD_DEFAULT
                     );
+
+                    $createUser = $pdo->prepare("
+                        INSERT INTO users
+                        (fullname, email, password, phone, role, status)
+                        VALUES (?, ?, ?, ?, 'customer', 1)
+                    ");
+
+                    $createUser->execute([
+                        $fullname,
+                        strtolower($email),
+                        $password,
+                        $phone
+                    ]);
+
+                    $currentUserId = (int)$pdo->lastInsertId();
                 }
+            }
 
-                if ($departures) {
-                    $s = $pdo->prepare(
-                        "SELECT * FROM tour_departures
-                         WHERE tour_id=? AND departure_date=?
-                           AND status=1 FOR UPDATE"
-                    );
-                    $s->execute([$tourId, $date]);
-                    $dep = $s->fetch(PDO::FETCH_ASSOC);
+            $bookingCode = 'TB-' .
+                strtoupper(bin2hex(random_bytes(8)));
 
-                    if (!$dep || (int)$dep['available_slots'] < $people) {
-                        throw new RuntimeException(
-                            'Đợt khởi hành không đủ chỗ.'
-                        );
-                    }
-                }
+            $totalPrice =
+                (float)$tour['price'] * $numberPeople;
 
-                $code = vtr_code($pdo);
-                $total = (float)$locked['price'] * $people;
+            $insert = $pdo->prepare("
+                INSERT INTO tour_bookings
+                (
+                    booking_code,
+                    user_id,
+                    tour_id,
+                    departure_date,
+                    fullname,
+                    phone,
+                    email,
+                    emergency_contact,
+                    number_people,
+                    total_price,
+                    notes,
+                    status
+                )
+                VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Chờ xác nhận')
+            ");
 
-                $s = $pdo->prepare(
-                    "INSERT INTO tour_bookings
-                    (booking_code,user_id,tour_id,departure_date,
-                     fullname,phone,email,emergency_contact,
-                     number_people,total_price,notes,status)
-                    VALUES
-                    (?,?,?,?,?,?,?,?,?,?,?,'Chờ xác nhận')"
+            $insert->execute([
+                $bookingCode,
+                $currentUserId,
+                $tourId,
+                $selectedDate,
+                $fullname,
+                $phone,
+                $email,
+                $emergency,
+                $numberPeople,
+                $totalPrice,
+                $notes
+            ]);
+
+            // Khong tru tours.available_slots.
+            // Khong tru tour_departures.available_slots.
+            // Vi cho con lai duoc tinh bang tong booking
+            // de bao gom ca cac booking cu.
+
+            $pdo->commit();
+
+            unset($_SESSION['tour_booking_token']);
+
+            header(
+                'Location: ' . BASE_URL .
+                'tours/my-tours.php?registered=1&code=' .
+                rawurlencode($bookingCode),
+                true,
+                303
+            );
+            exit;
+
+        } catch (Throwable $e) {
+
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            if ($e instanceof RuntimeException) {
+                $error = $e->getMessage();
+            } else {
+                error_log(
+                    'Tour booking: ' . $e->getMessage()
                 );
 
-                $s->execute([
-                    $code, (int)$user['id'], $tourId, $date,
-                    $name, $phone, $email, $emergency,
-                    $people, $total, $notes
-                ]);
-
-                $s = $pdo->prepare(
-                    "UPDATE tours
-                     SET available_slots=available_slots-?
-                     WHERE id=? AND available_slots>=?"
-                );
-                $s->execute([$people, $tourId, $people]);
-
-                if ($s->rowCount() !== 1) {
-                    throw new RuntimeException(
-                        'Không giữ được chỗ. Vui lòng thử lại.'
-                    );
-                }
-
-                $pdo->commit();
-
-                $payment = [
-                    'code' => $code,
-                    'tour' => $locked['title'],
-                    'date' => $date,
-                    'name' => $name,
-                    'phone' => $phone,
-                    'people' => $people,
-                    'total' => $total,
-                    'transfer' => 'TOUR ' . $code . ' ' .
-                        substr(vtr_token($locked['title']),0,22) . ' ' .
-                        vtr_token($name) . ' ' . $phone
-                ];
-
-                $success = true;
-
-                $_SESSION[$doneKey] = [
-                    'token' => $submittedToken,
-                    'payment' => $payment
-                ];
-                $_SESSION[$tokenKey] = bin2hex(random_bytes(16));
-                break;
-
-            } catch (Throwable $e) {
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-
-                if (vtr_retryable($e) && $attempt < 3) {
-                    usleep(random_int(100000,300000));
-                    continue;
-                }
-
-                error_log('VNN booking: ' . $e->getMessage());
-                $error = $e instanceof RuntimeException
-                    ? $e->getMessage()
-                    : 'Đặt tour chưa thành công. Vui lòng thử lại.';
-                break;
+                $error =
+                    'Không thể đăng ký tour lúc này. ' .
+                    'Vui lòng thử lại.';
             }
         }
     }
+
+    // Lay lai so cho hien tai neu dat that bai.
+    $departures = tr_departures($pdo, $tourId);
 }
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-.vtr-page {
-    background:#f8fafc;
-    padding:36px 16px 70px;
+.tr-page {
+    padding: 34px 16px 65px;
+    background: #f8fafc;
+    min-height: 70vh;
 }
-.vtr-card {
-    max-width:760px;
-    margin:auto;
-    padding:34px;
-    background:#fff;
-    border-radius:15px;
-    box-shadow:0 8px 24px #00000012;
+
+.tr-card {
+    max-width: 700px;
+    margin: auto;
+    background: white;
+    padding: 35px;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.07);
 }
-.vtr-card h2 {
-    text-align:center;
-    color:#14532d;
-    font-size:27px;
-    margin-bottom:12px;
+
+.tr-title {
+    color: var(--primary, #14532d);
+    text-align: center;
+    margin: 0 0 9px;
 }
-.vtr-subtitle {
-    text-align:center;
-    color:#64748b;
-    line-height:1.6;
-    margin-bottom:28px;
+
+.tr-subtitle {
+    color: #64748b;
+    text-align: center;
+    line-height: 1.6;
+    margin-bottom: 25px;
 }
-.vtr-grid {
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:17px;
+
+.tr-departure-box {
+    background: #fff7ed;
+    padding: 16px;
+    border-radius: 10px;
+    border: 1px solid #fed7aa;
+    margin-bottom: 23px;
 }
-.vtr-field {margin-bottom:18px}
-.vtr-field label {
-    display:block;
-    font-weight:700;
-    margin-bottom:8px;
+
+.tr-departure-box label {
+    display: block;
+    font-weight: 800;
+    color: #c2410c;
+    margin-bottom: 9px;
 }
-.vtr-field input,
-.vtr-field select,
-.vtr-field textarea {
-    width:100%;
-    padding:12px;
-    border:1px solid #dbe3ed;
-    border-radius:9px;
-    box-sizing:border-box;
-    font:inherit;
+
+.tr-departure-box select {
+    width: 100%;
 }
-.vtr-field textarea {min-height:90px}
-.vtr-departure {
-    padding:17px;
-    border:1px solid #fed7aa;
-    background:#fff7ed;
-    border-radius:11px;
-    margin-bottom:24px;
+
+.tr-notice {
+    margin: 12px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #166534;
 }
-.vtr-summary {
-    padding:18px;
-    background:#f8fafc;
-    border:1px solid #e2e8f0;
-    border-radius:11px;
-    margin:20px 0;
+
+.tr-error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+    padding: 14px 17px;
+    border-radius: 10px;
+    margin: 18px 0;
+    line-height: 1.7;
 }
-.vtr-row {
-    display:flex;
-    justify-content:space-between;
-    gap:12px;
-    margin:12px 0;
+
+.tr-total {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 25px 0;
 }
-.vtr-total {
-    color:#ea580c;
-    font-weight:800;
-    font-size:21px;
+
+.tr-total-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
 }
-.vtr-button {
-    display:block;
-    width:100%;
-    padding:15px;
-    background:#ea580c;
-    border:0;
-    border-radius:11px;
-    color:white;
-    font-weight:800;
-    cursor:pointer;
+
+.tr-total-final {
+    color: #ea580c;
+    font-weight: 800;
+    font-size: 20px;
 }
-.vtr-button:disabled {opacity:.65}
-.vtr-alert {
-    padding:16px;
-    border-radius:10px;
-    margin-bottom:20px;
+
+.tr-submit {
+    width: 100%;
+    padding: 14px;
+    font-size: 17px;
 }
-.vtr-error {
-    background:#fee2e2;
-    color:#b91c1c;
+
+.tr-submit:disabled {
+    opacity: .55;
+    cursor: not-allowed;
 }
-.vtr-ok {
-    background:#dcfce7;
-    color:#166534;
-}
-.vtr-payment {
-    display:grid;
-    grid-template-columns:245px 1fr;
-    gap:22px;
-    align-items:start;
-    margin-top:24px;
-}
-.vtr-qr {
-    width:100%;
-    height:auto;
-    border:1px solid #fbcfe8;
-    border-radius:13px;
-}
-.vtr-paybox {
-    padding:18px;
-    border:1px solid #e2e8f0;
-    border-radius:12px;
-}
-.vtr-code {
-    padding:14px;
-    background:#fff7ed;
-    border:1px solid #fed7aa;
-    color:#c2410c;
-    border-radius:10px;
-    font-weight:800;
-    overflow-wrap:anywhere;
-    margin:14px 0;
-}
-.vtr-copy {
-    padding:12px 16px;
-    background:#14532d;
-    color:white;
-    border:0;
-    border-radius:9px;
-    cursor:pointer;
-}
-.vtr-note {
-    color:#64748b;
-    font-size:14px;
-    line-height:1.7;
-    margin-top:15px;
-}
-@media(max-width:700px) {
-    .vtr-card {padding:20px}
-    .vtr-grid,.vtr-payment {grid-template-columns:1fr}
-    .vtr-row {flex-direction:column;gap:4px}
+
+@media (max-width: 650px) {
+    .tr-card {
+        padding: 20px;
+    }
+
+    .tr-total-final {
+        font-size: 17px;
+    }
 }
 </style>
 
-<section class="vtr-page">
-<div class="vtr-card">
+<section class="tr-page">
 
-<?php if (!$tour): ?>
+    <div class="tr-card">
 
-<h2>Không tìm thấy tour</h2>
-<p>Tour không tồn tại hoặc đã được gỡ khỏi hệ thống.</p>
-<a href="<?= vtr_h($base) ?>tours/tour.php">Quay lại danh sách tour</a>
-
-<?php elseif ($success && $payment): ?>
-
-<h2>ĐĂNG KÝ TOUR THÀNH CÔNG!</h2>
-
-<div class="vtr-alert vtr-ok">
-    Đã lưu đăng ký tour vào hệ thống.
-    Vui lòng xem hướng dẫn chuyển khoản bên dưới.
-</div>
-
-<div class="vtr-summary">
-    <div class="vtr-row">
-        <span>Mã đặt tour</span>
-        <strong><?= vtr_h($payment['code']) ?></strong>
-    </div>
-    <div class="vtr-row">
-        <span>Tên tour</span>
-        <strong><?= vtr_h($payment['tour']) ?></strong>
-    </div>
-    <div class="vtr-row">
-        <span>Ngày khởi hành</span>
-        <strong><?= date('d/m/Y',strtotime($payment['date'])) ?></strong>
-    </div>
-    <div class="vtr-row">
-        <span>Khách hàng</span>
-        <strong><?= vtr_h($payment['name']) ?></strong>
-    </div>
-    <div class="vtr-row">
-        <span>Số điện thoại</span>
-        <strong><?= vtr_h($payment['phone']) ?></strong>
-    </div>
-    <div class="vtr-row">
-        <span>Số người</span>
-        <strong><?= (int)$payment['people'] ?></strong>
-    </div>
-    <div class="vtr-row vtr-total">
-        <span>Tổng tiền</span>
-        <strong><?= vtr_money($payment['total']) ?></strong>
-    </div>
-</div>
-
-<h3>THANH TOÁN BẰNG HÌNH THỨC CHUYỂN KHOẢN</h3>
-
-<div class="vtr-payment">
-    <img class="vtr-qr"
-         src="<?= vtr_h($qrImage) ?>"
-         alt="Mã QR thanh toán MoMo">
-
-    <div class="vtr-paybox">
-        <h3>Thông tin thanh toán</h3>
-
-        <p>Số tiền cần chuyển:</p>
-        <h2 style="text-align:left;color:#ea580c">
-            <?= vtr_money($payment['total']) ?>
+        <h2 class="tr-title">
+            ĐĂNG KÝ THAM GIA TOUR
         </h2>
 
-        <p><strong>Nội dung chuyển khoản:</strong></p>
-
-        <div id="vtr-transfer" class="vtr-code">
-            <?= vtr_h($payment['transfer']) ?>
-        </div>
-
-        <button class="vtr-copy" type="button"
-                onclick="copyVtrTransfer()">
-            Sao chép nội dung
-        </button>
-
-        <p class="vtr-note">
-            Hãy chuyển khoản đúng số tiền và nội dung trên.
-            Việc đăng ký thành công không có nghĩa đã thanh toán.
-            Quản lý sẽ kiểm tra và xác nhận giao dịch thủ công.
+        <p class="tr-subtitle">
+            Hành trình:
+            <strong><?= tr_h($tour['title']) ?></strong>
         </p>
+
+        <?php if ($error !== ''): ?>
+            <div class="tr-error" role="alert">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                <?= tr_h($error) ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (empty($departures)): ?>
+
+            <div class="tr-error">
+                Hiện chưa có lịch khởi hành mở đăng ký.
+                Vui lòng quay lại sau.
+            </div>
+
+            <a class="btn btn-primary"
+               href="<?= BASE_URL ?>tours/tour-detail.php?id=<?= $tourId ?>">
+                Quay lại chi tiết tour
+            </a>
+
+        <?php else: ?>
+
+        <form method="POST" id="tourForm">
+
+            <input type="hidden"
+                   name="tour_booking_token"
+                   value="<?= tr_h($_SESSION['tour_booking_token']) ?>">
+
+            <div class="tr-departure-box">
+
+                <label for="departure_date">
+                    <i class="fa-solid fa-calendar-check"></i>
+                    CHỌN NGÀY KHỞI HÀNH:
+                </label>
+
+                <select
+                    id="departure_date"
+                    name="departure_date"
+                    class="form-control"
+                    required
+                >
+
+                    <?php foreach ($departures as $dep): ?>
+
+                        <?php
+                        $remaining = (int)$dep['remaining'];
+                        $date = (string)$dep['departure_date'];
+                        ?>
+
+                        <option
+                            value="<?= tr_h($date) ?>"
+                            data-remaining="<?= $remaining ?>"
+                            <?= $selectedDate === $date ? 'selected' : '' ?>
+                            <?= $remaining <= 0 ? 'disabled' : '' ?>
+                        >
+                            <?= date('d/m/Y', strtotime($date)) ?>
+                            —
+                            <?= $remaining > 0
+                                ? 'Còn ' . $remaining . ' chỗ'
+                                : 'Đã hết chỗ' ?>
+                        </option>
+
+                    <?php endforeach; ?>
+
+                </select>
+
+                <div class="tr-notice" id="remainingNotice"
+                     aria-live="polite"></div>
+
+            </div>
+
+            <div class="grid grid-2">
+
+                <div class="form-group">
+
+                    <label>Họ và tên *</label>
+
+                    <input
+                        type="text"
+                        name="fullname"
+                        class="form-control"
+                        required
+                        value="<?= tr_h($old['fullname']) ?>"
+                        placeholder="Nguyễn Văn A"
+                    >
+
+                </div>
+
+                <div class="form-group">
+
+                    <label>Số điện thoại *</label>
+
+                    <input
+                        type="tel"
+                        name="phone"
+                        class="form-control"
+                        required
+                        value="<?= tr_h($old['phone']) ?>"
+                        placeholder="09xxxxxxxx"
+                    >
+
+                </div>
+
+            </div>
+
+            <div class="grid grid-2">
+
+                <div class="form-group">
+
+                    <label>Địa chỉ Email *</label>
+
+                    <input
+                        type="email"
+                        name="email"
+                        class="form-control"
+                        required
+                        value="<?= tr_h($old['email']) ?>"
+                    >
+
+                </div>
+
+                <div class="form-group">
+
+                    <label>SĐT liên hệ khẩn cấp *</label>
+
+                    <input
+                        type="tel"
+                        name="emergency_contact"
+                        class="form-control"
+                        required
+                        value="<?= tr_h($old['emergency_contact']) ?>"
+                        placeholder="Số người thân"
+                    >
+
+                </div>
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="number_people" id="peopleLabel">
+                    Số người tham gia *
+                </label>
+
+                <input
+                    type="number"
+                    id="number_people"
+                    name="number_people"
+                    class="form-control"
+                    min="1"
+                    step="1"
+                    value="<?= max(1, (int)$old['number_people']) ?>"
+                    required
+                >
+
+                <div
+                    id="peopleError"
+                    style="display:none;
+                           color:#b91c1c;
+                           font-size:14px;
+                           margin-top:8px"
+                    role="alert"
+                ></div>
+
+            </div>
+
+            <div class="form-group">
+
+                <label>Ghi chú (ăn chay, kích thước áo, lưu ý sức khỏe...)</label>
+
+                <textarea
+                    name="notes"
+                    class="form-control"
+                    rows="3"
+                ><?= tr_h($old['notes']) ?></textarea>
+
+            </div>
+
+            <div class="tr-total">
+
+                <div class="tr-total-line">
+                    <span>Đơn giá / người:</span>
+                    <strong><?= format_price($tour['price']) ?></strong>
+                </div>
+
+                <div class="tr-total-line tr-total-final">
+                    <span>TỔNG TIỀN DỰ KIẾN:</span>
+                    <span id="display_total">
+                        <?= format_price($tour['price']) ?>
+                    </span>
+                </div>
+
+            </div>
+
+            <button
+                type="submit"
+                id="submitTour"
+                class="btn btn-accent tr-submit"
+            >
+                XÁC NHẬN ĐĂNG KÝ TOUR
+            </button>
+
+        </form>
+
+        <?php endif; ?>
+
     </div>
-</div>
 
-<p style="margin-top:24px">
-    <a href="<?= vtr_h($base) ?>tours/my-tours.php">
-        Xem tour tôi đã đăng ký
-    </a>
-</p>
-
-<?php else: ?>
-
-<h2>ĐĂNG KÝ THAM GIA TOUR</h2>
-
-<p class="vtr-subtitle">
-    Hành trình: <strong><?= vtr_h($tour['title']) ?></strong>
-</p>
-
-<?php if ($error): ?>
-<div class="vtr-alert vtr-error"><?= vtr_h($error) ?></div>
-<?php endif; ?>
-
-<form method="POST" id="vtr-form">
-
-<input type="hidden" name="booking_token"
-       value="<?= vtr_h($_SESSION[$tokenKey]) ?>">
-
-<div class="vtr-departure vtr-field">
-    <label>CHỌN NGÀY KHỞI HÀNH (CÁC ĐỢT TOUR CÓ SẴN):</label>
-
-    <?php if ($departures): ?>
-        <select name="departure_date" required>
-        <?php foreach ($departures as $dep): ?>
-            <option value="<?= vtr_h($dep['departure_date']) ?>"
-                <?= $old['departure_date'] === $dep['departure_date']
-                    ? 'selected' : '' ?>>
-                Đợt khởi hành:
-                <?= date('d/m/Y',strtotime($dep['departure_date'])) ?>
-                (Còn <?= (int)$dep['available_slots'] ?> chỗ)
-            </option>
-        <?php endforeach; ?>
-        </select>
-    <?php else: ?>
-        <input type="date" name="departure_date"
-               min="<?= date('Y-m-d') ?>"
-               value="<?= vtr_h(
-                   $old['departure_date'] ?: date('Y-m-d',strtotime('+3 days'))
-               ) ?>" required>
-    <?php endif; ?>
-</div>
-
-<div class="vtr-grid">
-    <div class="vtr-field">
-        <label>Họ và tên *</label>
-        <input name="fullname" required
-               value="<?= vtr_h($old['fullname']) ?>">
-    </div>
-    <div class="vtr-field">
-        <label>Số điện thoại *</label>
-        <input name="phone" type="tel" required
-               value="<?= vtr_h($old['phone']) ?>">
-    </div>
-    <div class="vtr-field">
-        <label>Địa chỉ Email *</label>
-        <input name="email" type="email" required
-               value="<?= vtr_h($old['email']) ?>">
-    </div>
-    <div class="vtr-field">
-        <label>SĐT liên hệ khẩn cấp *</label>
-        <input name="emergency_contact" type="tel" required
-               value="<?= vtr_h($old['emergency_contact']) ?>">
-    </div>
-</div>
-
-<div class="vtr-field">
-    <label>
-        Số người tham gia *
-        (Tour còn <?= (int)$tour['available_slots'] ?> chỗ)
-    </label>
-    <input type="number" name="number_people"
-           id="vtr-people"
-           min="1"
-           max="<?= (int)$tour['available_slots'] ?>"
-           value="<?= (int)$old['number_people'] ?>"
-           required>
-</div>
-
-<div class="vtr-field">
-    <label>Ghi chú</label>
-    <textarea name="notes"><?= vtr_h($old['notes']) ?></textarea>
-</div>
-
-<div class="vtr-summary">
-    <div class="vtr-row">
-        <span>Đơn giá / người</span>
-        <strong><?= vtr_money($tour['price']) ?></strong>
-    </div>
-    <div class="vtr-row vtr-total">
-        <span>TỔNG TIỀN DỰ KIẾN</span>
-        <span id="vtr-total">
-            <?= vtr_money($tour['price'] * max(1,(int)$old['number_people'])) ?>
-        </span>
-    </div>
-</div>
-
-<button class="vtr-button" id="vtr-submit" type="submit"
-    <?= (int)$tour['available_slots'] < 1 ? 'disabled' : '' ?>>
-    XÁC NHẬN ĐĂNG KÝ TOUR
-</button>
-
-</form>
-<?php endif; ?>
-
-</div>
 </section>
 
 <script>
-const vtrPrice = <?= json_encode((float)($tour['price'] ?? 0)) ?>;
-const vtrPeople = document.getElementById('vtr-people');
-const vtrTotal = document.getElementById('vtr-total');
+(function() {
+    const select = document.getElementById('departure_date');
+    const people = document.getElementById('number_people');
+    const label = document.getElementById('peopleLabel');
+    const notice = document.getElementById('remainingNotice');
+    const error = document.getElementById('peopleError');
+    const total = document.getElementById('display_total');
+    const button = document.getElementById('submitTour');
+    const form = document.getElementById('tourForm');
 
-if (vtrPeople && vtrTotal) {
-    vtrPeople.addEventListener('input', () => {
-        const n = Math.max(1,parseInt(vtrPeople.value,10) || 1);
-        vtrTotal.textContent =
-            (n*vtrPrice).toLocaleString('vi-VN') + ' đ';
-    });
-}
+    if (!select || !people || !form) return;
 
-const vtrForm = document.getElementById('vtr-form');
-if (vtrForm) {
-    vtrForm.addEventListener('submit', () => {
-        if (!vtrForm.checkValidity()) return;
-        const btn = document.getElementById('vtr-submit');
-        btn.disabled = true;
-        btn.textContent = 'ĐANG XỬ LÝ...';
-    });
-}
+    const unitPrice = <?= json_encode((float)$tour['price']) ?>;
 
-async function copyVtrTransfer() {
-    const text = document.getElementById('vtr-transfer')
-        ?.textContent.trim();
-    if (!text) return;
+    function getRemaining() {
+        const selected = select.options[select.selectedIndex];
 
-    try {
-        await navigator.clipboard.writeText(text);
-        alert('Đã sao chép nội dung chuyển khoản!');
-    } catch(e) {
-        window.prompt('Sao chép nội dung:',text);
+        return selected
+            ? Number(selected.dataset.remaining || 0)
+            : 0;
     }
-}
+
+    function updateForm() {
+        const remaining = getRemaining();
+        const count = Number(people.value);
+
+        people.max = String(remaining);
+
+        label.textContent =
+            'Số người tham gia * (Còn trống ' +
+            remaining + ' chỗ)';
+
+        notice.textContent =
+            remaining > 0
+            ? 'Ngày đã chọn còn ' + remaining + ' chỗ.'
+            : 'Đợt khởi hành này đã hết chỗ.';
+
+        const valid =
+            Number.isInteger(count) &&
+            count >= 1 &&
+            count <= remaining;
+
+        if (!valid) {
+            error.style.display = 'block';
+
+            if (remaining <= 0) {
+                error.textContent =
+                    'Ngày đã chọn đã hết chỗ. ' +
+                    'Vui lòng chọn ngày khác.';
+            } else if (count > remaining) {
+                error.textContent =
+                    'Ngày này chỉ còn ' + remaining +
+                    ' chỗ. Vui lòng giảm số người tham gia.';
+            } else {
+                error.textContent =
+                    'Vui lòng nhập số người từ 1 đến ' +
+                    remaining + '.';
+            }
+        } else {
+            error.style.display = 'none';
+            error.textContent = '';
+        }
+
+        total.textContent =
+            (Math.max(0, count || 0) * unitPrice)
+                .toLocaleString('vi-VN') + ' đ';
+
+        button.disabled = !valid;
+
+        return valid;
+    }
+
+    select.addEventListener('change', function() {
+        const remaining = getRemaining();
+
+        people.value = remaining > 0 ? '1' : '';
+        updateForm();
+    });
+
+    people.addEventListener('input', updateForm);
+
+    form.addEventListener('submit', function(event) {
+        if (!updateForm()) {
+            event.preventDefault();
+            return;
+        }
+
+        if (!form.checkValidity()) {
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = 'ĐANG XỬ LÝ ĐĂNG KÝ...';
+    });
+
+    // Tu dong chon dot con cho neu dot hien tai da het.
+    if (getRemaining() <= 0) {
+        const available = Array.from(select.options)
+            .find(opt => Number(opt.dataset.remaining) > 0);
+
+        if (available) {
+            select.value = available.value;
+        }
+    }
+
+    if (getRemaining() <= 0) {
+        people.value = '';
+    }
+
+    updateForm();
+})();
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
