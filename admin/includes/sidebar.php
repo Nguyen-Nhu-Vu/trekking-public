@@ -1,326 +1,660 @@
 <?php
-// VNN Travel - Sidebar chung cho trang quan ly
+// VNN TRAVEL - SIDEBAR QUAN LY DUNG CHUNG
 
 $current_page = $current_page ?? '';
 
-function vnn_sidebar_count($pdo, $sql) {
-    try {
-        return max(0, (int)$pdo->query($sql)->fetchColumn());
-    } catch (Throwable $e) {
-        error_log('Sidebar count: ' . $e->getMessage());
-        return 0;
+if (!function_exists('vnnSidebarCount')) {
+
+    function vnnSidebarCount(PDO $pdo, string $sql): int
+    {
+        try {
+            return max(
+                0,
+                (int) $pdo->query($sql)->fetchColumn()
+            );
+        } catch (Throwable $e) {
+            error_log(
+                'VNN Sidebar: ' . $e->getMessage()
+            );
+
+            return 0;
+        }
     }
-}
 
-$pending_bookings = vnn_sidebar_count(
-    $pdo,
-    "SELECT COUNT(*) FROM tour_bookings
-     WHERE status = 'Chờ xác nhận'"
-);
+    function vnnSidebarItem(
+        string $key,
+        string $url,
+        string $icon,
+        string $title,
+        int $count = 0
+    ): void {
+        global $current_page;
 
-$pending_orders = vnn_sidebar_count(
-    $pdo,
-    "SELECT COUNT(*) FROM orders
-     WHERE status = 'Chờ xác nhận'"
-);
+        $active = $current_page === $key
+            ? 'active'
+            : '';
 
-// Danh gia dang an: can kiem tra truoc khi hien.
-$pending_reviews = vnn_sidebar_count(
-    $pdo,
-    "SELECT COUNT(*) FROM reviews WHERE status = 0"
-);
+        $url = htmlspecialchars(
+            $url,
+            ENT_QUOTES,
+            'UTF-8'
+        );
 
-// Chua co cot da doc: dem cac tin con trong hop thu.
-$contact_count = vnn_sidebar_count(
-    $pdo,
-    "SELECT COUNT(*) FROM contacts"
-);
+        $title = htmlspecialchars(
+            $title,
+            ENT_QUOTES,
+            'UTF-8'
+        );
 
-function vnn_sidebar_badge($count) {
-    $count = (int)$count;
+        $icon = htmlspecialchars(
+            $icon,
+            ENT_QUOTES,
+            'UTF-8'
+        );
 
-    if ($count <= 0) return;
+        echo '<li class="' . $active . '">';
 
-    echo '<span class="badge-notify-pill" ' .
-         'aria-label="' . $count . ' thông báo">' .
-         $count .
-         '</span>';
-}
+        echo '<a href="' . $url . '">';
 
-function vnn_sidebar_link($page, $url, $icon, $title, $count=0) {
-    global $current_page;
+        echo '<span class="vnn-menu-label">';
 
-    $active = $current_page === $page ? 'active' : '';
-    $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
-    $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
-    $safeIcon = htmlspecialchars($icon, ENT_QUOTES, 'UTF-8');
+        echo '<i class="fa-solid ' . $icon . '"></i>';
 
-    echo '<li class="' . $active . '">';
-    echo '<a href="' . $safeUrl . '">';
-    echo '<span class="menu-label">';
-    echo '<i class="fa-solid ' . $safeIcon . '"></i>';
-    echo $safeTitle;
-    echo '</span>';
+        echo '<span>' . $title . '</span>';
 
-    vnn_sidebar_badge($count);
+        echo '</span>';
 
-    echo '</a></li>';
-}
+        if ($count > 0) {
+            echo '<span class="vnn-notification" ' .
+                 'aria-label="' . $count . ' thông báo">';
 
-function vnn_sidebar_group_title($icon, $title, $color) {
-    echo '<div class="sidebar-group-title" ' .
-         'onclick="toggleSidebarGroup(this)">';
-    echo '<span><i class="fa-solid ' . $icon . '" ' .
-         'style="color:' . $color . ';margin-right:7px"></i>';
-    echo htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
-    echo '</span>';
-    echo '<i class="fa-solid fa-chevron-down chevron"></i>';
-    echo '</div>';
+            echo '<span class="vnn-notification-dot"></span>';
+
+            echo $count > 99 ? '99+' : $count;
+
+            echo '</span>';
+        }
+
+        echo '</a>';
+
+        echo '</li>';
+    }
 }
 
 $adminBase = rtrim(BASE_URL, '/') . '/admin/';
 $siteBase = rtrim(BASE_URL, '/') . '/';
 
+// SO LUONG CHO XU LY
+
+$pendingTours = vnnSidebarCount(
+    $pdo,
+    "SELECT COUNT(*)
+     FROM tour_bookings
+     WHERE status IN ('Chờ xác nhận', 'pending')"
+);
+
+$pendingOrders = vnnSidebarCount(
+    $pdo,
+    "SELECT COUNT(*)
+     FROM orders
+     WHERE status IN ('Chờ xác nhận', 'pending')"
+);
+
+// Status = 0 duoc xem la danh gia cho duyet
+// neu database dang su dung quy uoc nay.
+$pendingReviews = vnnSidebarCount(
+    $pdo,
+    "SELECT COUNT(*)
+     FROM reviews
+     WHERE status = 0"
+);
+
+// Khong dem contacts neu chua co trang thai da doc.
+// Tranh tao thong bao do gia cho tin nhan cu.
+
 $customerPages = [
-    'chat','bookings','orders','reviews','contacts'
+    'chat',
+    'bookings',
+    'orders',
+    'reviews',
+    'contacts'
 ];
 
 $contentPages = [
-    'tours','products','categories','locations','posts'
+    'tours',
+    'products',
+    'categories',
+    'locations',
+    'posts'
 ];
 
-$reportPages = [
-    'revenue_tours','revenue_shop'
+$revenuePages = [
+    'revenue_tours',
+    'revenue_shop'
 ];
 
-$customerOpen = in_array($current_page, $customerPages, true);
-$contentOpen = in_array($current_page, $contentPages, true);
-$reportOpen = in_array($current_page, $reportPages, true);
+$isCustomerPage = in_array(
+    $current_page,
+    $customerPages,
+    true
+);
+
+$isContentPage = in_array(
+    $current_page,
+    $contentPages,
+    true
+);
+
+$isRevenuePage = in_array(
+    $current_page,
+    $revenuePages,
+    true
+);
 ?>
+
+<style>
+    .admin-sidebar {
+        width: 250px !important;
+        min-width: 250px !important;
+        max-width: 250px !important;
+        flex: 0 0 250px !important;
+        flex-shrink: 0 !important;
+
+        height: 100vh;
+        position: sticky;
+        top: 0;
+
+        background: #1e293b;
+        color: #e2e8f0;
+
+        overflow-y: auto;
+        overflow-x: hidden;
+
+        z-index: 100;
+    }
+
+    .admin-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: none;
+        overflow-x: auto;
+    }
+
+    .vnn-admin-brand {
+        min-height: 76px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        padding: 15px;
+        background: #0f172a;
+    }
+
+    .vnn-brand-mountain {
+        font-size: 35px;
+        color: #65a30d;
+        flex-shrink: 0;
+    }
+
+    .vnn-brand-title {
+        font-size: 23px;
+        font-weight: 900;
+        letter-spacing: 3px;
+        line-height: 1.1;
+    }
+
+    .vnn-brand-title .blue {
+        color: #38bdf8;
+    }
+
+    .vnn-brand-title .orange {
+        color: #f97316;
+    }
+
+    .vnn-brand-subtitle {
+        color: white;
+        font-size: 11px;
+        letter-spacing: 3px;
+        font-weight: 800;
+        margin-top: 4px;
+    }
+
+    .vnn-view-website {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 9px;
+
+        margin: 13px;
+        padding: 13px 9px;
+
+        border-radius: 9px;
+        border: 1px solid #334155;
+
+        color: #38bdf8;
+        font-weight: 800;
+        font-size: 13px;
+        text-align: center;
+        text-decoration: none;
+    }
+
+    .vnn-view-website:hover {
+        background: #334155;
+        color: white;
+    }
+
+    .admin-menu {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        width: 100%;
+    }
+
+    .admin-menu li {
+        list-style: none;
+    }
+
+    .admin-menu li > a {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 9px;
+
+        padding: 12px 15px;
+
+        color: #cbd5e1;
+        font-size: 13px;
+        text-decoration: none;
+    }
+
+    .admin-menu li > a:hover,
+    .admin-menu li.active > a {
+        background: #334155;
+        color: #38bdf8;
+    }
+
+    .admin-menu li.active > a {
+        border-left: 4px solid #f97316;
+    }
+
+    .vnn-menu-label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .vnn-menu-label > i {
+        width: 19px;
+        flex-shrink: 0;
+        text-align: center;
+    }
+
+    .vnn-menu-label > span {
+        overflow-wrap: anywhere;
+    }
+
+    .vnn-group {
+        width: 100%;
+    }
+
+    .vnn-group-heading {
+        width: 100%;
+        padding: 14px 15px;
+
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+
+        background: #253247;
+        border: none;
+
+        color: white;
+        font-size: 13px;
+        font-weight: 800;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .vnn-group-heading:hover {
+        background: #334155;
+    }
+
+    .vnn-group-heading > span {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+    }
+
+    .vnn-group-heading .vnn-chevron {
+        transition: transform .2s ease;
+    }
+
+    .vnn-group.open .vnn-chevron {
+        transform: rotate(180deg);
+    }
+
+    .vnn-group .sidebar-sub-menu {
+        display: none;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        background: #141d2b;
+    }
+
+    .vnn-group.open > .sidebar-sub-menu {
+        display: block;
+    }
+
+    .vnn-group .sidebar-sub-menu li a {
+        padding-left: 19px;
+    }
+
+    .vnn-notification {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+
+        min-width: 25px;
+        height: 23px;
+        padding: 0 7px;
+
+        border-radius: 20px;
+        background: #ef4444;
+
+        color: white;
+        font-size: 11px;
+        font-weight: 900;
+
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .vnn-notification-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: white;
+    }
+
+    @media (max-width: 700px) {
+        .admin-sidebar {
+            width: 200px !important;
+            min-width: 200px !important;
+            max-width: 200px !important;
+            flex-basis: 200px !important;
+        }
+
+        .vnn-brand-title {
+            font-size: 19px;
+        }
+
+        .admin-menu li > a,
+        .vnn-group-heading {
+            font-size: 12px;
+            padding-left: 9px;
+            padding-right: 9px;
+        }
+    }
+</style>
 
 <aside class="admin-sidebar" id="vnnAdminSidebar">
 
-    <div class="admin-brand"
-         style="display:flex;align-items:center;
-                gap:12px;height:74px;min-height:74px;
-                background:#0f172a;padding:15px">
+    <!-- LOGO -->
 
-        <svg viewBox="0 0 180 115"
-             xmlns="http://www.w3.org/2000/svg"
-             style="width:58px;flex-shrink:0">
-            <polygon points="50,42 22,86 82,86"
-                     fill="#58a82d"/>
-            <polygon points="50,42 58,56 44,56"
-                     fill="#ffffff"/>
-            <polygon points="95,8 42,94 150,94"
-                     fill="#4d9e26"/>
-            <polygon points="95,8 116,40 105,36 95,48 85,36 76,42"
-                     fill="#ffffff"/>
-            <polygon points="135,38 106,86 170,86"
-                     fill="#3b7a1e"/>
-            <polygon points="135,38 144,52 128,52"
-                     fill="#ffffff"/>
-            <path d="M6 90 C48 58 132 58 174 90
-                     C140 84 40 84 6 90Z"
-                  fill="#6db832"/>
-            <path d="M16 88 C52 74 128 74 164 88
-                     C138 102 42 102 16 88Z"
-                  fill="#1b5e20"/>
-        </svg>
+    <div class="vnn-admin-brand">
+
+        <div class="vnn-brand-mountain">
+            <i class="fa-solid fa-mountain-sun"></i>
+        </div>
 
         <div>
-            <div style="font-weight:900;
-                        font-size:22px;
-                        letter-spacing:1px;
-                        line-height:1.1">
-                <span style="color:#38bdf8">V</span>
-                <span style="color:#f97316">N</span>
-                <span style="color:#f59e0b">N</span>
+            <div class="vnn-brand-title">
+                <span class="blue">V</span><span class="orange">NN</span>
             </div>
-            <div style="font-size:11px;
-                        color:white;
-                        font-weight:800;
-                        letter-spacing:3px">
+
+            <div class="vnn-brand-subtitle">
                 TRAVEL
             </div>
         </div>
 
     </div>
 
-    <a href="<?= htmlspecialchars($siteBase) ?>index.php"
-       target="_blank"
-       rel="noopener"
-       class="btn-sidebar-viewsite">
+    <!-- TRUY CAP WEBSITE -->
+
+    <a
+        class="vnn-view-website"
+        href="<?= htmlspecialchars($siteBase, ENT_QUOTES, 'UTF-8') ?>index.php"
+        target="_blank"
+        rel="noopener"
+    >
         <i class="fa-solid fa-arrow-up-right-from-square"></i>
         Xem Website Trực Tiếp
     </a>
 
     <ul class="admin-menu">
 
-        <?php vnn_sidebar_link(
+        <?php
+        vnnSidebarItem(
             'dashboard',
             $adminBase . 'index.php',
             'fa-gauge',
             'Dashboard Bàn Làm Việc'
-        ); ?>
+        );
+        ?>
+
+        <!-- XỬ LÝ KHÁCH HÀNG -->
 
         <?php if (isStaff() || isManager() || isAdmin()): ?>
 
-        <li class="sidebar-group <?= $customerOpen ? 'open' : 'open' ?>">
+            <li class="vnn-group <?= $isCustomerPage ? 'open' : 'open' ?>">
 
-            <?php vnn_sidebar_group_title(
-                'fa-bell-concierge',
-                'XỬ LÝ KHÁCH HÀNG',
-                '#38bdf8'
-            ); ?>
+                <button
+                    type="button"
+                    class="vnn-group-heading"
+                    aria-expanded="true"
+                    onclick="vnnToggleGroup(this)"
+                >
+                    <span>
+                        <i
+                            class="fa-solid fa-headset"
+                            style="color:#38bdf8"
+                        ></i>
+                        XỬ LÝ KHÁCH HÀNG
+                    </span>
 
-            <ul class="sidebar-sub-menu">
+                    <i class="fa-solid fa-chevron-down vnn-chevron"></i>
+                </button>
 
-                <?php vnn_sidebar_link(
-                    'chat',
-                    $adminBase . 'chat/',
-                    'fa-headset',
-                    'Chat Trực Tuyến'
-                ); ?>
+                <ul class="sidebar-sub-menu">
 
-                <?php vnn_sidebar_link(
-                    'bookings',
-                    $adminBase . 'bookings/',
-                    'fa-ticket',
-                    'Duyệt Tour',
-                    $pending_bookings
-                ); ?>
+                    <?php
+                    vnnSidebarItem(
+                        'chat',
+                        $adminBase . 'chat/',
+                        'fa-comments',
+                        'Chat Trực Tuyến'
+                    );
 
-                <?php vnn_sidebar_link(
-                    'orders',
-                    $adminBase . 'orders/',
-                    'fa-box-open',
-                    'Duyệt Đơn Hàng',
-                    $pending_orders
-                ); ?>
+                    vnnSidebarItem(
+                        'bookings',
+                        $adminBase . 'bookings/',
+                        'fa-ticket',
+                        'Duyệt Tour',
+                        $pendingTours
+                    );
 
-                <?php vnn_sidebar_link(
-                    'reviews',
-                    $adminBase . 'reviews/',
-                    'fa-star',
-                    'Đánh Giá Từ Khách',
-                    $pending_reviews
-                ); ?>
+                    vnnSidebarItem(
+                        'orders',
+                        $adminBase . 'orders/',
+                        'fa-box',
+                        'Duyệt Đơn Hàng',
+                        $pendingOrders
+                    );
 
-                <?php vnn_sidebar_link(
-                    'contacts',
-                    $adminBase . 'contacts/',
-                    'fa-envelope',
-                    'Tin Nhắn Liên Hệ',
-                    $contact_count
-                ); ?>
+                    vnnSidebarItem(
+                        'reviews',
+                        $adminBase . 'reviews/',
+                        'fa-star',
+                        'Đánh Giá Từ Khách',
+                        $pendingReviews
+                    );
 
-            </ul>
-        </li>
+                    vnnSidebarItem(
+                        'contacts',
+                        $adminBase . 'contacts/',
+                        'fa-envelope',
+                        'Tin Nhắn Liên Hệ'
+                    );
+                    ?>
+
+                </ul>
+
+            </li>
 
         <?php endif; ?>
+
+        <!-- NỘI DUNG VÀ KHO -->
 
         <?php if (isManager()): ?>
 
-        <li class="sidebar-group <?= $contentOpen ? 'open' : 'open' ?>">
+            <li class="vnn-group <?= $isContentPage ? 'open' : 'open' ?>">
 
-            <?php vnn_sidebar_group_title(
-                'fa-boxes-stacked',
-                'NỘI DUNG & KHO',
-                '#f97316'
-            ); ?>
+                <button
+                    type="button"
+                    class="vnn-group-heading"
+                    aria-expanded="true"
+                    onclick="vnnToggleGroup(this)"
+                >
+                    <span>
+                        <i
+                            class="fa-solid fa-boxes-stacked"
+                            style="color:#f97316"
+                        ></i>
+                        NỘI DUNG & KHO
+                    </span>
 
-            <ul class="sidebar-sub-menu">
+                    <i class="fa-solid fa-chevron-down vnn-chevron"></i>
+                </button>
 
-                <?php vnn_sidebar_link(
-                    'tours',
-                    $adminBase . 'tours/',
-                    'fa-person-hiking',
-                    'Quản Lý Tour'
-                ); ?>
+                <ul class="sidebar-sub-menu">
 
-                <?php vnn_sidebar_link(
-                    'products',
-                    $adminBase . 'products/',
-                    'fa-campground',
-                    'Dụng Cụ & Tồn Kho'
-                ); ?>
+                    <?php
+                    vnnSidebarItem(
+                        'tours',
+                        $adminBase . 'tours/',
+                        'fa-person-hiking',
+                        'Quản Lý Tour'
+                    );
 
-                <?php vnn_sidebar_link(
-                    'categories',
-                    $adminBase . 'categories/',
-                    'fa-layer-group',
-                    'Danh Mục Hàng'
-                ); ?>
+                    vnnSidebarItem(
+                        'products',
+                        $adminBase . 'products/',
+                        'fa-warehouse',
+                        'Dụng Cụ, Kho & Danh Mục'
+                    );
 
-                <?php vnn_sidebar_link(
-                    'locations',
-                    $adminBase . 'locations/',
-                    'fa-map-location-dot',
-                    'Điểm Đến Trekking'
-                ); ?>
+                    vnnSidebarItem(
+                        'locations',
+                        $adminBase . 'locations/',
+                        'fa-map-location-dot',
+                        'Điểm Đến Trekking'
+                    );
 
-                <?php vnn_sidebar_link(
-                    'posts',
-                    $adminBase . 'posts/',
-                    'fa-newspaper',
-                    'Bài Viết & Cẩm Nang'
-                ); ?>
+                    vnnSidebarItem(
+                        'posts',
+                        $adminBase . 'posts/',
+                        'fa-newspaper',
+                        'Bài Viết & Cẩm Nang'
+                    );
+                    ?>
 
-            </ul>
-        </li>
+                </ul>
 
-        <li class="sidebar-group <?= $reportOpen ? 'open' : 'open' ?>">
+            </li>
 
-            <?php vnn_sidebar_group_title(
-                'fa-chart-line',
-                'DOANH THU & BÁO CÁO',
-                '#10b981'
-            ); ?>
+            <!-- DOANH THU -->
 
-            <ul class="sidebar-sub-menu">
+            <li class="vnn-group <?= $isRevenuePage ? 'open' : 'open' ?>">
 
-                <?php vnn_sidebar_link(
-                    'revenue_tours',
-                    $adminBase . 'revenue-tours.php',
-                    'fa-chart-column',
-                    'Doanh Thu Tour'
-                ); ?>
+                <button
+                    type="button"
+                    class="vnn-group-heading"
+                    aria-expanded="true"
+                    onclick="vnnToggleGroup(this)"
+                >
+                    <span>
+                        <i
+                            class="fa-solid fa-chart-line"
+                            style="color:#22c55e"
+                        ></i>
+                        DOANH THU & BÁO CÁO
+                    </span>
 
-                <?php vnn_sidebar_link(
-                    'revenue_shop',
-                    $adminBase . 'revenue-shop.php',
-                    'fa-bag-shopping',
-                    'Doanh Thu Bán Hàng'
-                ); ?>
+                    <i class="fa-solid fa-chevron-down vnn-chevron"></i>
+                </button>
 
-            </ul>
-        </li>
+                <ul class="sidebar-sub-menu">
+
+                    <?php
+                    vnnSidebarItem(
+                        'revenue_tours',
+                        $adminBase . 'revenue-tours.php',
+                        'fa-chart-column',
+                        'Doanh Thu Tour'
+                    );
+
+                    vnnSidebarItem(
+                        'revenue_shop',
+                        $adminBase . 'revenue-shop.php',
+                        'fa-bag-shopping',
+                        'Doanh Thu Bán Hàng'
+                    );
+                    ?>
+
+                </ul>
+
+            </li>
 
         <?php endif; ?>
 
+        <!-- QUẢN TRỊ -->
+
         <?php if (isAdmin()): ?>
 
-        <li class="sidebar-group open">
+            <li class="vnn-group open">
 
-            <?php vnn_sidebar_group_title(
-                'fa-shield-halved',
-                'QUẢN TRỊ HỆ THỐNG',
-                '#ef4444'
-            ); ?>
+                <button
+                    type="button"
+                    class="vnn-group-heading"
+                    aria-expanded="true"
+                    onclick="vnnToggleGroup(this)"
+                >
+                    <span>
+                        <i class="fa-solid fa-shield-halved"></i>
+                        QUẢN TRỊ HỆ THỐNG
+                    </span>
 
-            <ul class="sidebar-sub-menu">
+                    <i class="fa-solid fa-chevron-down vnn-chevron"></i>
+                </button>
 
-                <?php vnn_sidebar_link(
-                    'users',
-                    $adminBase . 'users/',
-                    'fa-user-shield',
-                    'Cấp Quyền & Tài Khoản'
-                ); ?>
+                <ul class="sidebar-sub-menu">
 
-            </ul>
+                    <?php
+                    vnnSidebarItem(
+                        'users',
+                        $adminBase . 'users/',
+                        'fa-users-gear',
+                        'Cấp Quyền & Tài Khoản'
+                    );
+                    ?>
 
-        </li>
+                </ul>
+
+            </li>
 
         <?php endif; ?>
 
@@ -329,10 +663,18 @@ $reportOpen = in_array($current_page, $reportPages, true);
 </aside>
 
 <script>
-function toggleSidebarGroup(element) {
-    const group = element.closest('.sidebar-group');
-    if (!group) return;
+function vnnToggleGroup(button) {
+    const group = button.closest('.vnn-group');
 
-    group.classList.toggle('open');
+    if (!group) {
+        return;
+    }
+
+    const isOpen = group.classList.toggle('open');
+
+    button.setAttribute(
+        'aria-expanded',
+        isOpen ? 'true' : 'false'
+    );
 }
 </script>
