@@ -1,16 +1,15 @@
 <?php
-// VNN TRAVEL - DANG KY TOUR + THANH TOAN QR
-// Aiven MySQL / Vercel
-// Khong redirect sau POST
-// So cho rieng theo moi ngay khoi hanh
+// VNN Travel - Dang ky tour va thanh toan QR
+// Thanh toan hien thi bang modal o giua man hinh.
+// So cho tinh theo tung ngay khoi hanh.
 
 ob_start();
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-if (session_status() === PHP_SESSION_NONE) {
-    if (!headers_sent()) session_start();
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    session_start();
 }
 
 function vt_h($v) {
@@ -26,36 +25,29 @@ function vt_phone($v) {
 }
 
 function vt_token($v) {
-    $v = (string)$v;
+    $v = strtr((string)$v, ['đ' => 'd', 'Đ' => 'D']);
 
     if (class_exists('Transliterator')) {
         $tr = Transliterator::create('Any-Latin; Latin-ASCII');
         if ($tr) $v = $tr->transliterate($v);
     } elseif (function_exists('iconv')) {
-        $converted = @iconv(
-            'UTF-8',
-            'ASCII//TRANSLIT//IGNORE',
-            $v
-        );
-        if ($converted !== false) $v = $converted;
+        $result = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $v);
+        if ($result !== false) $v = $result;
     }
 
-    $v = strtr($v, ['đ' => 'd', 'Đ' => 'D']);
     return preg_replace('/[^A-Z0-9]/', '', strtoupper($v));
 }
 
 function vt_valid_date($date) {
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$date)) {
         return false;
     }
 
     $d = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
-
     return $d && $d->format('Y-m-d') === $date;
 }
 
 function vt_code(PDO $pdo) {
-    // Su dung do dai an toan cho booking_code.
     $stmt = $pdo->query("
         SELECT CHARACTER_MAXIMUM_LENGTH
         FROM INFORMATION_SCHEMA.COLUMNS
@@ -69,7 +61,7 @@ function vt_code(PDO $pdo) {
 
     if ($length < 8) {
         throw new RuntimeException(
-            'Cột booking_code chưa được cấu hình phù hợp.'
+            'Cấu hình mã đặt tour không hợp lệ.'
         );
     }
 
@@ -77,27 +69,22 @@ function vt_code(PDO $pdo) {
         $code = 'TB' . substr(
             strtoupper(bin2hex(random_bytes(12))),
             0,
-            min($length - 2, 22)
+            min(22, $length - 2)
         );
 
-        $check = $pdo->prepare("
-            SELECT id
-            FROM tour_bookings
-            WHERE booking_code = ?
-            LIMIT 1
+        $stmt = $pdo->prepare("
+            SELECT id FROM tour_bookings
+            WHERE booking_code = ? LIMIT 1
         ");
+        $stmt->execute([$code]);
 
-        $check->execute([$code]);
-
-        if (!$check->fetchColumn()) return $code;
+        if (!$stmt->fetchColumn()) return $code;
     }
 
-    throw new RuntimeException('Không thể tạo mã đăng ký.');
+    throw new RuntimeException('Không thể tạo mã đặt tour.');
 }
 
 function vt_departures(PDO $pdo, int $tourId) {
-    // available_slots duoc coi la suc chua goc.
-    // So cho con lai = suc chua - cac dang ky chua huy.
     $stmt = $pdo->prepare("
         SELECT
             d.id,
@@ -111,14 +98,10 @@ function vt_departures(PDO $pdo, int $tourId) {
                     WHERE b.tour_id = d.tour_id
                       AND b.departure_date = d.departure_date
                       AND LOWER(TRIM(b.status)) NOT IN (
-                          'đã hủy',
-                          'đã huỷ',
-                          'hủy',
-                          'huỷ',
-                          'cancelled',
-                          'canceled',
-                          'rejected',
-                          'từ chối'
+                          'đã hủy', 'đã huỷ',
+                          'hủy', 'huỷ',
+                          'cancelled', 'canceled',
+                          'rejected', 'từ chối'
                       )
                 ), 0)
             ) AS remaining
@@ -130,7 +113,6 @@ function vt_departures(PDO $pdo, int $tourId) {
     ");
 
     $stmt->execute([$tourId]);
-
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -146,35 +128,35 @@ function vt_status(PDO $pdo) {
 
     $type = (string)$stmt->fetchColumn();
 
-    if (!$type || stripos($type, 'enum(') !== 0) {
+    if (stripos($type, 'enum(') !== 0) {
         return 'Chờ xác nhận';
     }
 
     preg_match_all("/'([^']*)'/", $type, $matches);
-    $allowed = $matches[1] ?? [];
 
-    foreach (
-        ['Chờ xác nhận', 'Chờ duyệt', 'pending', 'Pending']
-        as $status
-    ) {
-        if (in_array($status, $allowed, true)) {
-            return $status;
+    foreach ([
+        'Chờ xác nhận',
+        'Chờ duyệt',
+        'pending',
+        'Pending'
+    ] as $candidate) {
+        if (in_array($candidate, $matches[1] ?? [], true)) {
+            return $candidate;
         }
     }
 
     throw new RuntimeException(
-        'Trạng thái đặt tour chưa tương thích với database.'
+        'Trạng thái đặt tour chưa tương thích.'
     );
 }
 
 function vt_retryable(Throwable $e) {
-    if (!($e instanceof PDOException)) return false;
-
-    return in_array(
-        (int)($e->errorInfo[1] ?? 0),
-        [1205, 1213],
-        true
-    );
+    return $e instanceof PDOException
+        && in_array(
+            (int)($e->errorInfo[1] ?? 0),
+            [1205, 1213],
+            true
+        );
 }
 
 // ==========================================
@@ -186,6 +168,8 @@ $base = rtrim(
     '/'
 ) . '/';
 
+// Giu duong dan QR cua ban truoc.
+// Dam bao anh thuc te nam tai duong dan nay.
 $qrImage = $base . 'assets/images/momo-qr-vu.jpg';
 
 $tourId = (int)($_GET['id'] ?? 0);
@@ -194,12 +178,10 @@ $payment = null;
 $success = false;
 
 $stmt = $pdo->prepare("
-    SELECT *
-    FROM tours
+    SELECT * FROM tours
     WHERE id = ? AND status = 1
     LIMIT 1
 ");
-
 $stmt->execute([$tourId]);
 $tour = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -217,12 +199,9 @@ $user = null;
 
 if (!empty($_SESSION['user_id'])) {
     $stmt = $pdo->prepare("
-        SELECT *
-        FROM users
-        WHERE id = ?
-        LIMIT 1
+        SELECT * FROM users
+        WHERE id = ? LIMIT 1
     ");
-
     $stmt->execute([(int)$_SESSION['user_id']]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 }
@@ -234,7 +213,6 @@ if (empty($_SESSION[$tokenKey])) {
     $_SESSION[$tokenKey] = bin2hex(random_bytes(16));
 }
 
-// Chon ngay co cho dau tien.
 $defaultDate = '';
 
 foreach ($departures as $dep) {
@@ -263,15 +241,11 @@ $old = [
 ];
 
 // ==========================================
-// XU LY DAT TOUR
+// XU LY DANG KY TOUR
 // ==========================================
 
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
-    && $tour
-) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
     $token = (string)($_POST['booking_token'] ?? '');
-
     $name = trim((string)$old['fullname']);
     $phone = vt_phone($old['phone']);
     $email = trim((string)$old['email']);
@@ -284,7 +258,6 @@ if (
         ['options' => ['min_range' => 1]]
     );
 
-    // Xu ly submit trung cua cung mot form.
     if (
         $token !== ''
         && !empty($_SESSION[$doneKey])
@@ -293,15 +266,13 @@ if (
             $token
         )
     ) {
+        // Da luu cung mot lan gui, khong tao don trung.
         $payment = $_SESSION[$doneKey]['payment'];
         $success = true;
 
     } elseif (
-        !$token ||
-        !hash_equals(
-            (string)$_SESSION[$tokenKey],
-            $token
-        )
+        !$token
+        || !hash_equals((string)$_SESSION[$tokenKey], $token)
     ) {
         $error = 'Phiên đăng ký đã hết hạn. Vui lòng tải lại trang.';
 
@@ -309,10 +280,10 @@ if (
         $error = 'Vui lòng đăng nhập để đăng ký tour.';
 
     } elseif (
-        $name === '' ||
-        strlen($phone) < 9 ||
-        strlen($emergency) < 9 ||
-        !filter_var($email, FILTER_VALIDATE_EMAIL)
+        $name === ''
+        || strlen($phone) < 9
+        || strlen($emergency) < 9
+        || !filter_var($email, FILTER_VALIDATE_EMAIL)
     ) {
         $error = 'Vui lòng nhập đầy đủ thông tin hợp lệ.';
 
@@ -323,14 +294,10 @@ if (
         $error = 'Số người tham gia phải là số nguyên lớn hơn 0.';
 
     } else {
-
         for ($attempt = 1; $attempt <= 3; $attempt++) {
-
             try {
                 $pdo->beginTransaction();
 
-                // Khoa dong ngay khoi hanh.
-                // Khong khoa so cho chung cua tour.
                 $stmt = $pdo->prepare("
                     SELECT id, available_slots
                     FROM tour_departures
@@ -341,11 +308,7 @@ if (
                     FOR UPDATE
                 ");
 
-                $stmt->execute([
-                    $tourId,
-                    $selectedDate
-                ]);
-
+                $stmt->execute([$tourId, $selectedDate]);
                 $departure = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if (!$departure) {
@@ -354,29 +317,20 @@ if (
                     );
                 }
 
-                // Dem booking chua huy cua dung ngay.
                 $stmt = $pdo->prepare("
                     SELECT COALESCE(SUM(number_people), 0)
                     FROM tour_bookings
                     WHERE tour_id = ?
                       AND departure_date = ?
                       AND LOWER(TRIM(status)) NOT IN (
-                          'đã hủy',
-                          'đã huỷ',
-                          'hủy',
-                          'huỷ',
-                          'cancelled',
-                          'canceled',
-                          'rejected',
-                          'từ chối'
+                          'đã hủy', 'đã huỷ',
+                          'hủy', 'huỷ',
+                          'cancelled', 'canceled',
+                          'rejected', 'từ chối'
                       )
                 ");
 
-                $stmt->execute([
-                    $tourId,
-                    $selectedDate
-                ]);
-
+                $stmt->execute([$tourId, $selectedDate]);
                 $booked = (int)$stmt->fetchColumn();
 
                 $remaining = max(
@@ -386,8 +340,7 @@ if (
 
                 if ($remaining <= 0) {
                     throw new RuntimeException(
-                        'Ngày khởi hành này đã hết chỗ. ' .
-                        'Vui lòng chọn ngày khác.'
+                        'Ngày khởi hành này đã hết chỗ. Vui lòng chọn ngày khác.'
                     );
                 }
 
@@ -404,7 +357,6 @@ if (
                 $totalPrice = (float)$tour['price'] * $people;
                 $status = vt_status($pdo);
 
-                // Luu dang ky.
                 $stmt = $pdo->prepare("
                     INSERT INTO tour_bookings
                     (
@@ -439,13 +391,11 @@ if (
                     $status
                 ]);
 
-                // Khong tru tours.available_slots.
-                // Khong tru tour_departures.available_slots.
-                // So cho con lai tinh tu booking.
+                // So cho con lai tinh tu booking,
+                // khong tru truc tiep cot available_slots.
 
                 $pdo->commit();
 
-                // Thong tin chuyen khoan.
                 $payment = [
                     'code' => $bookingCode,
                     'tour' => $tour['title'],
@@ -469,13 +419,10 @@ if (
                     'payment' => $payment
                 ];
 
-                $_SESSION[$tokenKey] =
-                    bin2hex(random_bytes(16));
-
+                $_SESSION[$tokenKey] = bin2hex(random_bytes(16));
                 break;
 
             } catch (Throwable $e) {
-
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
@@ -501,18 +448,14 @@ if (
     }
 }
 
-// ==========================================
-// GIAO DIEN
-// ==========================================
-
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
 .vt-page {
-    background:#f8fafc;
-    padding:36px 16px 70px;
     min-height:75vh;
+    padding:36px 16px 70px;
+    background:#f8fafc;
 }
 .vt-card {
     max-width:760px;
@@ -525,9 +468,9 @@ require_once __DIR__ . '/../includes/header.php';
 .vt-title {
     text-align:center;
     font-size:27px;
+    font-weight:800;
     color:#14532d;
     margin:0 0 12px;
-    font-weight:800;
 }
 .vt-subtitle {
     text-align:center;
@@ -545,10 +488,10 @@ require_once __DIR__ . '/../includes/header.php';
     line-height:1.7;
 }
 .vt-ok {
-    background:#dcfce7;
-    color:#166534;
     padding:16px;
     border-radius:10px;
+    background:#dcfce7;
+    color:#166534;
     line-height:1.7;
     margin:20px 0;
 }
@@ -564,9 +507,6 @@ require_once __DIR__ . '/../includes/header.php';
     font-weight:800;
     color:#c2410c;
     margin-bottom:11px;
-}
-.vt-departure select {
-    width:100%;
 }
 .vt-grid {
     display:grid;
@@ -625,33 +565,124 @@ require_once __DIR__ . '/../includes/header.php';
 .vt-button {
     width:100%;
     padding:16px;
-    background:#ea580c;
-    color:white;
     border:0;
     border-radius:11px;
+    background:#ea580c;
+    color:white;
     font-size:16px;
     font-weight:800;
     cursor:pointer;
-}
-.vt-button:hover {
-    background:#c2410c;
 }
 .vt-button:disabled {
     opacity:.55;
     cursor:not-allowed;
 }
+.vt-back {
+    display:inline-block;
+    text-decoration:none;
+    font-weight:700;
+    color:#14532d;
+    margin-top:24px;
+}
+
+/* NUT THANH TOAN XANH */
+.vt-pay-button {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:9px;
+    width:100%;
+    padding:16px;
+    border:none;
+    border-radius:11px;
+    background:#166534;
+    color:#fff;
+    font-size:17px;
+    font-weight:800;
+    cursor:pointer;
+    transition:background .2s,transform .2s;
+}
+.vt-pay-button:hover {
+    background:#15803d;
+    transform:translateY(-1px);
+}
+
+/* MODAL THANH TOAN */
+.vt-modal-overlay {
+    position:fixed;
+    inset:0;
+    z-index:999999;
+    background:rgba(15,23,42,.68);
+    backdrop-filter:blur(5px);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    padding:16px;
+    box-sizing:border-box;
+}
+.vt-modal-overlay.open {
+    display:flex;
+}
+.vt-modal {
+    position:relative;
+    width:100%;
+    max-width:740px;
+    max-height:90vh;
+    overflow-y:auto;
+    background:#fff;
+    padding:30px;
+    border-radius:18px;
+    box-sizing:border-box;
+    box-shadow:0 25px 80px rgba(0,0,0,.3);
+    animation:vtModalAppear .2s ease;
+}
+@keyframes vtModalAppear {
+    from {
+        opacity:0;
+        transform:translateY(12px) scale(.97);
+    }
+    to {
+        opacity:1;
+        transform:translateY(0) scale(1);
+    }
+}
+.vt-modal-close {
+    position:absolute;
+    top:13px;
+    right:13px;
+    width:38px;
+    height:38px;
+    background:#f1f5f9;
+    color:#334155;
+    border:none;
+    border-radius:50%;
+    cursor:pointer;
+    font-size:23px;
+    line-height:1;
+}
+.vt-modal-close:hover {
+    background:#e2e8f0;
+}
+.vt-modal-title {
+    text-align:center;
+    color:#14532d;
+    font-size:22px;
+    font-weight:800;
+    padding:0 35px;
+    margin:0 0 24px;
+}
 .vt-payment {
     display:grid;
-    grid-template-columns:245px 1fr;
-    gap:22px;
+    grid-template-columns:minmax(0,250px) minmax(0,1fr);
+    gap:20px;
     align-items:start;
-    margin-top:25px;
 }
 .vt-qr {
+    display:block;
     width:100%;
     height:auto;
     border:1px solid #fbcfe8;
-    border-radius:13px;
+    border-radius:12px;
 }
 .vt-paybox {
     border:1px solid #e2e8f0;
@@ -659,40 +690,53 @@ require_once __DIR__ . '/../includes/header.php';
     padding:20px;
 }
 .vt-paybox h3 {
+    font-size:17px;
+    margin:0 0 13px;
     color:#0f172a;
-    margin:0 0 15px;
 }
 .vt-transfer {
-    background:#fff7ed;
+    margin:14px 0;
+    padding:14px;
+    border-radius:9px;
     border:1px solid #fed7aa;
-    border-radius:10px;
+    background:#fff7ed;
     color:#c2410c;
-    padding:15px;
+    font-size:14px;
     font-weight:800;
     overflow-wrap:anywhere;
-    margin:15px 0;
+    user-select:all;
 }
 .vt-copy {
-    padding:12px 17px;
     background:#14532d;
     color:white;
     border:0;
-    border-radius:9px;
-    font-weight:700;
+    border-radius:8px;
+    padding:12px 16px;
     cursor:pointer;
+    font-weight:700;
 }
 .vt-note {
     margin-top:17px;
-    font-size:14px;
-    line-height:1.8;
+    font-size:13px;
     color:#475569;
+    line-height:1.8;
 }
-.vt-back {
-    display:inline-block;
-    color:#14532d;
+.vt-modal-footer {
+    margin-top:21px;
+    display:flex;
+    justify-content:center;
+}
+.vt-modal-done {
+    border:0;
+    border-radius:9px;
+    padding:12px 28px;
+    background:#e2e8f0;
+    color:#334155;
     font-weight:700;
-    text-decoration:none;
-    margin-top:24px;
+    cursor:pointer;
+}
+body.vt-modal-active {
+    overflow:hidden;
 }
 @media(max-width:700px) {
     .vt-card {padding:20px}
@@ -700,6 +744,9 @@ require_once __DIR__ . '/../includes/header.php';
     .vt-payment {grid-template-columns:1fr}
     .vt-row {gap:8px}
     .vt-title {font-size:23px}
+    .vt-modal {padding:24px 16px}
+    .vt-payment {max-width:100%}
+    .vt-qr {max-width:270px;margin:auto}
 }
 </style>
 
@@ -719,7 +766,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <?php elseif ($success && $payment): ?>
 
-    <!-- THANH TOAN TOUR - CO QR -->
+    <!-- DANG KY THANH CONG: KHONG HIEN QR DAI BEN DUOI -->
 
     <h2 class="vt-title">
         ĐĂNG KÝ TOUR THÀNH CÔNG!
@@ -727,8 +774,8 @@ require_once __DIR__ . '/../includes/header.php';
 
     <div class="vt-ok">
         <i class="fa-solid fa-circle-check"></i>
-        Đăng ký của bạn đã được ghi nhận.
-        Vui lòng thực hiện thanh toán theo hướng dẫn bên dưới.
+        Đăng ký của bạn đã được ghi nhận thành công.
+        Vui lòng chọn Thanh toán để xem thông tin chuyển khoản.
     </div>
 
     <div class="vt-summary">
@@ -772,66 +819,20 @@ require_once __DIR__ . '/../includes/header.php';
 
     </div>
 
-    <h3 style="color:#14532d">
+    <!-- NUT THANH TOAN -->
+    <button
+        type="button"
+        class="vt-pay-button"
+        onclick="openPaymentModal()"
+    >
         <i class="fa-solid fa-credit-card"></i>
-        Thanh toán bằng hình thức chuyển khoản
-    </h3>
-
-    <div class="vt-payment">
-
-        <div>
-            <img
-                src="<?= vt_h($qrImage) ?>"
-                class="vt-qr"
-                alt="QR thanh toán MoMo"
-            >
-        </div>
-
-        <div class="vt-paybox">
-
-            <h3>Thông tin thanh toán</h3>
-
-            <p>Số tiền cần chuyển:</p>
-
-            <div class="vt-total">
-                <?= vt_money($payment['total']) ?>
-            </div>
-
-            <p style="margin-top:20px">
-                <strong>
-                    Nội dung chuyển khoản bắt buộc:
-                </strong>
-            </p>
-
-            <div
-                class="vt-transfer"
-                id="vt-transfer"
-            ><?= vt_h($payment['transfer']) ?></div>
-
-            <button
-                type="button"
-                class="vt-copy"
-                onclick="copyTransfer()"
-            >
-                <i class="fa-solid fa-copy"></i>
-                Sao chép nội dung
-            </button>
-
-            <p class="vt-note">
-                Vui lòng chuyển khoản đúng số tiền
-                và nội dung yêu cầu.
-                Nếu đã chuyển khoản, bạn không cần chuyển lại.
-                Hãy chờ quản lý kiểm tra và xác nhận thanh toán.
-            </p>
-
-        </div>
-    </div>
+        THANH TOÁN
+    </button>
 
     <div style="text-align:center">
-        <a
-            class="vt-back"
-            href="<?= vt_h($base) ?>tours/my-tours.php"
-        >
+        <a class="vt-back"
+           href="<?= vt_h($base) ?>tours/my-tours.php">
+            <i class="fa-solid fa-list"></i>
             Xem tour tôi đã đăng ký
         </a>
     </div>
@@ -896,10 +897,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <option
                     value="<?= vt_h($date) ?>"
                     data-remaining="<?= $remaining ?>"
-                    <?= $date === $selectedDate
-                        ? 'selected' : '' ?>
-                    <?= $remaining <= 0
-                        ? 'disabled' : '' ?>
+                    <?= $date === $selectedDate ? 'selected' : '' ?>
+                    <?= $remaining <= 0 ? 'disabled' : '' ?>
                 >
                     Đợt khởi hành:
                     <?= date('d/m/Y', strtotime($date)) ?>
@@ -912,8 +911,6 @@ require_once __DIR__ . '/../includes/header.php';
             <?php endforeach; ?>
 
             </select>
-
-            <!-- KHONG HIEN DONG SO CHO LAP LAI -->
 
         </div>
 
@@ -999,10 +996,7 @@ require_once __DIR__ . '/../includes/header.php';
                 Ghi chú (chế độ ăn, kích thước áo, lưu ý sức khỏe...)
             </label>
 
-            <textarea
-                name="notes"
-                rows="3"
-            ><?= vt_h($old['notes']) ?></textarea>
+            <textarea name="notes" rows="3"><?= vt_h($old['notes']) ?></textarea>
 
         </div>
 
@@ -1044,9 +1038,115 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 </section>
 
-<script>
-(function () {
+<?php if ($success && $payment): ?>
 
+<!-- MODAL THANH TOAN NAM NGOAI FORM -->
+
+<div
+    class="vt-modal-overlay"
+    id="vtPaymentModal"
+    role="presentation"
+    onclick="if(event.target===this)closePaymentModal()"
+>
+    <div
+        class="vt-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="vtPaymentTitle"
+    >
+        <button
+            type="button"
+            class="vt-modal-close"
+            onclick="closePaymentModal()"
+            aria-label="Đóng cửa sổ thanh toán"
+        >
+            &times;
+        </button>
+
+        <h2 class="vt-modal-title" id="vtPaymentTitle">
+            <i class="fa-solid fa-credit-card"></i>
+            THÔNG TIN THANH TOÁN
+        </h2>
+
+        <div class="vt-payment">
+
+            <!-- ANH QR MOMO -->
+
+            <div>
+                <img
+                    src="<?= vt_h($qrImage) ?>"
+                    class="vt-qr"
+                    alt="Mã QR MoMo thanh toán tour"
+                >
+            </div>
+
+            <!-- NOI DUNG CHUYEN KHOAN -->
+
+            <div class="vt-paybox">
+
+                <h3>
+                    Thanh toán bằng hình thức chuyển khoản
+                </h3>
+
+                <p>Số tiền cần chuyển:</p>
+
+                <div class="vt-total">
+                    <?= vt_money($payment['total']) ?>
+                </div>
+
+                <p style="margin-top:18px">
+                    <strong>
+                        Nội dung chuyển khoản bắt buộc:
+                    </strong>
+                </p>
+
+                <div
+                    class="vt-transfer"
+                    id="vtTransfer"
+                ><?= vt_h($payment['transfer']) ?></div>
+
+                <button
+                    type="button"
+                    class="vt-copy"
+                    onclick="copyTransfer()"
+                >
+                    <i class="fa-solid fa-copy"></i>
+                    Sao chép nội dung
+                </button>
+
+                <p class="vt-note">
+                    Vui lòng chuyển đúng số tiền và
+                    nội dung chuyển khoản. Nếu đã thanh toán,
+                    bạn không cần chuyển lại.
+                    Hãy chờ bộ phận quản lý kiểm tra
+                    và xác nhận giao dịch.
+                </p>
+
+            </div>
+
+        </div>
+
+        <div class="vt-modal-footer">
+            <button
+                type="button"
+                class="vt-modal-done"
+                onclick="closePaymentModal()"
+            >
+                Đóng
+            </button>
+        </div>
+
+    </div>
+</div>
+
+<?php endif; ?>
+
+<script>
+// ==========================================
+// DONG BO SO CHO TREN FORM
+// ==========================================
+
+(function() {
     const form = document.getElementById('vtForm');
     const departure = document.getElementById('vtDeparture');
     const people = document.getElementById('vtPeople');
@@ -1057,9 +1157,7 @@ require_once __DIR__ . '/../includes/header.php';
 
     if (!form || !departure || !people) return;
 
-    const price = <?= json_encode(
-        (float)($tour['price'] ?? 0)
-    ) ?>;
+    const price = <?= json_encode((float)($tour['price'] ?? 0)) ?>;
 
     function getRemaining() {
         const option =
@@ -1076,11 +1174,8 @@ require_once __DIR__ . '/../includes/header.php';
 
         people.max = String(slots);
 
-        // Khong co dong thong bao cho ben duoi dropdown.
-        // Chi cap nhat nhan so nguoi.
         label.textContent =
-            'Số người tham gia * (Còn trống ' +
-            slots + ' chỗ)';
+            'Số người tham gia * (Còn trống ' + slots + ' chỗ)';
 
         const valid =
             Number.isInteger(count)
@@ -1112,7 +1207,6 @@ require_once __DIR__ . '/../includes/header.php';
                 .toLocaleString('vi-VN') + ' đ';
 
         submit.disabled = !valid;
-
         return valid;
     }
 
@@ -1146,20 +1240,92 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     update();
-
 })();
 
-async function copyTransfer() {
-    const el = document.getElementById('vt-transfer');
-    if (!el) return;
+// ==========================================
+// MO VA DONG POPUP THANH TOAN
+// ==========================================
 
-    const content = el.textContent.trim();
+const vtModal = document.getElementById('vtPaymentModal');
+let vtPreviousFocus = null;
+
+function openPaymentModal() {
+    if (!vtModal) return;
+
+    vtPreviousFocus = document.activeElement;
+
+    vtModal.classList.add('open');
+    document.body.classList.add('vt-modal-active');
+
+    const closeBtn = vtModal.querySelector('.vt-modal-close');
+
+    if (closeBtn) closeBtn.focus();
+}
+
+function closePaymentModal() {
+    if (!vtModal) return;
+
+    vtModal.classList.remove('open');
+    document.body.classList.remove('vt-modal-active');
+
+    if (
+        vtPreviousFocus &&
+        typeof vtPreviousFocus.focus === 'function'
+    ) {
+        vtPreviousFocus.focus();
+    }
+}
+
+// Nhan ESC de dong. Giu focus trong modal.
+document.addEventListener('keydown', function(e) {
+    if (!vtModal || !vtModal.classList.contains('open')) {
+        return;
+    }
+
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closePaymentModal();
+    }
+
+    if (e.key === 'Tab') {
+        const buttons = Array.from(
+            vtModal.querySelectorAll('button:not([disabled])')
+        );
+
+        if (!buttons.length) return;
+
+        const first = buttons[0];
+        const last = buttons[buttons.length - 1];
+
+        if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    }
+});
+
+// ==========================================
+// SAO CHEP NOI DUNG CHUYEN KHOAN
+// ==========================================
+
+async function copyTransfer() {
+    const element = document.getElementById('vtTransfer');
+
+    if (!element) return;
+
+    const content = element.textContent.trim();
 
     try {
         await navigator.clipboard.writeText(content);
         alert('Đã sao chép nội dung chuyển khoản!');
     } catch (e) {
-        window.prompt('Sao chép nội dung chuyển khoản:', content);
+        window.prompt(
+            'Sao chép nội dung chuyển khoản:',
+            content
+        );
     }
 }
 </script>
