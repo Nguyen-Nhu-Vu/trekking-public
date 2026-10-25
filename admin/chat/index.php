@@ -1,10 +1,5 @@
 <?php
-// VNN TRAVEL - ADMIN CHAT
-// Hien thi tin nhan ngay khi bam Gui / Enter
-// Dong bo Aiven MySQL bang API hien tai
-
 ob_start();
-
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
@@ -16,954 +11,428 @@ requireStaff();
 
 $current_page = 'chat';
 $page_title = 'Chat Trực Tuyến - VNN Travel';
-
 $base = rtrim(BASE_URL, '/') . '/';
 $apiUrl = $base . 'chat-api.php';
 ?>
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= htmlspecialchars($page_title) ?></title>
-
-<link rel="stylesheet"
-href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-<link rel="stylesheet"
-href="<?= htmlspecialchars($base) ?>assets/css/style.css">
-
-<link rel="stylesheet"
-href="<?= htmlspecialchars($base) ?>assets/css/admin.css">
-
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="<?= htmlspecialchars($base) ?>assets/css/style.css">
+<link rel="stylesheet" href="<?= htmlspecialchars($base) ?>assets/css/admin.css">
 <style>
-.vnn-chat {
-    display:grid;
-    grid-template-columns:320px minmax(0,1fr);
-    height:calc(100vh - 140px);
-    min-height:510px;
-    background:#fff;
-    border:1px solid #e2e8f0;
-    border-radius:16px;
-    overflow:hidden;
-    box-shadow:0 8px 26px #0f172a12;
-}
-
-.vnn-chat * {
-    box-sizing:border-box;
-}
-
-.vnn-chat-left {
-    display:flex;
-    flex-direction:column;
-    min-height:0;
-    min-width:0;
-    border-right:1px solid #e2e8f0;
-    background:white;
-}
-
-.vnn-chat-heading {
-    padding:20px;
-    background:#f8fafc;
-    color:#0f172a;
-    font-weight:800;
-    font-size:17px;
-}
-
-.vnn-chat-heading i {
-    color:#16a34a;
-}
-
-.vnn-chat-search {
-    padding:12px;
-    border-bottom:1px solid #e2e8f0;
-}
-
-.vnn-chat-search input {
-    width:100%;
-    border:1px solid #cbd5e1;
-    border-radius:10px;
-    padding:12px;
-    outline:none;
-}
-
-.vnn-chat-customers {
-    overflow-y:auto;
-    flex:1;
-    min-height:0;
-}
-
-.vnn-chat-customer {
-    width:100%;
-    display:flex;
-    align-items:center;
-    gap:11px;
-    padding:14px;
-    border:0;
-    border-bottom:1px solid #f1f5f9;
-    cursor:pointer;
-    background:white;
-    text-align:left;
-}
-
-.vnn-chat-customer:hover,
-.vnn-chat-customer.active {
-    background:#f0fdf4;
-}
-
-.vnn-chat-customer.active {
-    border-left:4px solid #16a34a;
-}
-
-.vnn-chat-avatar {
-    flex-shrink:0;
-    width:43px;
-    height:43px;
-    background:#ea580c;
-    color:white;
-    font-weight:800;
-    border-radius:50%;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-}
-
-.vnn-chat-customer-detail {
-    min-width:0;
-    flex:1;
-}
-
-.vnn-chat-customer-name {
-    font-weight:750;
-    color:#0f172a;
-    overflow:hidden;
-    white-space:nowrap;
-    text-overflow:ellipsis;
-}
-
-.vnn-chat-preview {
-    font-size:12px;
-    color:#64748b;
-    margin-top:6px;
-    overflow:hidden;
-    white-space:nowrap;
-    text-overflow:ellipsis;
-}
-
-.vnn-chat-right {
-    display:flex;
-    flex-direction:column;
-    min-width:0;
-    min-height:0;
-    background:#f8fafc;
-}
-
-.vnn-chat-top {
-    display:flex;
-    align-items:center;
-    gap:13px;
-    background:white;
-    padding:15px 20px;
-    min-height:85px;
-    border-bottom:1px solid #e2e8f0;
-}
-
-.vnn-chat-top-name {
-    font-weight:800;
-    color:#0f172a;
-}
-
-.vnn-chat-online {
-    font-size:12px;
-    color:#16a34a;
-    margin-top:5px;
-}
-
-.vnn-chat-messages {
-    flex:1;
-    min-height:0;
-    display:flex;
-    flex-direction:column;
-    overflow-y:auto;
-    gap:10px;
-    padding:20px;
-}
-
-.vnn-chat-bubble {
-    position:relative;
-    max-width:75%;
-    border-radius:15px;
-    padding:11px 15px;
-    line-height:1.5;
-    font-size:14px;
-    overflow-wrap:anywhere;
-    white-space:pre-wrap;
-}
-
-.vnn-chat-bubble.mine {
-    align-self:flex-end;
-    background:#16a34a;
-    color:#fff;
-}
-
-.vnn-chat-bubble.theirs {
-    align-self:flex-start;
-    background:white;
-    color:#0f172a;
-    border:1px solid #e2e8f0;
-}
-
-.vnn-chat-bubble.pending {
-    opacity:.72;
-}
-
-.vnn-chat-bubble.failed {
-    background:#fee2e2;
-    color:#991b1b;
-    border:1px solid #fecaca;
-    opacity:1;
-}
-
-.vnn-chat-sender {
-    font-size:11px;
-    opacity:.75;
-    margin-bottom:5px;
-}
-
-.vnn-chat-state {
-    font-size:11px;
-    margin-top:5px;
-    opacity:.85;
-}
-
-.vnn-chat-retry {
-    display:inline-block;
-    margin-top:8px;
-    background:white;
-    color:#b91c1c;
-    border:1px solid #ef4444;
-    border-radius:7px;
-    padding:5px 10px;
-    cursor:pointer;
-    font-size:12px;
-}
-
-.vnn-chat-status {
-    min-height:25px;
-    background:white;
-    color:#64748b;
-    font-size:12px;
-    padding:5px 17px;
-}
-
-.vnn-chat-form {
-    display:flex;
-    gap:11px;
-    padding:14px;
-    background:white;
-    border-top:1px solid #e2e8f0;
-}
-
-.vnn-chat-input {
-    flex:1;
-    min-width:0;
-    padding:13px 15px;
-    border:1px solid #cbd5e1;
-    border-radius:10px;
-    outline:none;
-    font-size:14px;
-}
-
-.vnn-chat-input:focus {
-    border-color:#16a34a;
-}
-
-.vnn-chat-send {
-    padding:0 22px;
-    border:0;
-    border-radius:10px;
-    background:#166534;
-    color:white;
-    font-weight:800;
-    cursor:pointer;
-}
-
-.vnn-chat-send:disabled {
-    opacity:.55;
-    cursor:not-allowed;
-}
-
-.vnn-chat-empty {
-    color:#94a3b8;
-    text-align:center;
-    padding:40px 15px;
-}
-
-@media(max-width:760px) {
-    .vnn-chat {
-        grid-template-columns:145px minmax(0,1fr);
-        height:calc(100vh - 110px);
-    }
-
-    .vnn-chat-customer {
-        padding:10px 5px;
-    }
-
-    .vnn-chat-avatar {
-        width:30px;
-        height:30px;
-    }
-
-    .vnn-chat-customer-name {
-        font-size:12px;
-    }
-
-    .vnn-chat-preview {
-        font-size:10px;
-    }
-
-    .vnn-chat-messages {
-        padding:10px;
-    }
-
-    .vnn-chat-bubble {
-        max-width:94%;
-    }
-
-    .vnn-chat-form {
-        padding:8px;
-        gap:6px;
-    }
-
-    .vnn-chat-send {
-        padding:0 12px;
-    }
+.vc-layout{display:grid;grid-template-columns:320px minmax(0,1fr);height:calc(100vh - 140px);min-height:520px;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0}
+.vc-left{display:flex;flex-direction:column;min-width:0;border-right:1px solid #e2e8f0}
+.vc-title{padding:19px;font-weight:800;background:#f8fafc;color:#0f172a}
+.vc-title i{color:#16a34a}
+.vc-search{padding:12px;border-bottom:1px solid #e2e8f0}
+.vc-search input,.vc-input{width:100%;min-width:0;padding:13px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;outline:none}
+.vc-list{flex:1;overflow-y:auto}
+.vc-person{width:100%;border:0;border-bottom:1px solid #f1f5f9;background:#fff;padding:14px;display:flex;gap:10px;align-items:center;text-align:left;cursor:pointer}
+.vc-person:hover,.vc-person.active{background:#f0fdf4}
+.vc-avatar{width:42px;height:42px;min-width:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#ea580c;color:white;font-weight:800}
+.vc-detail{min-width:0;flex:1}
+.vc-name{color:#0f172a;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vc-preview{font-size:12px;color:#64748b;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vc-right{display:flex;flex-direction:column;min-height:0;min-width:0;background:#f8fafc}
+.vc-head{padding:16px 20px;background:white;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;min-height:82px}
+.vc-online{color:#16a34a;font-size:12px;margin-top:5px}
+.vc-messages{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:20px}
+.vc-bubble{max-width:75%;padding:11px 15px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.vc-bubble.mine{align-self:flex-end;background:#16a34a;color:white}
+.vc-bubble.theirs{align-self:flex-start;background:white;color:#0f172a;border:1px solid #e2e8f0}
+.vc-bubble.pending{opacity:.7}
+.vc-bubble.failed{opacity:1;background:#fee2e2;color:#991b1b}
+.vc-state{font-size:11px;margin-top:5px}
+.vc-retry{margin-top:7px;border:1px solid #dc2626;background:white;color:#b91c1c;border-radius:7px;padding:5px 9px;cursor:pointer}
+.vc-empty{text-align:center;color:#94a3b8;padding:30px 10px}
+.vc-form{display:flex;gap:11px;padding:14px;background:white;border-top:1px solid #e2e8f0}
+.vc-input{flex:1}
+.vc-send{padding:0 23px;background:#166534;color:white;border:0;border-radius:10px;font-weight:800;cursor:pointer}
+.vc-send:disabled{opacity:.5}
+@media(max-width:760px){
+.vc-layout{grid-template-columns:145px minmax(0,1fr)}
+.vc-person{padding:9px 5px}
+.vc-avatar{width:30px;height:30px;min-width:30px}
+.vc-name{font-size:12px}
+.vc-bubble{max-width:95%}
+.vc-form{padding:8px}
+.vc-send{padding:0 12px}
+.vc-messages{padding:10px}
 }
 </style>
 </head>
-
 <body class="admin-body">
-
-<?php
-require_once __DIR__ . '/../includes/sidebar.php';
-?>
+<?php require_once __DIR__ . '/../includes/sidebar.php'; ?>
 
 <main class="admin-main" style="padding:24px">
+<div class="vc-layout">
 
-<div class="vnn-chat">
+<section class="vc-left">
+    <div class="vc-title">
+        <i class="fa-solid fa-comments"></i>
+        Khách Hàng Nhắn Tin
+    </div>
 
-    <section class="vnn-chat-left">
+    <div class="vc-search">
+        <input id="vcSearch" type="search" placeholder="Tìm khách hàng...">
+    </div>
 
-        <div class="vnn-chat-heading">
-            <i class="fa-solid fa-comments"></i>
-            Khách Hàng Nhắn Tin
-        </div>
+    <div class="vc-list" id="vcCustomers"></div>
+</section>
 
-        <div class="vnn-chat-search">
-            <input
-                id="customerSearch"
-                placeholder="Tìm khách hàng..."
-                type="search"
-            >
-        </div>
-
-        <div class="vnn-chat-customers" id="customerList">
-            <div class="vnn-chat-empty">
-                Đang tải khách hàng...
+<section class="vc-right">
+    <div class="vc-head">
+        <div class="vc-avatar" id="vcAvatar" style="background:#0284c7">K</div>
+        <div>
+            <div class="vc-name" id="vcActiveName">
+                Chọn khách hàng để trò chuyện
+            </div>
+            <div class="vc-online">
+                <i class="fa-solid fa-circle"></i>
+                Bộ phận hỗ trợ VNN Travel
             </div>
         </div>
+    </div>
 
-    </section>
+    <div class="vc-messages" id="vcMessages">
+        <div class="vc-empty">Chọn khách hàng để xem tin nhắn.</div>
+    </div>
 
-    <section class="vnn-chat-right">
+    <!-- Khong con dong trang thai loi API -->
 
-        <div class="vnn-chat-top">
-
-            <div class="vnn-chat-avatar"
-                 id="activeAvatar"
-                 style="background:#0284c7">
-                K
-            </div>
-
-            <div>
-                <div class="vnn-chat-top-name" id="activeName">
-                    Chọn khách hàng để trò chuyện
-                </div>
-
-                <div class="vnn-chat-online">
-                    <i class="fa-solid fa-circle"></i>
-                    Bộ phận hỗ trợ VNN Travel
-                </div>
-            </div>
-
-        </div>
-
-        <div class="vnn-chat-messages" id="messageList">
-
-            <div class="vnn-chat-empty">
-                Chọn khách hàng để xem lịch sử tin nhắn.
-            </div>
-
-        </div>
-
-        <div class="vnn-chat-status"
-             id="chatStatus"
-             role="status">
-        </div>
-
-        <form class="vnn-chat-form" id="chatForm">
-
-            <input
-                id="chatInput"
-                class="vnn-chat-input"
-                type="text"
-                placeholder="Nhập câu trả lời cho khách hàng..."
-                maxlength="5000"
-                autocomplete="off"
-                required
-                disabled
-            >
-
-            <button
-                class="vnn-chat-send"
-                type="submit"
-                id="sendButton"
-                disabled
-            >
-                <i class="fa-solid fa-paper-plane"></i>
-                Gửi
-            </button>
-
-        </form>
-
-    </section>
+    <form id="vcForm" class="vc-form">
+        <input id="vcInput" class="vc-input"
+               placeholder="Nhập câu trả lời cho khách hàng..."
+               maxlength="5000" required disabled>
+        <button id="vcSend" class="vc-send" disabled>
+            <i class="fa-solid fa-paper-plane"></i> Gửi
+        </button>
+    </form>
+</section>
 
 </div>
-
 </main>
 
 <script>
 'use strict';
 
-// ========================================
-// CAU HINH API
-// ========================================
+const API = <?= json_encode($apiUrl, JSON_UNESCAPED_SLASHES) ?>;
 
-const CHAT_API = <?= json_encode(
-    $apiUrl,
-    JSON_UNESCAPED_SLASHES
-) ?>;
-
-const customerList = document.getElementById('customerList');
-const messageList = document.getElementById('messageList');
-const customerSearch = document.getElementById('customerSearch');
-const chatInput = document.getElementById('chatInput');
-const chatForm = document.getElementById('chatForm');
-const sendButton = document.getElementById('sendButton');
-const chatStatus = document.getElementById('chatStatus');
-
+const $ = id => document.getElementById(id);
 let customers = [];
-let activeCustomerId = 0;
-let activeCustomerName = '';
-
-let storedMessages = [];
-let pendingMessages = [];
-
-let loadVersion = 0;
-let loadingMessages = false;
+let selected = 0;
+let selectedName = '';
+let messages = [];
+let pending = [];
+let seq = 0;
+let version = 0;
 let loadingCustomers = false;
-let lastCustomerSignature = '';
-
-let localCounter = 0;
-
-function statusText(text) {
-    chatStatus.textContent = text || '';
-}
-
-function scrollBottom() {
-    messageList.scrollTop = messageList.scrollHeight;
-}
-
-// ========================================
-// GOI API
-// ========================================
+let loadingMessages = false;
 
 async function request(action, options = {}) {
-
-    const separator = CHAT_API.includes('?') ? '&' : '?';
-
-    const url = CHAT_API + separator + 'action=' + action;
+    const url = API + (API.includes('?') ? '&' : '?') +
+        'action=' + action;
 
     const response = await fetch(url, {
-        credentials: 'same-origin',
-        cache: 'no-store',
+        credentials:'same-origin',
+        cache:'no-store',
         ...options
     });
 
     const raw = await response.text();
-
-    let data;
+    let result;
 
     try {
-        data = JSON.parse(raw);
-    } catch (error) {
-        throw new Error('API không trả về JSON hợp lệ.');
+        result = JSON.parse(raw);
+    } catch (_) {
+        throw new Error('Phản hồi máy chủ không hợp lệ.');
     }
 
-    if (!response.ok || data.status !== 'success') {
-        throw new Error(
-            data.message || 'Không thể kết nối máy chủ.'
-        );
+    if (!response.ok || result.status !== 'success') {
+        throw new Error(result.message || 'Yêu cầu thất bại.');
     }
 
-    return data;
+    return result;
 }
 
-// ========================================
-// HIEN THI KHACH HANG
-// ========================================
+function showCustomers() {
+    const q = $('vcSearch').value.trim().toLowerCase();
+    const list = $('vcCustomers');
+    list.replaceChildren();
 
-function renderCustomers() {
-
-    const keyword = customerSearch.value
-        .trim()
-        .toLowerCase();
-
-    customerList.replaceChildren();
-
-    const filtered = customers.filter(c => {
-        const searchText = (
-            String(c.fullname || '') + ' ' +
-            String(c.email || '')
-        ).toLowerCase();
-
-        return searchText.includes(keyword);
-    });
+    const filtered = customers.filter(c =>
+        (String(c.fullname || '') + ' ' +
+         String(c.email || '')).toLowerCase().includes(q)
+    );
 
     if (!filtered.length) {
-        customerList.innerHTML =
-            '<div class="vnn-chat-empty">Không có khách hàng phù hợp.</div>';
+        const empty = document.createElement('div');
+        empty.className = 'vc-empty';
+        empty.textContent = 'Chưa có khách hàng để hiển thị.';
+        list.appendChild(empty);
         return;
     }
 
-    filtered.forEach(customer => {
-
-        const id = Number(customer.id);
-
+    for (const c of filtered) {
         const row = document.createElement('button');
         row.type = 'button';
-        row.className = 'vnn-chat-customer';
-
-        if (id === activeCustomerId) {
-            row.classList.add('active');
-        }
+        row.className = 'vc-person' +
+            (Number(c.id) === selected ? ' active' : '');
 
         const avatar = document.createElement('div');
-        avatar.className = 'vnn-chat-avatar';
-        avatar.textContent =
-            String(customer.fullname || 'K')
-                .charAt(0).toUpperCase();
+        avatar.className = 'vc-avatar';
+        avatar.textContent = (c.fullname || 'K').charAt(0);
 
         const detail = document.createElement('div');
-        detail.className = 'vnn-chat-customer-detail';
+        detail.className = 'vc-detail';
 
         const name = document.createElement('div');
-        name.className = 'vnn-chat-customer-name';
-        name.textContent = customer.fullname || 'Khách hàng';
+        name.className = 'vc-name';
+        name.textContent = c.fullname || 'Khách hàng';
 
         const preview = document.createElement('div');
-        preview.className = 'vnn-chat-preview';
-        preview.textContent =
-            customer.last_message || 'Bấm để trả lời...';
+        preview.className = 'vc-preview';
+        preview.textContent = c.last_message || 'Bấm để trò chuyện';
 
         detail.append(name, preview);
         row.append(avatar, detail);
-
-        row.addEventListener('click', () => {
-            selectCustomer(id, customer.fullname);
-        });
-
-        customerList.appendChild(row);
-    });
+        row.onclick = () => selectCustomer(c.id, c.fullname);
+        list.appendChild(row);
+    }
 }
 
 async function loadCustomers() {
-
     if (loadingCustomers) return;
-
     loadingCustomers = true;
 
     try {
-        const result = await request('get_conversations');
-        const data = Array.isArray(result.data) ? result.data : [];
+        const res = await request('get_conversations');
+        customers = Array.isArray(res.data) ? res.data : [];
+        showCustomers();
 
-        const signature = data
-            .map(c => [
-                c.id,
-                c.last_message_id,
-                c.last_message
-            ].join(':'))
-            .join('|');
-
-        customers = data;
-
-        if (signature !== lastCustomerSignature) {
-            lastCustomerSignature = signature;
-            renderCustomers();
+        if (!selected && customers.length) {
+            selectCustomer(customers[0].id, customers[0].fullname);
         }
-
-        if (!activeCustomerId && data.length) {
-            selectCustomer(data[0].id, data[0].fullname);
-        }
-
-    } catch (error) {
-        statusText(
-            'Không thể tải khách hàng: ' + error.message
-        );
+    } catch (e) {
+        // Khong in loi lap vao giao dien.
+        console.warn('Chat customers:', e.message);
     } finally {
         loadingCustomers = false;
     }
 }
 
-// ========================================
-// CHON KHACH HANG
-// ========================================
-
 function selectCustomer(id, name) {
+    const next = Number(id);
+    if (!next) return;
 
-    const nextId = Number(id);
-
-    if (!nextId) return;
-
-    if (nextId !== activeCustomerId) {
-        loadVersion++;
-        storedMessages = [];
+    if (selected !== next) {
+        version++;
+        messages = [];
     }
 
-    activeCustomerId = nextId;
-    activeCustomerName = name || 'Khách hàng';
+    selected = next;
+    selectedName = String(name || 'Khách hàng');
 
-    document.getElementById('activeName').textContent =
-        activeCustomerName;
+    $('vcActiveName').textContent = selectedName;
+    $('vcAvatar').textContent = selectedName.charAt(0);
+    $('vcInput').disabled = false;
+    $('vcSend').disabled = false;
 
-    document.getElementById('activeAvatar').textContent =
-        activeCustomerName.charAt(0).toUpperCase();
-
-    chatInput.disabled = false;
-    sendButton.disabled = false;
-
-    renderCustomers();
-    renderMessages(true);
+    showCustomers();
+    showMessages(true);
     loadMessages();
-
-    chatInput.focus();
 }
 
-// ========================================
-// TAO BONG CHAT
-// ========================================
+function bubble(m, temporary = false) {
+    const mine = temporary || Number(m.sender_id) !== selected;
+    const node = document.createElement('div');
 
-function createBubble(message, temporary = false) {
+    node.className = 'vc-bubble ' +
+        (mine ? 'mine' : 'theirs');
 
-    const mine = temporary
-        ? true
-        : Number(message.sender_id) !== activeCustomerId;
-
-    const bubble = document.createElement('div');
-
-    bubble.className =
-        'vnn-chat-bubble ' + (mine ? 'mine' : 'theirs');
-
-    if (temporary) {
-        bubble.classList.add(message.state);
-    }
-
-    const sender = document.createElement('div');
-    sender.className = 'vnn-chat-sender';
-
-    sender.textContent = mine
-        ? 'Bộ phận hỗ trợ'
-        : activeCustomerName;
+    if (temporary) node.classList.add(m.state);
 
     const content = document.createElement('div');
-    content.textContent = message.message || '';
-
-    bubble.append(sender, content);
+    content.textContent = m.message || '';
+    node.appendChild(content);
 
     if (temporary) {
+        const status = document.createElement('div');
+        status.className = 'vc-state';
 
-        const state = document.createElement('div');
-        state.className = 'vnn-chat-state';
+        status.textContent = m.state === 'failed'
+            ? 'Gửi thất bại'
+            : m.state === 'pending'
+                ? 'Đang gửi...'
+                : 'Đã gửi';
 
-        if (message.state === 'pending') {
-            state.textContent = 'Đang gửi...';
-        } else if (message.state === 'failed') {
-            state.textContent = 'Gửi thất bại';
-        } else {
-            state.textContent = 'Đã gửi';
-        }
+        node.appendChild(status);
 
-        bubble.appendChild(state);
-
-        if (message.state === 'failed') {
+        if (m.state === 'failed') {
             const retry = document.createElement('button');
+            retry.className = 'vc-retry';
             retry.type = 'button';
-            retry.className = 'vnn-chat-retry';
             retry.textContent = 'Thử lại';
-
-            retry.addEventListener('click', () => {
-                retryMessage(message.localId);
-            });
-
-            bubble.appendChild(retry);
+            retry.onclick = () => retrySend(m.localId);
+            node.appendChild(retry);
         }
     }
 
-    return bubble;
+    return node;
 }
 
-// ========================================
-// HIEN THI TIN NHAN
-// ========================================
+function showMessages(toBottom = false) {
+    const area = $('vcMessages');
 
-function renderMessages(forceBottom = false) {
+    const nearBottom = area.scrollHeight -
+        area.scrollTop - area.clientHeight < 120;
 
-    if (!activeCustomerId) return;
+    area.replaceChildren();
 
-    const nearBottom =
-        messageList.scrollHeight -
-        messageList.scrollTop -
-        messageList.clientHeight < 120;
+    const local = pending.filter(m => m.customerId === selected);
 
-    messageList.replaceChildren();
-
-    const ownPending = pendingMessages.filter(
-        m => m.customerId === activeCustomerId
-    );
-
-    if (!storedMessages.length && !ownPending.length) {
+    if (!messages.length && !local.length) {
         const empty = document.createElement('div');
-        empty.className = 'vnn-chat-empty';
+        empty.className = 'vc-empty';
         empty.textContent = 'Chưa có tin nhắn.';
-        messageList.appendChild(empty);
+        area.appendChild(empty);
         return;
     }
 
-    const displayedServerIds = new Set();
+    const serverIds = new Set(
+        messages.map(m => Number(m.id))
+    );
 
-    storedMessages.forEach(message => {
+    for (const msg of messages) {
+        area.appendChild(bubble(msg));
+    }
 
-        displayedServerIds.add(Number(message.id));
+    for (const msg of local) {
+        if (msg.serverId && serverIds.has(msg.serverId)) continue;
+        area.appendChild(bubble(msg, true));
+    }
 
-        messageList.appendChild(
-            createBubble(message, false)
-        );
-    });
-
-    ownPending.forEach(message => {
-
-        if (
-            message.serverId &&
-            displayedServerIds.has(Number(message.serverId))
-        ) {
-            return;
-        }
-
-        messageList.appendChild(
-            createBubble(message, true)
-        );
-    });
-
-    if (nearBottom || forceBottom) {
-        scrollBottom();
+    if (nearBottom || toBottom) {
+        area.scrollTop = area.scrollHeight;
     }
 }
 
-// ========================================
-// TAI LICH SU TU MYSQL
-// ========================================
-
 async function loadMessages() {
-
-    if (!activeCustomerId || loadingMessages) return;
-
-    const customerId = activeCustomerId;
-    const version = loadVersion;
+    if (!selected || loadingMessages) return;
 
     loadingMessages = true;
+    const id = selected;
+    const v = version;
 
     try {
-
-        const result = await request(
-            'get&with_id=' + encodeURIComponent(customerId)
+        const res = await request(
+            'get&with_id=' + encodeURIComponent(id)
         );
 
-        if (
-            version !== loadVersion ||
-            customerId !== activeCustomerId
-        ) {
-            return;
-        }
+        if (id !== selected || v !== version) return;
 
-        storedMessages = Array.isArray(result.data)
-            ? result.data
-            : [];
+        messages = Array.isArray(res.data) ? res.data : [];
 
-        // Tin da luu va co trong database
-        // se khong can bong tam nua.
-        const serverIds = new Set(
-            storedMessages.map(m => Number(m.id))
+        const ids = new Set(
+            messages.map(m => Number(m.id))
         );
 
-        pendingMessages = pendingMessages.filter(m => {
-            if (
-                m.serverId &&
-                serverIds.has(Number(m.serverId))
-            ) {
-                return false;
-            }
-
-            return true;
-        });
-
-        renderMessages();
-
-    } catch (error) {
-        statusText(
-            'Không thể cập nhật lịch sử: ' + error.message
+        pending = pending.filter(m =>
+            !(m.serverId && ids.has(m.serverId))
         );
+
+        showMessages();
+    } catch (e) {
+        console.warn('Chat messages:', e.message);
     } finally {
         loadingMessages = false;
     }
 }
 
-// ========================================
-// GUI TIN NHAN NGAY LAP TUC
-// ========================================
-
-async function submitPending(item) {
+async function sendPending(item) {
+    if (item.state === 'pending' && item.inFlight) return;
 
     item.state = 'pending';
+    item.inFlight = true;
 
-    if (item.customerId === activeCustomerId) {
-        renderMessages(true);
-    }
+    if (selected === item.customerId) showMessages(true);
 
     const data = new FormData();
-
     data.append('receiver_id', String(item.customerId));
     data.append('message', item.message);
 
     try {
-
-        const result = await request('send', {
-            method: 'POST',
-            body: data
+        const res = await request('send', {
+            method:'POST',
+            body:data
         });
 
-        item.serverId = Number(result.id) || null;
         item.state = 'sent';
+        item.serverId = Number(res.id || res.message_id) || null;
 
-        // Hien thi trang thai da gui ngay sau API.
-        if (item.customerId === activeCustomerId) {
-            renderMessages(true);
-        }
+        if (selected === item.customerId) showMessages(true);
 
-        // Khong can doi fetch lich su de hien bong chat.
-        // Lay lich su o nen de doi chieu ID.
         await loadMessages();
         await loadCustomers();
-
-    } catch (error) {
-
+    } catch (e) {
         item.state = 'failed';
+        console.warn('Chat send:', e.message);
 
-        if (item.customerId === activeCustomerId) {
-            renderMessages(true);
-            statusText('Tin nhắn chưa gửi được. Bấm "Thử lại".');
-        }
-
-        console.error('Chat send:', error);
+        if (selected === item.customerId) showMessages(true);
+    } finally {
+        item.inFlight = false;
     }
 }
 
-function sendMessage(event) {
+function retrySend(localId) {
+    const item = pending.find(m => m.localId === localId);
+    if (!item || item.inFlight || item.state !== 'failed') return;
 
-    event.preventDefault();
+    // Neu ket noi mat sau khi server da luu,
+    // viec gui lai co the tao tin nhan trung.
+    sendPending(item);
+}
 
-    if (!activeCustomerId) return;
+$('vcForm').addEventListener('submit', function(e) {
+    e.preventDefault();
 
-    const message = chatInput.value.trim();
+    if (!selected) return;
 
-    if (!message || message.length > 5000) return;
+    const text = $('vcInput').value.trim();
+    if (!text) return;
 
-    // 1. Tao tin nhan tam trong bo nho trinh duyet.
     const item = {
-        localId: ++localCounter,
-        customerId: activeCustomerId,
-        message: message,
+        localId: ++seq,
+        customerId: selected,
+        message: text,
         state: 'pending',
-        serverId: null
+        serverId: null,
+        inFlight: false
     };
 
-    pendingMessages.push(item);
+    pending.push(item);
+    $('vcInput').value = '';
 
-    // 2. Xoa o nhap va hien bong chat NGAY.
-    chatInput.value = '';
-    renderMessages(true);
-    chatInput.focus();
+    // Hien bong chat truoc khi goi API.
+    showMessages(true);
+    $('vcInput').focus();
 
-    // 3. Sau do moi gui API.
-    // Khong can cho MySQL moi hien tin nhan.
-    submitPending(item);
-}
+    sendPending(item);
+});
 
-function retryMessage(localId) {
-
-    const item = pendingMessages.find(
-        m => m.localId === localId
-    );
-
-    if (!item || item.state !== 'failed') return;
-
-    submitPending(item);
-}
-
-// ========================================
-// PHIM ENTER VA NUT GUI
-// ========================================
-
-chatForm.addEventListener('submit', sendMessage);
-
-customerSearch.addEventListener('input', renderCustomers);
-
-// ========================================
-// DONG BO TIN NHAN DINH KY
-// ========================================
-
-// Kiem tra 1.5 giay mot lan.
-// Co the tang len 3000 neu Vercel ton request.
+$('vcSearch').addEventListener('input', showCustomers);
 
 setInterval(() => {
-
-    if (document.visibilityState !== 'visible') return;
-
+    if (document.hidden) return;
     loadCustomers();
-
-    if (activeCustomerId) {
-        loadMessages();
-    }
-
-}, 1500);
-
-// ========================================
-// KHOI DONG
-// ========================================
+    if (selected) loadMessages();
+}, 3000);
 
 loadCustomers();
 </script>
-
 </body>
 </html>
