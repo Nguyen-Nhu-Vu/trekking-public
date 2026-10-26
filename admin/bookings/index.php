@@ -1,4 +1,4 @@
-<?php
+?php
 ob_start();
 
 require_once __DIR__ . '/../../config/database.php';
@@ -13,31 +13,19 @@ requireStaff();
 $current_page = 'bookings';
 $page_title = 'Quản Lý Đăng Ký Tour - VNN Travel';
 
-function bk_h($v) {
-    return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+if (!function_exists('bk_h')) {
+    function bk_h($value) {
+        return htmlspecialchars(
+            (string)$value,
+            ENT_QUOTES,
+            'UTF-8'
+        );
+    }
 }
 
-function bk_is_person($name) {
-    $name = trim((string)$name);
-
-    if ($name === '') {
-        return false;
-    }
-
-    $lower = mb_strtolower($name, 'UTF-8');
-
-    foreach ([
-        'admin', 'manager', 'quản lý',
-        'quản trị', 'hệ thống', 'điều hành',
-        'nhân viên', 'staff', 'demo', 'test'
-    ] as $blocked) {
-        if (mb_strpos($lower, $blocked) !== false) {
-            return false;
-        }
-    }
-
-    return count(preg_split('/\s+/u', $name)) >= 2;
-}
+// =======================================
+// DANH SACH TRANG THAI
+// =======================================
 
 $statuses = [
     'Chờ xác nhận',
@@ -47,340 +35,177 @@ $statuses = [
     'Đã hủy'
 ];
 
-$sampleGuides = [
-    ['Nguyễn Văn Hùng', 'hdv.nguyen-van-hung@example.invalid'],
-    ['Lê Minh Tuấn', 'hdv.le-minh-tuan@example.invalid'],
-    ['Phạm Đức Anh', 'hdv.pham-duc-anh@example.invalid'],
-    ['Hoàng Thị Mai', 'hdv.hoang-thi-mai@example.invalid'],
-    ['Đỗ Quang Huy', 'hdv.do-quang-huy@example.invalid'],
-    ['Bùi Ngọc Hà', 'hdv.bui-ngoc-ha@example.invalid']
-];
-
 $error = '';
 $success = '';
 
 if (empty($_SESSION['bookings_csrf'])) {
-    $_SESSION['bookings_csrf'] = bin2hex(random_bytes(16));
+    $_SESSION['bookings_csrf'] = bin2hex(random_bytes(32));
 }
 
 $csrf = $_SESSION['bookings_csrf'];
-$selfId = (int)($_SESSION['user_id'] ?? 0);
 
-$currentRole = '';
-
-if ($selfId > 0) {
-    $stmt = $pdo->prepare(
-        "SELECT role FROM users WHERE id = ? LIMIT 1"
-    );
-
-    $stmt->execute([$selfId]);
-    $currentRole = (string)$stmt->fetchColumn();
-}
-
-$canSeed = in_array(
-    $currentRole,
-    ['admin', 'manager'],
-    true
-);
-
-// ======================================
-// XU LY POST
-// ======================================
+// =======================================
+// CAP NHAT TRANG THAI BOOKING
+// KHONG SUA HDV CO DINH CUA TOUR
+// =======================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $postedCsrf = (string)($_POST['csrf'] ?? '');
+    try {
 
-    if (!hash_equals($csrf, $postedCsrf)) {
+        $postedCsrf = (string)($_POST['csrf'] ?? '');
 
-        $error = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
-
-    } elseif (isset($_POST['add_sample_guides'])) {
-
-        if (!$canSeed) {
-
-            $error = 'Chỉ quản lý mới được thêm HDV mẫu.';
-
-        } else {
-
-            try {
-
-                $stmt = $pdo->query("
-                    SELECT
-                        COLUMN_NAME,
-                        IS_NULLABLE,
-                        COLUMN_DEFAULT,
-                        EXTRA
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = DATABASE()
-                      AND TABLE_NAME = 'users'
-                ");
-
-                $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                $columnNames = array_column(
-                    $columns,
-                    'COLUMN_NAME'
-                );
-
-                foreach (
-                    ['fullname', 'email', 'password', 'role']
-                    as $required
-                ) {
-
-                    if (!in_array($required, $columnNames, true)) {
-                        throw new RuntimeException(
-                            'Bảng users thiếu cột ' . $required
-                        );
-                    }
-                }
-
-                $provided = [
-                    'fullname',
-                    'email',
-                    'password',
-                    'role',
-                    'phone',
-                    'status'
-                ];
-
-                foreach ($columns as $col) {
-
-                    if (
-                        !in_array(
-                            $col['COLUMN_NAME'],
-                            $provided,
-                            true
-                        ) &&
-                        $col['IS_NULLABLE'] === 'NO' &&
-                        $col['COLUMN_DEFAULT'] === null &&
-                        stripos(
-                            (string)$col['EXTRA'],
-                            'auto_increment'
-                        ) === false &&
-                        stripos(
-                            (string)$col['EXTRA'],
-                            'generated'
-                        ) === false
-                    ) {
-                        throw new RuntimeException(
-                            'Bảng users có thêm cột bắt buộc: ' .
-                            $col['COLUMN_NAME']
-                        );
-                    }
-                }
-
-                $fields = [
-                    'fullname',
-                    'email',
-                    'password',
-                    'role'
-                ];
-
-                if (in_array('phone', $columnNames, true)) {
-                    $fields[] = 'phone';
-                }
-
-                if (in_array('status', $columnNames, true)) {
-                    $fields[] = 'status';
-                }
-
-                $sql = "INSERT INTO users (`" .
-                    implode("`,`", $fields) .
-                    "`) VALUES (" .
-                    implode(
-                        ',',
-                        array_fill(0, count($fields), '?')
-                    ) .
-                    ")";
-
-                $insert = $pdo->prepare($sql);
-
-                $exists = $pdo->prepare(
-                    "SELECT id
-                     FROM users
-                     WHERE email = ?
-                     LIMIT 1"
-                );
-
-                $pdo->beginTransaction();
-
-                $added = 0;
-
-                foreach ($sampleGuides as [$name, $email]) {
-
-                    $exists->execute([$email]);
-
-                    if ($exists->fetchColumn()) {
-                        continue;
-                    }
-
-                    $password = password_hash(
-                        bin2hex(random_bytes(32)),
-                        PASSWORD_DEFAULT
-                    );
-
-                    $values = [
-                        $name,
-                        $email,
-                        $password,
-                        'staff'
-                    ];
-
-                    if (in_array('phone', $fields, true)) {
-                        $values[] = null;
-                    }
-
-                    if (in_array('status', $fields, true)) {
-                        $values[] = 1;
-                    }
-
-                    $insert->execute($values);
-                    $added++;
-                }
-
-                $pdo->commit();
-
-                $_SESSION['bookings_notice'] =
-                    $added > 0
-                    ? 'Đã thêm ' . $added . ' hướng dẫn viên mẫu.'
-                    : 'Các hướng dẫn viên mẫu đã có trong hệ thống.';
-
-                header('Location: index.php', true, 303);
-                exit;
-
-            } catch (Throwable $e) {
-
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-
-                error_log(
-                    'Seed guide error: ' . $e->getMessage()
-                );
-
-                $error = $e instanceof RuntimeException
-                    ? $e->getMessage()
-                    : 'Không thể thêm HDV. Vui lòng kiểm tra database.';
-            }
+        if (!hash_equals($csrf, $postedCsrf)) {
+            throw new RuntimeException(
+                'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
+            );
         }
 
-    } elseif (isset($_POST['update_booking'])) {
+        if (!isset($_POST['update_booking'])) {
+            throw new RuntimeException(
+                'Thao tác không hợp lệ.'
+            );
+        }
 
         $bookingId = (int)($_POST['booking_id'] ?? 0);
-        $status = (string)($_POST['status'] ?? '');
-        $guideId = (int)($_POST['guide_id'] ?? 0);
+
+        $newStatus = trim(
+            (string)($_POST['status'] ?? '')
+        );
+
+        if ($bookingId <= 0) {
+            throw new RuntimeException(
+                'Mã đăng ký tour không hợp lệ.'
+            );
+        }
+
+        if (!in_array($newStatus, $statuses, true)) {
+            throw new RuntimeException(
+                'Trạng thái đăng ký không hợp lệ.'
+            );
+        }
+
+        $check = $pdo->prepare("
+            SELECT id
+            FROM tour_bookings
+            WHERE id = ?
+            LIMIT 1
+        ");
+
+        $check->execute([$bookingId]);
+
+        if (!$check->fetchColumn()) {
+            throw new RuntimeException(
+                'Không tìm thấy đăng ký tour.'
+            );
+        }
+
+        // Chi cap nhat trang thai.
+        // Khong thay doi guide_id hay leader_id.
+        $update = $pdo->prepare("
+            UPDATE tour_bookings
+            SET status = ?
+            WHERE id = ?
+        ");
+
+        $update->execute([
+            $newStatus,
+            $bookingId
+        ]);
+
+        $_SESSION['bookings_notice'] =
+            'Đã cập nhật trạng thái đăng ký thành công.';
+
+        $filterRedirect = trim(
+            (string)($_POST['current_filter'] ?? '')
+        );
+
+        $redirect = 'index.php';
 
         if (
-            $bookingId <= 0 ||
-            !in_array($status, $statuses, true)
+            $filterRedirect !== '' &&
+            in_array($filterRedirect, $statuses, true)
         ) {
-
-            $error = 'Thông tin cập nhật không hợp lệ.';
-
-        } else {
-
-            try {
-
-                if ($guideId > 0) {
-
-                    $check = $pdo->prepare("
-                        SELECT fullname
-                        FROM users
-                        WHERE id = ?
-                          AND role = 'staff'
-                        LIMIT 1
-                    ");
-
-                    $check->execute([$guideId]);
-                    $guideName = $check->fetchColumn();
-
-                    if (
-                        !$guideName ||
-                        !bk_is_person($guideName)
-                    ) {
-                        throw new RuntimeException(
-                            'HDV không hợp lệ. Không thể phân công tài khoản quản lý.'
-                        );
-                    }
-                }
-
-                $stmt = $pdo->prepare("
-                    UPDATE tour_bookings
-                    SET
-                        status = ?,
-                        guide_id = ?
-                    WHERE id = ?
-                ");
-
-                $stmt->execute([
-                    $status,
-                    $guideId > 0 ? $guideId : null,
-                    $bookingId
-                ]);
-
-                $_SESSION['bookings_notice'] =
-                    'Đã lưu phân công hướng dẫn viên thành công.';
-
-                header('Location: index.php', true, 303);
-                exit;
-
-            } catch (Throwable $e) {
-
-                error_log(
-                    'Booking update error: ' . $e->getMessage()
-                );
-
-                $error = $e instanceof RuntimeException
-                    ? $e->getMessage()
-                    : 'Không thể cập nhật booking.';
-            }
+            $redirect .= '?status=' .
+                rawurlencode($filterRedirect);
         }
+
+        header('Location: ' . $redirect, true, 303);
+        exit;
+
+    } catch (Throwable $e) {
+
+        error_log(
+            'Booking update: ' . $e->getMessage()
+        );
+
+        $error = $e instanceof RuntimeException
+            ? $e->getMessage()
+            : 'Không thể cập nhật đăng ký.';
     }
 }
 
-if (isset($_SESSION['bookings_notice'])) {
+if (!empty($_SESSION['bookings_notice'])) {
     $success = $_SESSION['bookings_notice'];
     unset($_SESSION['bookings_notice']);
 }
 
-// ======================================
-// LAY DANH SACH HUONG DAN VIEN
-// ======================================
+// =======================================
+// BO LOC TRANG THAI
+// =======================================
 
-$stmt = $pdo->query("
-    SELECT id, fullname
-    FROM users
-    WHERE role = 'staff'
-    ORDER BY fullname ASC
-");
+$filter = trim(
+    (string)($_GET['status'] ?? '')
+);
 
-$guides = array_values(array_filter(
-    $stmt->fetchAll(PDO::FETCH_ASSOC),
-    fn($row) => bk_is_person($row['fullname'])
-));
-
-// ======================================
-// LAY BOOKINGS
-// ======================================
-
-$filter = trim((string)($_GET['status'] ?? ''));
 $params = [];
+
+// =======================================
+// LAY BOOKING + LEADER CO DINH CUA TOUR
+// =======================================
+//
+// tours.leader_id
+//       |
+//       v
+// trekking_leaders.id
+//
+// Khong lay HDV tu tour_bookings.guide_id
+// nua vi Leader da co dinh theo tour.
+//
+// LEFT JOIN de booking cu van hien thi
+// ke ca tour chua duoc phan Leader.
+// =======================================
 
 $sql = "
     SELECT
         b.*,
+
         t.title AS tour_name,
-        u.fullname AS guide_name
+        t.leader_id AS fixed_leader_id,
+        t.tour_guide AS old_guide_name,
+
+        l.id AS leader_profile_id,
+        l.fullname AS fixed_leader_name,
+        l.nickname AS fixed_leader_nickname,
+        l.image AS fixed_leader_image,
+        l.experience_years AS leader_experience
+
     FROM tour_bookings b
-    JOIN tours t ON t.id = b.tour_id
-    LEFT JOIN users u ON u.id = b.guide_id
+
+    INNER JOIN tours t
+        ON t.id = b.tour_id
+
+    LEFT JOIN trekking_leaders l
+        ON l.id = t.leader_id
 ";
 
 if (
     $filter !== '' &&
     in_array($filter, $statuses, true)
 ) {
+
     $sql .= " WHERE b.status = ?";
+
     $params[] = $filter;
 }
 
@@ -391,6 +216,20 @@ $stmt->execute($params);
 
 $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// =======================================
+// THONG KE
+// =======================================
+
+$totalBookings = count($bookings);
+
+$withLeader = 0;
+
+foreach ($bookings as $booking) {
+    if (!empty($booking['fixed_leader_name'])) {
+        $withLeader++;
+    }
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -400,10 +239,12 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <meta
         name="viewport"
-        content="width=device-width,initial-scale=1"
+        content="width=device-width, initial-scale=1"
     >
 
-    <title><?= bk_h($page_title) ?></title>
+    <title>
+        <?= bk_h($page_title) ?>
+    </title>
 
     <link
         rel="stylesheet"
@@ -421,6 +262,10 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
     >
 
     <style>
+        /* =====================================
+           TRANG QUAN LY DANG KY TOUR
+           ===================================== */
+
         .bk-top {
             display: flex;
             align-items: center;
@@ -433,22 +278,20 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
             display: flex;
             align-items: center;
             flex-wrap: wrap;
-            gap: 12px;
+            gap: 20px;
             margin-bottom: 20px;
         }
 
-        .bk-add {
-            border: 0;
-            background: #166534;
-            color: white;
-            border-radius: 9px;
-            padding: 12px 17px;
-            font-weight: 800;
-            cursor: pointer;
+        .bk-stat {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #64748b;
+            font-size: 14px;
         }
 
-        .bk-add:hover {
-            background: #15803d;
+        .bk-stat i {
+            color: #166534;
         }
 
         .bk-success {
@@ -467,6 +310,10 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
             margin-bottom: 18px;
         }
 
+        /* =====================================
+           BANG BOOKING
+           ===================================== */
+
         .bk-table-wrap {
             background: white;
             border-radius: 14px;
@@ -476,7 +323,7 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .bk-table {
             width: 100%;
-            min-width: 1100px;
+            min-width: 1150px;
             border-collapse: collapse;
         }
 
@@ -487,12 +334,14 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
             font-weight: 800;
             text-align: left;
             border-bottom: 1px solid #e2e8f0;
+            font-size: 13px;
         }
 
         .bk-table td {
             padding: 17px 14px;
             border-bottom: 1px solid #e2e8f0;
             vertical-align: middle;
+            font-size: 13px;
         }
 
         .bk-table tr:hover td {
@@ -502,28 +351,7 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
         .bk-code {
             font-weight: 800;
             color: #1e3a5f;
-        }
-
-        .bk-select {
-            width: 100%;
-            min-width: 140px;
-            max-width: 230px;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            padding: 10px 8px;
-            background: white;
-            font: inherit;
-            font-size: 13px;
-        }
-
-        .bk-save {
-            background: #166534;
-            color: white;
-            border: 0;
-            padding: 11px 17px;
-            border-radius: 9px;
-            font-weight: 800;
-            cursor: pointer;
+            overflow-wrap: anywhere;
         }
 
         .bk-phone {
@@ -539,6 +367,99 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
             white-space: nowrap;
         }
 
+        /* =====================================
+           LEADER CO DINH
+           ===================================== */
+
+        .bk-leader {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 170px;
+        }
+
+        .bk-leader-avatar {
+            width: 43px;
+            height: 43px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #dcfce7;
+            border: 1px solid #bbf7d0;
+        }
+
+        .bk-leader-placeholder {
+            width: 43px;
+            height: 43px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            background: #dcfce7;
+            color: #166534;
+            font-size: 18px;
+        }
+
+        .bk-leader-info {
+            min-width: 0;
+        }
+
+        .bk-leader-name {
+            display: block;
+            font-weight: 800;
+            color: #166534;
+            line-height: 1.5;
+            text-decoration: none;
+        }
+
+        .bk-leader-name:hover {
+            color: #ea580c;
+            text-decoration: underline;
+        }
+
+        .bk-leader-sub {
+            display: block;
+            margin-top: 5px;
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .bk-no-leader {
+            color: #94a3b8;
+            font-style: italic;
+            font-size: 12px;
+        }
+
+        /* =====================================
+           TRANG THAI VA NUT LUU
+           ===================================== */
+
+        .bk-select {
+            width: 100%;
+            min-width: 145px;
+            max-width: 230px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 10px 8px;
+            background: white;
+            font: inherit;
+            font-size: 13px;
+        }
+
+        .bk-save {
+            background: #166534;
+            color: white;
+            border: none;
+            padding: 11px 17px;
+            border-radius: 9px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .bk-save:hover {
+            background: #15803d;
+        }
+
         .bk-form {
             margin: 0;
         }
@@ -547,6 +468,10 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
             .bk-table th,
             .bk-table td {
                 padding: 12px;
+            }
+
+            .bk-toolbar {
+                gap: 10px;
             }
         }
     </style>
@@ -560,12 +485,16 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
 <main class="admin-main">
 
+    <!-- THANH TIEU DE -->
+
     <div class="admin-topbar bk-top">
 
         <strong>
             <i class="fa-solid fa-person-hiking"></i>
             QUẢN LÝ ĐĂNG KÝ TOUR TREKKING
         </strong>
+
+        <!-- LOC TRANG THAI -->
 
         <form method="GET">
 
@@ -579,13 +508,15 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     Tất cả trạng thái
                 </option>
 
-                <?php foreach ($statuses as $s): ?>
+                <?php foreach ($statuses as $status): ?>
 
                     <option
-                        value="<?= bk_h($s) ?>"
-                        <?= $filter === $s ? 'selected' : '' ?>
+                        value="<?= bk_h($status) ?>"
+                        <?= $filter === $status
+                            ? 'selected'
+                            : '' ?>
                     >
-                        <?= bk_h($s) ?>
+                        <?= bk_h($status) ?>
                     </option>
 
                 <?php endforeach; ?>
@@ -596,11 +527,15 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
     </div>
 
+    <!-- NOI DUNG QUAN LY -->
+
     <div class="admin-content">
+
+        <!-- THONG BAO -->
 
         <?php if ($success): ?>
 
-            <div class="bk-success">
+            <div class="bk-success" role="status">
                 <i class="fa-solid fa-circle-check"></i>
                 <?= bk_h($success) ?>
             </div>
@@ -609,150 +544,246 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
         <?php if ($error): ?>
 
-            <div class="bk-error">
+            <div class="bk-error" role="alert">
                 <i class="fa-solid fa-circle-exclamation"></i>
                 <?= bk_h($error) ?>
             </div>
 
         <?php endif; ?>
 
-        <!-- NUT THEM HDV MAU VA THONG KE -->
+        <!-- THONG KE BOOKING -->
 
         <div class="bk-toolbar">
 
-            <?php if ($canSeed): ?>
+            <span class="bk-stat">
+                <i class="fa-solid fa-ticket"></i>
 
-                <form method="POST" class="bk-form">
+                <?= $totalBookings ?>
+                đăng ký tour
+            </span>
 
-                    <input
-                        type="hidden"
-                        name="csrf"
-                        value="<?= bk_h($csrf) ?>"
-                    >
+            <span class="bk-stat">
+                <i class="fa-solid fa-person-hiking"></i>
 
-                    <button
-                        type="submit"
-                        name="add_sample_guides"
-                        value="1"
-                        class="bk-add"
-                        onclick="return confirm('Thêm 6 HDV mẫu vào Aiven? Các tài khoản này chỉ phục vụ demo phân công tour.');"
-                    >
-                        <i class="fa-solid fa-user-plus"></i>
-                        Thêm 6 HDV mẫu
-                    </button>
-
-                </form>
-
-            <?php endif; ?>
-
-            <span style="color:#64748b">
-
-                <i class="fa-solid fa-users"></i>
-
-                Có <?= count($guides) ?>
-                nhân viên HDV trong danh sách
-
+                <?= $withLeader ?>
+                đăng ký có Leader cố định
             </span>
 
         </div>
 
-        <!-- BANG QUAN LY BOOKING -->
+        <!-- BANG QUAN LY -->
 
         <div class="bk-table-wrap">
 
             <table class="bk-table">
 
                 <thead>
-
                     <tr>
                         <th>Mã Booking</th>
                         <th>Khách Hàng</th>
                         <th>Tour</th>
                         <th>Ngày Khởi Hành</th>
                         <th>Số Khách</th>
-                        <th>Phân Công HDV</th>
+                        <th>HDV</th>
                         <th>Trạng Thái</th>
                         <th>Thao Tác</th>
                     </tr>
-
                 </thead>
 
                 <tbody>
 
                     <?php if ($bookings): ?>
 
-                        <?php foreach ($bookings as $b): ?>
+                        <?php foreach ($bookings as $booking): ?>
 
                             <?php
-                            $bid = (int)$b['id'];
-                            $formId = 'bk-form-' . $bid;
-                            $guideId = (int)($b['guide_id'] ?? 0);
+                            $bookingId = (int)$booking['id'];
+
+                            $formId = 'booking-form-' . $bookingId;
+
+                            $leaderId = (int)(
+                                $booking['leader_profile_id'] ?? 0
+                            );
+
+                            $leaderName = trim(
+                                (string)(
+                                    $booking['fixed_leader_name'] ?? ''
+                                )
+                            );
+
+                            $leaderImage = trim(
+                                (string)(
+                                    $booking['fixed_leader_image'] ?? ''
+                                )
+                            );
+
+                            $experience = (int)(
+                                $booking['leader_experience'] ?? 0
+                            );
+
+                            $leaderUrl = rtrim(
+                                BASE_URL,
+                                '/'
+                            ) . '/pages/leader-detail.php?id=' .
+                                $leaderId;
                             ?>
 
                             <tr>
 
+                                <!-- MA BOOKING -->
+
                                 <td class="bk-code">
-                                    <?= bk_h($b['booking_code']) ?>
+
+                                    <?= bk_h(
+                                        $booking['booking_code'] ?? ''
+                                    ) ?>
+
                                 </td>
+
+                                <!-- KHACH HANG -->
 
                                 <td>
 
-                                    <?= bk_h($b['fullname']) ?>
+                                    <?= bk_h(
+                                        $booking['fullname'] ?? ''
+                                    ) ?>
 
                                     <small class="bk-phone">
-                                        <?= bk_h($b['phone']) ?>
+
+                                        <?= bk_h(
+                                            $booking['phone'] ?? ''
+                                        ) ?>
+
                                     </small>
 
                                 </td>
 
+                                <!-- TOUR -->
+
                                 <td>
-                                    <?= bk_h($b['tour_name']) ?>
+
+                                    <strong>
+                                        <?= bk_h(
+                                            $booking['tour_name']
+                                        ) ?>
+                                    </strong>
+
                                 </td>
+
+                                <!-- NGAY KHOI HANH -->
 
                                 <td class="bk-date">
 
-                                    <?= !empty($b['departure_date'])
-                                        ? date(
-                                            'd/m/Y',
-                                            strtotime($b['departure_date'])
+                                    <?php if (
+                                        !empty(
+                                            $booking['departure_date']
                                         )
-                                        : 'Tự thỏa thuận' ?>
+                                    ): ?>
+
+                                        <?= date(
+                                            'd/m/Y',
+                                            strtotime(
+                                                $booking['departure_date']
+                                            )
+                                        ) ?>
+
+                                    <?php else: ?>
+
+                                        Tự thỏa thuận
+
+                                    <?php endif; ?>
 
                                 </td>
 
+                                <!-- SO KHACH -->
+
                                 <td>
-                                    <?= (int)$b['number_people'] ?>
+
+                                    <?= (int)(
+                                        $booking['number_people'] ?? 0
+                                    ) ?>
+
                                     người
+
                                 </td>
+
+                                <!-- HDV CO DINH CUA TOUR -->
 
                                 <td>
 
-                                    <select
-                                        name="guide_id"
-                                        form="<?= bk_h($formId) ?>"
-                                        class="bk-select"
-                                    >
+                                    <?php if ($leaderName !== ''): ?>
 
-                                        <option value="">
-                                            -- Chọn Leader/HDV --
-                                        </option>
+                                        <div class="bk-leader">
 
-                                        <?php foreach ($guides as $guide): ?>
+                                            <?php if ($leaderImage !== ''): ?>
 
-                                            <option
-                                                value="<?= (int)$guide['id'] ?>"
-                                                <?= $guideId === (int)$guide['id']
-                                                    ? 'selected'
-                                                    : '' ?>
-                                            >
-                                                <?= bk_h($guide['fullname']) ?>
-                                            </option>
+                                                <img
+                                                    class="bk-leader-avatar"
+                                                    src="<?= bk_h(
+                                                        $leaderImage
+                                                    ) ?>"
+                                                    alt="<?= bk_h(
+                                                        $leaderName
+                                                    ) ?>"
+                                                    loading="lazy"
+                                                >
 
-                                        <?php endforeach; ?>
+                                            <?php else: ?>
 
-                                    </select>
+                                                <div class="bk-leader-placeholder">
+
+                                                    <i class="fa-solid fa-person-hiking"></i>
+
+                                                </div>
+
+                                            <?php endif; ?>
+
+                                            <div class="bk-leader-info">
+
+                                                <a
+                                                    href="<?= bk_h(
+                                                        $leaderUrl
+                                                    ) ?>"
+                                                    class="bk-leader-name"
+                                                    target="_blank"
+                                                    rel="noopener"
+                                                >
+
+                                                    <?= bk_h(
+                                                        $leaderName
+                                                    ) ?>
+
+                                                </a>
+
+                                                <?php if ($experience > 0): ?>
+
+                                                    <span class="bk-leader-sub">
+
+                                                        <?= $experience ?>
+
+                                                        năm kinh nghiệm
+
+                                                    </span>
+
+                                                <?php endif; ?>
+
+                                            </div>
+
+                                        </div>
+
+                                    <?php else: ?>
+
+                                        <span class="bk-no-leader">
+
+                                            Chưa gán HDV cho tour
+
+                                        </span>
+
+                                    <?php endif; ?>
 
                                 </td>
+
+                                <!-- TRANG THAI -->
 
                                 <td>
 
@@ -762,15 +793,26 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                         class="bk-select"
                                     >
 
-                                        <?php foreach ($statuses as $s): ?>
+                                        <?php foreach (
+                                            $statuses as $status
+                                        ): ?>
 
                                             <option
-                                                value="<?= bk_h($s) ?>"
-                                                <?= $b['status'] === $s
+                                                value="<?= bk_h(
+                                                    $status
+                                                ) ?>"
+                                                <?= (
+                                                    $booking['status']
+                                                    === $status
+                                                )
                                                     ? 'selected'
                                                     : '' ?>
                                             >
-                                                <?= bk_h($s) ?>
+
+                                                <?= bk_h(
+                                                    $status
+                                                ) ?>
+
                                             </option>
 
                                         <?php endforeach; ?>
@@ -778,6 +820,8 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                     </select>
 
                                 </td>
+
+                                <!-- NUT LUU -->
 
                                 <td>
 
@@ -796,7 +840,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                         <input
                                             type="hidden"
                                             name="booking_id"
-                                            value="<?= $bid ?>"
+                                            value="<?= $bookingId ?>"
+                                        >
+
+                                        <input
+                                            type="hidden"
+                                            name="current_filter"
+                                            value="<?= bk_h($filter) ?>"
                                         >
 
                                         <button
@@ -805,8 +855,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                             value="1"
                                             type="submit"
                                         >
+
                                             <i class="fa-solid fa-floppy-disk"></i>
+
                                             Lưu
+
                                         </button>
 
                                     </form>
@@ -823,9 +876,15 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                             <td
                                 colspan="8"
-                                style="text-align:center;padding:40px;color:#64748b"
+                                style="
+                                    text-align:center;
+                                    padding:45px;
+                                    color:#64748b;
+                                "
                             >
-                                Không có booking nào phù hợp.
+
+                                Không có đăng ký tour phù hợp.
+
                             </td>
 
                         </tr>
