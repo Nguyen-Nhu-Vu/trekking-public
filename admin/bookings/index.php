@@ -13,8 +13,8 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
-if (!function_exists('vnnBkH')) {
-    function vnnBkH($value) {
+if (!function_exists('bkEsc')) {
+    function bkEsc($value): string {
         return htmlspecialchars(
             (string)($value ?? ''),
             ENT_QUOTES,
@@ -23,15 +23,29 @@ if (!function_exists('vnnBkH')) {
     }
 }
 
-if (!function_exists('vnnBkValue')) {
-    function vnnBkValue(array $row, array $keys, $default = '') {
-        foreach ($keys as $key) {
+if (!function_exists('bkColumns')) {
+    function bkColumns(PDO $pdo, string $table): array {
+        if (!in_array($table, ['tour_bookings', 'users'], true)) {
+            return [];
+        }
+
+        return array_column(
+            $pdo->query("SHOW COLUMNS FROM `$table`")
+                ->fetchAll(PDO::FETCH_ASSOC),
+            'Field'
+        );
+    }
+}
+
+if (!function_exists('bkFirst')) {
+    function bkFirst(array $row, array $names, $default = '') {
+        foreach ($names as $name) {
             if (
-                array_key_exists($key, $row) &&
-                $row[$key] !== null &&
-                trim((string)$row[$key]) !== ''
+                array_key_exists($name, $row) &&
+                $row[$name] !== null &&
+                trim((string)$row[$name]) !== ''
             ) {
-                return $row[$key];
+                return $row[$name];
             }
         }
 
@@ -39,94 +53,134 @@ if (!function_exists('vnnBkValue')) {
     }
 }
 
-if (!function_exists('vnnBkColumns')) {
-    function vnnBkColumns(PDO $pdo, string $table): array {
-        $allowed = [
-            'tour_bookings',
-            'tours',
-            'users'
+if (!function_exists('bkPeople')) {
+    function bkPeople(array $booking): ?int {
+
+        // Uu tien cac cot luu tong so nguoi
+        $priority = [
+            'number_of_people',
+            'number_of_persons',
+            'number_of_participants',
+            'number_of_guests',
+            'participants_count',
+            'participant_count',
+            'people_count',
+            'persons_count',
+            'guest_count',
+            'guests_count',
+            'total_people',
+            'total_guests',
+            'total_persons',
+            'total_participants',
+            'num_people',
+            'num_persons',
+            'num_guests',
+            'num_participants',
+            'so_nguoi',
+            'so_khach',
+            'people',
+            'persons',
+            'participants',
+            'guests',
+            'quantity',
+            'qty',
+            'adults',
+            'adult_count'
         ];
 
-        if (!in_array($table, $allowed, true)) {
-            return [];
+        // Khong phan biet chu hoa / chu thuong
+        $normalized = [];
+
+        foreach ($booking as $key => $value) {
+            $normalized[strtolower((string)$key)] = $value;
         }
 
-        $stmt = $pdo->query("SHOW COLUMNS FROM `$table`");
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($priority as $name) {
+            if (
+                array_key_exists($name, $normalized) &&
+                is_numeric($normalized[$name])
+            ) {
+                $number = (int)$normalized[$name];
 
-        return array_column($rows, 'Field');
+                if ($number >= 1) {
+                    return $number;
+                }
+            }
+        }
+
+        // Tim cac ten cot co y nghia tuong duong
+        foreach ($normalized as $key => $value) {
+            if (!is_numeric($value) || (int)$value < 1) {
+                continue;
+            }
+
+            $looksLikeCount = preg_match(
+                '/(people|person|guest|participant|adult|traveler|traveller|so_nguoi|so_khach)/i',
+                $key
+            );
+
+            $notACount = preg_match(
+                '/(id|price|amount|cost|fee|date|time|phone|code|status|child|remaining|available|max|min)/i',
+                $key
+            );
+
+            if ($looksLikeCount && !$notACount) {
+                return (int)$value;
+            }
+        }
+
+        // Ho tro truong hop luu rieng nguoi lon va tre em
+        $adult = bkFirst(
+            $normalized,
+            ['adult_count', 'adults_count', 'num_adults'],
+            null
+        );
+
+        $child = bkFirst(
+            $normalized,
+            ['child_count', 'children_count', 'num_children'],
+            null
+        );
+
+        if ($adult !== null && is_numeric($adult)) {
+            return max(0, (int)$adult) +
+                ($child !== null && is_numeric($child)
+                    ? max(0, (int)$child)
+                    : 0);
+        }
+
+        // Neu khong tim duoc cot that:
+        // KHONG tu ghi "0 nguoi"
+        return null;
     }
 }
 
-if (!function_exists('vnnBkDate')) {
-    function vnnBkDate($value): string {
-        if (empty($value)) {
+if (!function_exists('bkDate')) {
+    function bkDate($value): string {
+        if (!$value) {
             return '—';
         }
 
-        $time = strtotime((string)$value);
+        $timestamp = strtotime((string)$value);
 
-        if ($time === false) {
-            return (string)$value;
-        }
-
-        return date('d/m/Y', $time);
+        return $timestamp
+            ? date('d/m/Y', $timestamp)
+            : (string)$value;
     }
 }
 
-if (!function_exists('vnnBkPeople')) {
-    function vnnBkPeople(array $booking): int {
-        $fields = [
-            'number_of_people',
-            'num_people',
-            'people_count',
-            'guest_count',
-            'guests',
-            'participants',
-            'quantity',
-            'so_nguoi',
-            'number_of_guests',
-            'adults',
-            'total_people'
-        ];
-
-        foreach ($fields as $field) {
-            if (
-                isset($booking[$field]) &&
-                is_numeric($booking[$field])
-            ) {
-                return max(0, (int)$booking[$field]);
-            }
-        }
-
-        return 0;
-    }
-}
-
-if (!function_exists('vnnBkAudit')) {
-    function vnnBkAudit(
+if (!function_exists('bkLog')) {
+    function bkLog(
         PDO $pdo,
-        int $bookingId,
-        string $code,
-        string $oldStatus,
-        string $newStatus
+        int $id,
+        string $old,
+        string $new
     ): void {
         try {
             $actorId = (int)($_SESSION['user_id'] ?? 0);
-            $actorName = trim((string)(
-                $_SESSION['fullname'] ?? ''
-            ));
-
-            if ($actorName === '') {
-                $stmt = $pdo->prepare(
-                    "SELECT fullname FROM users WHERE id = ? LIMIT 1"
-                );
-
-                $stmt->execute([$actorId]);
-                $actorName = (string)(
-                    $stmt->fetchColumn() ?: 'Nhân viên'
-                );
-            }
+            $actorName = (string)(
+                $_SESSION['fullname'] ?? 'Nhân viên'
+            );
 
             $stmt = $pdo->prepare("
                 INSERT INTO admin_audit_logs
@@ -149,24 +203,20 @@ if (!function_exists('vnnBkAudit')) {
                 'transactions',
                 'Cập nhật trạng thái đăng ký tour',
                 'tour_bookings',
-                (string)$bookingId,
-                $code . ' | ' . $oldStatus,
-                $code . ' | ' . $newStatus
+                (string)$id,
+                $old,
+                $new
             ]);
 
         } catch (Throwable $e) {
-            // Nhat ky chua hoan thien khong duoc
-            // lam that bai thao tac cap nhat booking.
-            error_log(
-                'Booking audit: ' . $e->getMessage()
-            );
+            error_log('Booking audit: ' . $e->getMessage());
         }
     }
 }
 
-// ========================================
-// DANH SACH TRANG THAI
-// ========================================
+// ======================================
+// TRANG THAI
+// ======================================
 
 $statuses = [
     'Chờ xác nhận',
@@ -189,148 +239,104 @@ if (
     $filter = '';
 }
 
-// ========================================
-// CSRF
-// ========================================
-
-if (empty($_SESSION['vnn_booking_csrf'])) {
-    $_SESSION['vnn_booking_csrf'] =
-        bin2hex(random_bytes(32));
+if (empty($_SESSION['bookings_csrf'])) {
+    $_SESSION['bookings_csrf'] = bin2hex(random_bytes(32));
 }
 
-$csrf = $_SESSION['vnn_booking_csrf'];
-
+$csrf = $_SESSION['bookings_csrf'];
 $popup = null;
-$saveSuccess = false;
 
-// ========================================
-// LUU HANG LOAT TRANG THAI
-// ========================================
+// ======================================
+// LUU TRANG THAI HANG LOAT
+// ======================================
 
 if (
     $_SERVER['REQUEST_METHOD'] === 'POST' &&
     isset($_POST['save_changes'])
 ) {
     try {
-        $postedCsrf = (string)(
-            $_POST['csrf'] ?? ''
-        );
-
-        if (!hash_equals($csrf, $postedCsrf)) {
+        if (!hash_equals(
+            $csrf,
+            (string)($_POST['csrf'] ?? '')
+        )) {
             throw new RuntimeException(
-                'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
+                'Phiên làm việc không hợp lệ.'
             );
         }
 
-        $postedStatuses = $_POST['statuses'] ?? [];
+        $submitted = $_POST['statuses'] ?? [];
 
-        if (!is_array($postedStatuses)) {
+        if (!is_array($submitted)) {
             throw new RuntimeException(
                 'Dữ liệu trạng thái không hợp lệ.'
             );
         }
 
-        $changedCount = 0;
+        $updatedCount = 0;
 
         $pdo->beginTransaction();
 
-        $selectStmt = $pdo->prepare("
+        $select = $pdo->prepare("
             SELECT id, status
             FROM tour_bookings
             WHERE id = ?
             FOR UPDATE
         ");
 
-        $updateStmt = $pdo->prepare("
+        $update = $pdo->prepare("
             UPDATE tour_bookings
             SET status = ?
             WHERE id = ?
         ");
 
-        foreach ($postedStatuses as $id => $newStatus) {
-            $bookingId = filter_var(
-                $id,
-                FILTER_VALIDATE_INT
-            );
+        foreach ($submitted as $id => $status) {
+            $id = filter_var($id, FILTER_VALIDATE_INT);
 
-            if (
-                $bookingId === false ||
-                $bookingId <= 0
-            ) {
+            if (!$id || !is_string($status)) {
                 throw new RuntimeException(
-                    'Mã đăng ký không hợp lệ.'
+                    'Dữ liệu booking không hợp lệ.'
                 );
             }
 
-            if (!is_string($newStatus)) {
+            $status = trim($status);
+
+            if (!in_array($status, $statuses, true)) {
                 throw new RuntimeException(
                     'Trạng thái không hợp lệ.'
                 );
             }
 
-            $newStatus = trim($newStatus);
-
-            if (!in_array(
-                $newStatus,
-                $statuses,
-                true
-            )) {
-                throw new RuntimeException(
-                    'Trạng thái đăng ký không được hỗ trợ.'
-                );
-            }
-
-            $selectStmt->execute([$bookingId]);
-
-            $current = $selectStmt->fetch(
-                PDO::FETCH_ASSOC
-            );
-
-            $selectStmt->closeCursor();
+            $select->execute([$id]);
+            $current = $select->fetch(PDO::FETCH_ASSOC);
+            $select->closeCursor();
 
             if (!$current) {
                 throw new RuntimeException(
-                    'Không tìm thấy đăng ký #' . $bookingId
+                    'Không tìm thấy booking #' . $id
                 );
             }
 
-            $oldStatus = trim(
-                (string)$current['status']
-            );
+            $old = trim((string)$current['status']);
 
-            // Chi UPDATE khi du lieu thuc su thay doi.
-            if ($oldStatus === $newStatus) {
+            if ($old === $status) {
                 continue;
             }
 
-            $updateStmt->execute([
-                $newStatus,
-                $bookingId
-            ]);
+            $update->execute([$status, $id]);
 
-            if ($updateStmt->rowCount() > 0) {
-                $changedCount++;
-
-                vnnBkAudit(
-                    $pdo,
-                    $bookingId,
-                    'Booking #' . $bookingId,
-                    $oldStatus,
-                    $newStatus
-                );
+            if ($update->rowCount() > 0) {
+                $updatedCount++;
+                bkLog($pdo, $id, $old, $status);
             }
         }
 
         $pdo->commit();
 
-        $saveSuccess = true;
-
         $popup = [
             'type' => 'success',
             'title' => 'Đã lưu thay đổi',
-            'message' => $changedCount > 0
-                ? 'Đã cập nhật thành công ' .
-                  $changedCount . ' đăng ký tour.'
+            'message' => $updatedCount > 0
+                ? 'Đã cập nhật ' . $updatedCount . ' đăng ký tour.'
                 : 'Các trạng thái đã được lưu.'
         ];
 
@@ -339,51 +345,53 @@ if (
             $pdo->rollBack();
         }
 
-        error_log(
-            'Booking bulk update: ' .
-            $e->getMessage()
-        );
+        error_log('Booking save: ' . $e->getMessage());
 
         $popup = [
             'type' => 'error',
             'title' => 'Không thể lưu thay đổi',
             'message' => $e instanceof RuntimeException
                 ? $e->getMessage()
-                : 'Có lỗi xảy ra khi cập nhật dữ liệu.'
+                : 'Có lỗi xảy ra khi lưu trạng thái.'
         ];
     }
 }
 
-// ========================================
-// LAY DU LIEU THEO DATABASE
-// ========================================
+// ======================================
+// LAY DANH SACH BOOKING
+// ======================================
 
 $bookings = [];
-$dataError = '';
+$error = '';
 
 try {
-    $bookingCols = vnnBkColumns(
-        $pdo,
-        'tour_bookings'
+    $bookingColumns = bkColumns($pdo, 'tour_bookings');
+    $userColumns = bkColumns($pdo, 'users');
+
+    $hasUserJoin = in_array(
+        'user_id',
+        $bookingColumns,
+        true
     );
 
-    $tourCols = vnnBkColumns(
-        $pdo,
-        'tours'
-    );
-
-    $userCols = vnnBkColumns(
-        $pdo,
-        'users'
-    );
-
-    // Truong tour_id da duoc su dung trong
-    // database va cac phan booking truoc do.
     $sql = "
         SELECT
             b.*,
-            t.title AS vnn_tour_title,
-            l.fullname AS vnn_leader_name
+            t.title AS tour_title,
+            l.fullname AS leader_name
+    ";
+
+    if ($hasUserJoin) {
+        $sql .= ",
+            u.fullname AS account_fullname
+        ";
+
+        if (in_array('phone', $userColumns, true)) {
+            $sql .= ", u.phone AS account_phone ";
+        }
+    }
+
+    $sql .= "
         FROM tour_bookings b
         LEFT JOIN tours t
             ON t.id = b.tour_id
@@ -391,30 +399,8 @@ try {
             ON l.id = t.leader_id
     ";
 
-    // Neu booking co user_id, lay them ten/SDT
-    // cua tai khoan khi booking khong luu rieng.
-    if (
-        in_array('user_id', $bookingCols, true) &&
-        in_array('fullname', $userCols, true)
-    ) {
-        $sql = "
-            SELECT
-                b.*,
-                t.title AS vnn_tour_title,
-                l.fullname AS vnn_leader_name,
-                u.fullname AS vnn_user_fullname,
-                " .
-                (
-                    in_array('phone', $userCols, true)
-                    ? "u.phone"
-                    : "NULL"
-                ) .
-                " AS vnn_user_phone
-            FROM tour_bookings b
-            LEFT JOIN tours t
-                ON t.id = b.tour_id
-            LEFT JOIN trekking_leaders l
-                ON l.id = t.leader_id
+    if ($hasUserJoin) {
+        $sql .= "
             LEFT JOIN users u
                 ON u.id = b.user_id
         ";
@@ -432,48 +418,26 @@ try {
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
-    $bookings = $stmt->fetchAll(
-        PDO::FETCH_ASSOC
-    );
+    $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Throwable $e) {
-    error_log(
-        'Booking query: ' . $e->getMessage()
-    );
-
-    $dataError =
-        'Không thể tải đăng ký tour. ' .
-        'Vui lòng kiểm tra kết nối và cấu trúc database.';
+    error_log('Booking load: ' . $e->getMessage());
+    $error = 'Không thể tải danh sách đăng ký tour.';
 }
 
-$totalBookings = count($bookings);
-
-// ========================================
-// THONG TIN CHO GIAO DIEN
-// ========================================
-
-$baseUrl = rtrim(BASE_URL, '/') . '/';
+$total = count($bookings);
 ?>
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
 <meta charset="UTF-8">
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title><?= vnnBkH($page_title) ?></title>
+<title><?= bkEsc($page_title) ?></title>
 
-<link
-    rel="stylesheet"
-    href="../../assets/css/style.css"
->
-
-<link
-    rel="stylesheet"
-    href="../../assets/css/admin.css"
->
+<link rel="stylesheet" href="../../assets/css/style.css">
+<link rel="stylesheet" href="../../assets/css/admin.css">
 
 <link
     rel="stylesheet"
@@ -485,301 +449,284 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
     box-sizing: border-box;
 }
 
-.vnn-bookings-main {
+.bk-main {
     flex: 1 1 auto;
     min-width: 0;
-    width: 0;
     background: #f1f5f9;
 }
 
-.vnn-bookings-header {
-    min-height: 76px;
-    padding: 17px 28px;
-    border-bottom: 1px solid #e2e8f0;
+.bk-header {
+    min-height: 75px;
+    padding: 17px 26px;
     background: white;
+    border-bottom: 1px solid #e2e8f0;
 
     display: flex;
-    align-items: center;
     justify-content: space-between;
+    align-items: center;
     gap: 16px;
 }
 
-.vnn-bookings-header h1 {
+.bk-header h1 {
     margin: 0;
-    color: #18365d;
+    color: #173458;
     font-size: 18px;
     font-weight: 800;
-    line-height: 1.4;
 }
 
-.vnn-bookings-header h1 i {
-    color: #166534;
+.bk-header h1 i {
     margin-right: 7px;
+    color: #166534;
 }
 
-.vnn-bookings-header select {
-    width: 210px;
-    max-width: 100%;
-    height: 45px;
+.bk-filter {
+    flex: 0 0 210px;
+    height: 44px;
     padding: 0 13px;
-
     border: 1px solid #cbd5e1;
     border-radius: 10px;
-
     background: white;
-    color: #334155;
     font: inherit;
     font-size: 13px;
-    cursor: pointer;
+    color: #334155;
 }
 
-.vnn-bookings-body {
+.bk-content {
     padding: 23px;
     min-width: 0;
 }
 
-.vnn-bookings-tools {
+.bk-tools {
     padding: 17px 19px;
-    border: 1px solid #e0e8f1;
+    border: 1px solid #e1e8f0;
     border-radius: 14px;
     background: #edf3fa;
 
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    gap: 14px;
+    align-items: center;
+    gap: 12px;
 }
 
-.vnn-bookings-count {
+.bk-count {
     color: #64748b;
     font-size: 13px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
 }
 
-.vnn-bookings-count i {
+.bk-count i {
+    margin-right: 8px;
     color: #166534;
 }
 
-.vnn-bookings-save {
+.bk-save {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
 
     min-height: 43px;
-    padding: 11px 18px;
-    border: none;
-    border-radius: 10px;
+    padding: 10px 17px;
 
+    border: none;
+    border-radius: 9px;
     background: #166534;
     color: white;
+
     font-size: 13px;
     font-weight: 800;
-
     cursor: pointer;
-    white-space: nowrap;
 }
 
-.vnn-bookings-save:hover {
-    background: #14532d;
+.bk-save:disabled {
+    opacity: .6;
 }
 
-.vnn-bookings-save:disabled {
-    opacity: .65;
-    cursor: wait;
-}
-
-.vnn-bookings-panel {
+.bk-panel {
     margin-top: 19px;
     border: 1px solid #dce5ef;
     border-radius: 14px;
-    overflow: hidden;
     background: white;
+    overflow: hidden;
 }
 
-.vnn-bookings-scroll {
+.bk-scroll {
+    width: 100%;
     overflow-x: auto;
-    width: 100%;
 }
 
-.vnn-bookings-table {
+.bk-table {
     width: 100%;
-    min-width: 1140px;
+    min-width: 1260px;
     border-collapse: collapse;
     table-layout: fixed;
 }
 
-.vnn-bookings-table th,
-.vnn-bookings-table td {
+.bk-table th,
+.bk-table td {
+    padding: 16px 12px;
+    border-bottom: 1px solid #e2e8f0;
     text-align: left;
     vertical-align: middle;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 16px 12px;
     font-size: 12px;
     line-height: 1.5;
 }
 
-.vnn-bookings-table th {
-    height: 62px;
+.bk-table th {
     background: #f8fafc;
-    color: #0f274b;
+    color: #102c50;
     font-weight: 800;
-    font-size: 12px;
     white-space: nowrap;
 }
 
-.vnn-bookings-table tr:last-child td {
+.bk-table tr:last-child td {
     border-bottom: none;
 }
 
-.vnn-bookings-table tbody tr:nth-child(even) {
+.bk-table tbody tr:nth-child(even) {
     background: #fbfcfe;
 }
 
-.vnn-bookings-table tr.vnn-changed {
+.bk-table tbody tr.changed {
     background: #f0fdf4 !important;
 }
 
-.vnn-bookings-table .code {
+/* GIU MA BOOKING GON TREN MOT HANG */
+
+.bk-code {
+    display: block;
     color: #0d2e5d;
-    font-weight: 800;
     font-size: 11px;
+    font-weight: 800;
     white-space: nowrap;
 }
 
-.vnn-bookings-table .customer {
-    color: #112c50;
+.bk-name {
+    color: #102c50;
     font-weight: 800;
 }
 
-.vnn-bookings-table .phone {
+.bk-phone {
     margin-top: 5px;
-    color: #68809e;
+    color: #7188a5;
     font-size: 11px;
 }
 
-.vnn-bookings-table .tour {
-    color: #102d53;
+.bk-tour {
+    color: #102c50;
     font-weight: 800;
-    line-height: 1.5;
 }
 
-.vnn-bookings-table .departure {
+.bk-date {
     color: #ea580c;
     font-weight: 800;
     white-space: nowrap;
 }
 
-.vnn-bookings-table .people {
+.bk-people {
     color: #334155;
     white-space: nowrap;
 }
 
-.vnn-bookings-table .leader {
+.bk-leader {
     color: #166534;
     font-weight: 800;
 }
 
-.vnn-bookings-table select {
+/* SUA COT TRANG THAI:
+   TANG CHIEU RONG VA KHONG CAT CHU */
+
+.bk-status {
+    display: block;
     width: 100%;
-    min-height: 42px;
-    padding: 7px 9px;
+    min-width: 150px;
+    height: 44px;
+    padding: 0 9px;
+
     border: 1px solid #cbd5e1;
     border-radius: 9px;
     background: white;
     color: #334155;
+
     font: inherit;
     font-size: 12px;
     cursor: pointer;
 }
 
-.vnn-bookings-table select:focus {
+.bk-status:focus {
     outline: none;
     border-color: #16a34a;
 }
 
-.vnn-bookings-empty {
-    padding: 45px 20px;
+.bk-empty {
+    padding: 40px 15px;
     text-align: center;
     color: #64748b;
-    font-size: 14px;
+    font-size: 13px;
 }
 
-.vnn-bookings-error {
-    padding: 14px 18px;
+.bk-error {
+    padding: 14px 16px;
     border-radius: 10px;
     background: #fee2e2;
     color: #991b1b;
+    margin-bottom: 17px;
     font-size: 13px;
-    margin-bottom: 16px;
 }
 
-.vnn-bookings-hint {
-    margin-top: 11px;
-    color: #64748b;
-    font-size: 12px;
-}
+/* POPUP */
 
-/* =================================
-   POPUP THONG BAO
-   ================================= */
-
-.vnn-booking-overlay {
+.bk-overlay {
     position: fixed;
     inset: 0;
     z-index: 999999;
 
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
 
     padding: 20px;
-    background: rgba(15,23,42,.5);
+    background: rgba(15,23,42,.48);
 }
 
-.vnn-booking-overlay[hidden] {
+.bk-overlay[hidden] {
     display: none !important;
 }
 
-.vnn-booking-popup {
+.bk-popup {
     width: 100%;
-    max-width: 390px;
-    padding: 28px;
+    max-width: 400px;
+    padding: 29px;
+
     border-radius: 18px;
     background: white;
     text-align: center;
     box-shadow: 0 20px 60px rgba(0,0,0,.18);
 }
 
-.vnn-booking-popup-icon {
-    font-size: 43px;
+.bk-popup-icon {
     color: #16a34a;
+    font-size: 44px;
 }
 
-.vnn-booking-popup.error
-.vnn-booking-popup-icon {
+.bk-popup.error .bk-popup-icon {
     color: #dc2626;
 }
 
-.vnn-booking-popup h2 {
-    margin: 14px 0 9px;
+.bk-popup h2 {
     color: #0f172a;
-    font-size: 21px;
-    font-weight: 800;
+    font-size: 20px;
+    margin: 14px 0 10px;
 }
 
-.vnn-booking-popup p {
-    margin: 0;
+.bk-popup p {
     color: #64748b;
     font-size: 13px;
     line-height: 1.7;
 }
 
-.vnn-booking-popup button {
-    margin-top: 23px;
-    padding: 11px 25px;
+.bk-popup button {
+    margin-top: 20px;
+    padding: 11px 23px;
     border: 0;
     border-radius: 9px;
     background: #166534;
@@ -789,36 +736,27 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
     cursor: pointer;
 }
 
-@media(max-width:950px) {
-    .vnn-bookings-header {
+@media(max-width:900px) {
+    .bk-header {
         padding: 15px;
     }
 
-    .vnn-bookings-body {
-        padding: 13px;
+    .bk-header h1 {
+        font-size: 15px;
     }
 
-    .vnn-bookings-header h1 {
-        font-size: 15px;
+    .bk-content {
+        padding: 13px;
     }
 }
 
 @media(max-width:600px) {
-    .vnn-bookings-header {
+    .bk-header {
         flex-wrap: wrap;
     }
 
-    .vnn-bookings-header select {
-        width: 100%;
-    }
-
-    .vnn-bookings-tools {
-        padding: 12px;
-    }
-
-    .vnn-bookings-save {
-        font-size: 11px;
-        padding: 9px 11px;
+    .bk-filter {
+        flex: 1 1 100%;
     }
 }
 </style>
@@ -830,39 +768,32 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 require_once __DIR__ . '/../includes/sidebar.php';
 ?>
 
-<main class="admin-main vnn-bookings-main">
+<main class="admin-main bk-main">
 
-    <!-- HEADER -->
-
-    <header class="vnn-bookings-header">
+    <header class="bk-header">
 
         <h1>
             <i class="fa-solid fa-person-hiking"></i>
             QUẢN LÝ ĐĂNG KÝ TOUR TREKKING
         </h1>
 
-        <!-- LOC TRANG THAI
-             CHI LOC DU LIEU DA LUU -->
-
         <select
-            id="vnnBookingFilter"
-            aria-label="Lọc trạng thái đăng ký"
+            class="bk-filter"
+            id="bkFilter"
+            aria-label="Lọc trạng thái"
         >
 
-            <option
-                value=""
-                <?= $filter === '' ? 'selected' : '' ?>
-            >
+            <option value="" <?= $filter === '' ? 'selected' : '' ?>>
                 Tất cả trạng thái
             </option>
 
             <?php foreach ($statuses as $status): ?>
 
                 <option
-                    value="<?= vnnBkH($status) ?>"
+                    value="<?= bkEsc($status) ?>"
                     <?= $filter === $status ? 'selected' : '' ?>
                 >
-                    <?= vnnBkH($status) ?>
+                    <?= bkEsc($status) ?>
                 </option>
 
             <?php endforeach; ?>
@@ -871,33 +802,28 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
     </header>
 
-    <div class="vnn-bookings-body">
+    <div class="bk-content">
 
-        <?php if ($dataError): ?>
+        <?php if ($error): ?>
 
-            <div class="vnn-bookings-error">
-                <?= vnnBkH($dataError) ?>
+            <div class="bk-error">
+                <?= bkEsc($error) ?>
             </div>
 
         <?php endif; ?>
 
-        <!-- FORM DUY NHAT CHO TOAN BO BANG -->
-
-        <form
-            id="vnnBookingBulkForm"
-            method="POST"
-        >
+        <form method="POST" id="bkForm">
 
             <input
                 type="hidden"
                 name="csrf"
-                value="<?= vnnBkH($csrf) ?>"
+                value="<?= bkEsc($csrf) ?>"
             >
 
             <input
                 type="hidden"
                 name="current_filter"
-                value="<?= vnnBkH($filter) ?>"
+                value="<?= bkEsc($filter) ?>"
             >
 
             <input
@@ -906,50 +832,48 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 value="1"
             >
 
-            <div class="vnn-bookings-tools">
+            <div class="bk-tools">
 
-                <div class="vnn-bookings-count">
+                <div class="bk-count">
 
                     <i class="fa-solid fa-ticket"></i>
 
-                    <span>
-                        <?= (int)$totalBookings ?>
-                        đăng ký tour
-                    </span>
+                    <?= (int)$total ?> đăng ký tour
 
                 </div>
 
                 <button
-                    id="vnnBookingSave"
                     type="submit"
-                    class="vnn-bookings-save"
+                    class="bk-save"
+                    id="bkSave"
                 >
-
                     <i class="fa-solid fa-floppy-disk"></i>
-
                     Lưu thay đổi
-
                 </button>
 
             </div>
 
-            <section class="vnn-bookings-panel">
+            <section class="bk-panel">
 
-                <div class="vnn-bookings-scroll">
+                <div class="bk-scroll">
 
-                    <table class="vnn-bookings-table">
+                    <table class="bk-table">
+
+                        <!-- CHIA LAI COT:
+                             TRANG THAI 16% THAY VI 10% -->
 
                         <colgroup>
-                            <col style="width:17%">
+                            <col style="width:16%">
                             <col style="width:20%">
-                            <col style="width:19%">
-                            <col style="width:13%">
-                            <col style="width:9%">
+                            <col style="width:18%">
                             <col style="width:12%">
+                            <col style="width:8%">
                             <col style="width:10%">
+                            <col style="width:16%">
                         </colgroup>
 
                         <thead>
+
                             <tr>
                                 <th>Mã Booking</th>
                                 <th>Khách Hàng</th>
@@ -959,6 +883,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                 <th>HDV</th>
                                 <th>Trạng Thái</th>
                             </tr>
+
                         </thead>
 
                         <tbody>
@@ -966,51 +891,46 @@ require_once __DIR__ . '/../includes/sidebar.php';
                         <?php foreach ($bookings as $booking): ?>
 
                             <?php
-                            $bookingId = (int)$booking['id'];
+                            $id = (int)$booking['id'];
 
-                            $bookingCode = vnnBkValue(
+                            $code = bkFirst(
                                 $booking,
-                                [
-                                    'booking_code',
-                                    'code',
-                                    'ma_booking'
-                                ],
-                                'Booking #' . $bookingId
+                                ['booking_code', 'code'],
+                                'Booking #' . $id
                             );
 
-                            $customer = vnnBkValue(
+                            $customer = bkFirst(
                                 $booking,
                                 [
                                     'customer_name',
-                                    'fullname',
                                     'full_name',
+                                    'fullname',
                                     'contact_name',
                                     'guest_name',
                                     'name',
-                                    'vnn_user_fullname'
+                                    'account_fullname'
                                 ],
                                 'Khách hàng'
                             );
 
-                            $phone = vnnBkValue(
+                            $phone = bkFirst(
                                 $booking,
                                 [
                                     'customer_phone',
                                     'phone',
                                     'phone_number',
                                     'contact_phone',
-                                    'vnn_user_phone'
-                                ],
-                                ''
+                                    'account_phone'
+                                ]
                             );
 
-                            $tourName = vnnBkValue(
+                            $tour = bkFirst(
                                 $booking,
-                                ['vnn_tour_title'],
+                                ['tour_title'],
                                 'Tour trekking'
                             );
 
-                            $departure = vnnBkValue(
+                            $date = bkFirst(
                                 $booking,
                                 [
                                     'departure_date',
@@ -1018,15 +938,14 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                     'tour_date',
                                     'departure',
                                     'booking_date'
-                                ],
-                                ''
+                                ]
                             );
 
-                            $people = vnnBkPeople($booking);
+                            $people = bkPeople($booking);
 
-                            $leaderName = vnnBkValue(
+                            $leader = bkFirst(
                                 $booking,
-                                ['vnn_leader_name'],
+                                ['leader_name'],
                                 'Chưa cập nhật'
                             );
 
@@ -1035,27 +954,24 @@ require_once __DIR__ . '/../includes/sidebar.php';
                             );
                             ?>
 
-                            <tr
-                                class="vnn-booking-row"
-                                data-booking-id="<?= $bookingId ?>"
-                            >
+                            <tr class="bk-row">
 
                                 <td>
-                                    <span class="code">
-                                        <?= vnnBkH($bookingCode) ?>
+                                    <span class="bk-code">
+                                        <?= bkEsc($code) ?>
                                     </span>
                                 </td>
 
                                 <td>
 
-                                    <div class="customer">
-                                        <?= vnnBkH($customer) ?>
+                                    <div class="bk-name">
+                                        <?= bkEsc($customer) ?>
                                     </div>
 
                                     <?php if ($phone !== ''): ?>
 
-                                        <div class="phone">
-                                            <?= vnnBkH($phone) ?>
+                                        <div class="bk-phone">
+                                            <?= bkEsc($phone) ?>
                                         </div>
 
                                     <?php endif; ?>
@@ -1063,43 +979,40 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                 </td>
 
                                 <td>
-                                    <div class="tour">
-                                        <?= vnnBkH($tourName) ?>
+                                    <div class="bk-tour">
+                                        <?= bkEsc($tour) ?>
                                     </div>
                                 </td>
 
                                 <td>
-                                    <span class="departure">
-                                        <?= vnnBkH(
-                                            vnnBkDate($departure)
-                                        ) ?>
+                                    <span class="bk-date">
+                                        <?= bkEsc(bkDate($date)) ?>
                                     </span>
                                 </td>
 
                                 <td>
-                                    <span class="people">
-                                        <?= (int)$people ?> người
+                                    <span class="bk-people">
+                                        <?= $people === null
+                                            ? '—'
+                                            : (int)$people . ' người' ?>
                                     </span>
                                 </td>
 
                                 <td>
-                                    <span class="leader">
-                                        <?= vnnBkH($leaderName) ?>
+                                    <span class="bk-leader">
+                                        <?= bkEsc($leader) ?>
                                     </span>
                                 </td>
 
                                 <td>
 
                                     <select
-                                        class="vnn-booking-status"
-                                        name="statuses[<?= $bookingId ?>]"
-                                        data-original="<?= vnnBkH($currentStatus) ?>"
-                                        aria-label="Trạng thái booking <?= vnnBkH($bookingCode) ?>"
+                                        class="bk-status"
+                                        name="statuses[<?= $id ?>]"
+                                        data-original="<?= bkEsc($currentStatus) ?>"
                                     >
 
                                         <?php
-                                        // Giu gia tri trang thai cu neu
-                                        // du lieu chua nam trong danh sach.
                                         if (
                                             $currentStatus !== '' &&
                                             !in_array(
@@ -1111,10 +1024,10 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                         ?>
 
                                             <option
-                                                value="<?= vnnBkH($currentStatus) ?>"
+                                                value="<?= bkEsc($currentStatus) ?>"
                                                 selected
                                             >
-                                                <?= vnnBkH($currentStatus) ?>
+                                                <?= bkEsc($currentStatus) ?>
                                             </option>
 
                                         <?php endif; ?>
@@ -1122,12 +1035,12 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                         <?php foreach ($statuses as $status): ?>
 
                                             <option
-                                                value="<?= vnnBkH($status) ?>"
+                                                value="<?= bkEsc($status) ?>"
                                                 <?= $currentStatus === $status
                                                     ? 'selected'
                                                     : '' ?>
                                             >
-                                                <?= vnnBkH($status) ?>
+                                                <?= bkEsc($status) ?>
                                             </option>
 
                                         <?php endforeach; ?>
@@ -1146,10 +1059,10 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                 </div>
 
-                <?php if (!$dataError && !$bookings): ?>
+                <?php if (!$error && !$bookings): ?>
 
-                    <div class="vnn-bookings-empty">
-                        Không có đăng ký tour phù hợp với bộ lọc.
+                    <div class="bk-empty">
+                        Không có đăng ký tour phù hợp.
                     </div>
 
                 <?php endif; ?>
@@ -1162,47 +1075,33 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
 </main>
 
-<!-- =================================
-     POPUP THONG BAO
-     ================================= -->
+<!-- POPUP KET QUA -->
 
 <div
-    id="vnnBookingPopup"
-    class="vnn-booking-overlay"
+    id="bkPopup"
+    class="bk-overlay"
     <?= $popup ? '' : 'hidden' ?>
 >
 
-    <div
-        class="vnn-booking-popup <?= ($popup['type'] ?? '') === 'error'
-            ? 'error'
-            : '' ?>"
-    >
+    <div class="bk-popup <?= ($popup['type'] ?? '') === 'error'
+        ? 'error'
+        : '' ?>">
 
-        <div class="vnn-booking-popup-icon">
+        <div class="bk-popup-icon">
 
-            <i
-                class="fa-solid <?= ($popup['type'] ?? '') === 'error'
-                    ? 'fa-circle-xmark'
-                    : 'fa-circle-check' ?>"
-            ></i>
+            <i class="fa-solid <?= ($popup['type'] ?? '') === 'error'
+                ? 'fa-circle-xmark'
+                : 'fa-circle-check' ?>"></i>
 
         </div>
 
-        <h2>
-            <?= vnnBkH(
-                $popup['title'] ?? 'Thông báo'
-            ) ?>
-        </h2>
+        <h2><?= bkEsc($popup['title'] ?? '') ?></h2>
 
-        <p>
-            <?= vnnBkH(
-                $popup['message'] ?? ''
-            ) ?>
-        </p>
+        <p><?= bkEsc($popup['message'] ?? '') ?></p>
 
         <button
             type="button"
-            id="vnnBookingClosePopup"
+            id="bkClosePopup"
         >
             Đóng
         </button>
@@ -1214,171 +1113,101 @@ require_once __DIR__ . '/../includes/sidebar.php';
 <script>
 (function() {
 
-    const filter = document.getElementById(
-        'vnnBookingFilter'
-    );
-
-    const form = document.getElementById(
-        'vnnBookingBulkForm'
-    );
-
-    const saveButton = document.getElementById(
-        'vnnBookingSave'
-    );
-
-    const statusSelects = document.querySelectorAll(
-        '.vnn-booking-status'
-    );
-
-    const popup = document.getElementById(
-        'vnnBookingPopup'
-    );
-
-    const popupClose = document.getElementById(
-        'vnnBookingClosePopup'
-    );
+    const filter = document.getElementById('bkFilter');
+    const form = document.getElementById('bkForm');
+    const save = document.getElementById('bkSave');
+    const popup = document.getElementById('bkPopup');
 
     let submitting = false;
 
-    // ===================================
-    // CHON TRANG THAI
-    //
-    // KHONG AN DONG KHI THAY DOI SELECT.
-    // CHI DANH DAU DONG DA SUA.
-    // ===================================
+    // KHONG AN DONG KHI DOI TRANG THAI
 
-    statusSelects.forEach(function(select) {
+    document.querySelectorAll('.bk-status')
+        .forEach(function(select) {
 
-        select.addEventListener(
-            'change',
-            function() {
+            select.addEventListener('change', function() {
 
-                const row = select.closest(
-                    '.vnn-booking-row'
-                );
+                const row = select.closest('.bk-row');
 
-                if (!row) {
-                    return;
-                }
-
-                const changed =
-                    select.value !==
-                    select.dataset.original;
+                if (!row) return;
 
                 row.classList.toggle(
-                    'vnn-changed',
-                    changed
+                    'changed',
+                    select.value !== select.dataset.original
                 );
-            }
-        );
-    });
+            });
+        });
 
-    // ===================================
-    // LUU TOAN BO STATUS DANG HIEN THI
-    // ===================================
+    // LUU BANG POST
 
     if (form) {
+        form.addEventListener('submit', function(event) {
 
-        form.addEventListener(
-            'submit',
-            function(event) {
-
-                if (submitting) {
-                    event.preventDefault();
-                    return;
-                }
-
-                submitting = true;
-
-                if (saveButton) {
-                    saveButton.disabled = true;
-                    saveButton.innerHTML =
-                        '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu...';
-                }
-
-                // Khong ngan form submit.
-                // PHP se nhan:
-                //
-                // statuses[booking_id] = trang_thai_moi
-                //
-                // Sau do UPDATE vao database.
+            if (submitting) {
+                event.preventDefault();
+                return;
             }
-        );
+
+            submitting = true;
+
+            if (save) {
+                save.disabled = true;
+                save.innerHTML =
+                    '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu...';
+            }
+        });
     }
 
-    // ===================================
-    // LOC TRANG THAI
-    //
-    // CHI LOC TU DATABASE.
-    //
-    // KHONG LOC THEO GIA TRI VUA CHON
-    // NHUNG CHUA LUU.
-    // ===================================
+    // LOC THEO TRANG THAI DA LUU
 
-    if (filter) {
+    filter?.addEventListener('change', function() {
 
-        filter.addEventListener(
-            'change',
-            function() {
-
-                const selected = filter.value;
-
-                const url = new URL(
-                    window.location.href
-                );
-
-                url.searchParams.delete('status');
-
-                if (selected !== '') {
-                    url.searchParams.set(
-                        'status',
-                        selected
-                    );
-                }
-
-                // Chuyen bang GET.
-                // Khong submit form POST.
-                window.location.assign(url.toString());
-            }
+        const changed = Array.from(
+            document.querySelectorAll('.bk-status')
+        ).some(select =>
+            select.value !== select.dataset.original
         );
-    }
 
-    // ===================================
+        if (changed) {
+            const leave = window.confirm(
+                'Bạn có trạng thái chưa lưu. ' +
+                'Chuyển bộ lọc sẽ bỏ các thay đổi đó. Tiếp tục?'
+            );
+
+            if (!leave) {
+                filter.value =
+                    <?= json_encode($filter, JSON_UNESCAPED_UNICODE) ?>;
+                return;
+            }
+        }
+
+        const url = new URL(window.location.href);
+
+        url.searchParams.delete('status');
+
+        if (filter.value) {
+            url.searchParams.set('status', filter.value);
+        }
+
+        window.location.assign(url.toString());
+    });
+
     // DONG POPUP
-    // ===================================
 
     function closePopup() {
-        if (popup) {
-            popup.hidden = true;
-        }
+        if (popup) popup.hidden = true;
     }
 
-    if (popupClose) {
-        popupClose.addEventListener(
-            'click',
-            closePopup
-        );
-    }
+    document.getElementById('bkClosePopup')
+        ?.addEventListener('click', closePopup);
 
-    if (popup) {
-        popup.addEventListener(
-            'click',
-            function(event) {
-                if (event.target === popup) {
-                    closePopup();
-                }
-            }
-        );
-    }
+    popup?.addEventListener('click', function(event) {
+        if (event.target === popup) closePopup();
+    });
 
-    document.addEventListener(
-        'keydown',
-        function(event) {
-            if (event.key === 'Escape') {
-                closePopup();
-            }
-        }
-    );
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') closePopup();
+    });
 
 })();
 </script>
