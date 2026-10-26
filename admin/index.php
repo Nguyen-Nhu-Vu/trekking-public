@@ -6,633 +6,766 @@ require_once __DIR__ . '/../includes/functions.php';
 
 requireStaff();
 
-if (!function_exists('adm_h')) {
-    function adm_h($value) {
-        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
-    }
-}
-
 $current_page = 'dashboard';
-$page_title   = 'Dashboard - VNN Travel';
+$page_title = 'Dashboard - VNN Travel';
 
-function dashboardCount(PDO $pdo, string $sql, array $params = []): int
-{
-    try {
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        return (int)($stmt->fetchColumn() ?: 0);
-    } catch (Throwable $e) {
-        error_log('Dashboard count error: ' . $e->getMessage());
-        return 0;
+if (!function_exists('vnnDashH')) {
+    function vnnDashH($value) {
+        return htmlspecialchars(
+            (string)$value,
+            ENT_QUOTES,
+            'UTF-8'
+        );
     }
 }
 
-function dashboardSum(PDO $pdo, string $sql, array $params = []): float
-{
-    try {
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        return (float)($stmt->fetchColumn() ?: 0);
-    } catch (Throwable $e) {
-        error_log('Dashboard sum error: ' . $e->getMessage());
-        return 0;
+if (!function_exists('vnnDashCount')) {
+    function vnnDashCount(PDO $pdo, string $sql): int {
+        try {
+            return (int)($pdo->query($sql)->fetchColumn() ?: 0);
+        } catch (Throwable $e) {
+            error_log('Dashboard count: ' . $e->getMessage());
+            return 0;
+        }
     }
 }
 
-function money_vnd($number): string
-{
-    return number_format((float)$number, 0, ',', '.') . ' đ';
-}
-
-$customerCount     = dashboardCount($pdo, "SELECT COUNT(*) FROM users WHERE role = 'customer'");
-$tourCount         = dashboardCount($pdo, "SELECT COUNT(*) FROM tours WHERE status = 1");
-$productStockTotal = dashboardSum($pdo, "SELECT COALESCE(SUM(stock_quantity), 0) FROM products");
-$revenueDone       = dashboardSum($pdo, "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status IN ('completed','delivered','Đã giao','Đã hoàn thành')");
-$pendingTourCount  = dashboardCount($pdo, "SELECT COUNT(*) FROM tour_bookings WHERE status IN ('pending','Chờ xác nhận')");
-$pendingOrderCount = dashboardCount($pdo, "SELECT COUNT(*) FROM orders WHERE status IN ('pending','Chờ xác nhận')");
-
-$recentActivities = [];
-
-try {
-    $stmt = $pdo->query("
-        SELECT 'booking' AS item_type,
-               booking_code AS code,
-               customer_name AS name,
-               created_at
-        FROM tour_bookings
-        ORDER BY created_at DESC
-        LIMIT 3
-    ");
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    if ($rows) {
-        $recentActivities = array_merge($recentActivities, $rows);
+if (!function_exists('vnnDashSum')) {
+    function vnnDashSum(PDO $pdo, string $sql): float {
+        try {
+            return (float)($pdo->query($sql)->fetchColumn() ?: 0);
+        } catch (Throwable $e) {
+            error_log('Dashboard sum: ' . $e->getMessage());
+            return 0;
+        }
     }
-} catch (Throwable $e) {
-    error_log('Dashboard recent booking error: ' . $e->getMessage());
 }
 
-try {
-    $stmt = $pdo->query("
-        SELECT 'order' AS item_type,
-               order_code AS code,
-               customer_name AS name,
-               created_at
-        FROM orders
-        ORDER BY created_at DESC
-        LIMIT 3
-    ");
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    if ($rows) {
-        $recentActivities = array_merge($recentActivities, $rows);
+if (!function_exists('vnnDashMoney')) {
+    function vnnDashMoney($value): string {
+        return number_format((float)$value, 0, ',', '.') . ' đ';
     }
-} catch (Throwable $e) {
-    error_log('Dashboard recent order error: ' . $e->getMessage());
 }
 
-usort($recentActivities, function ($a, $b) {
-    return strtotime($b['created_at'] ?? '') <=> strtotime($a['created_at'] ?? '');
-});
+// =======================================
+// THONG KE DASHBOARD
+// =======================================
 
-$recentActivities = array_slice($recentActivities, 0, 5);
+$customerCount = vnnDashCount(
+    $pdo,
+    "SELECT COUNT(*) FROM users WHERE role = 'customer'"
+);
+
+$tourCount = vnnDashCount(
+    $pdo,
+    "SELECT COUNT(*) FROM tours WHERE status = 1"
+);
+
+$productStockTotal = vnnDashSum(
+    $pdo,
+    "SELECT COALESCE(SUM(stock_quantity),0) FROM products"
+);
+
+$pendingTourCount = vnnDashCount(
+    $pdo,
+    "SELECT COUNT(*) FROM tour_bookings
+     WHERE status = 'Chờ xác nhận'"
+);
+
+$pendingOrderCount = vnnDashCount(
+    $pdo,
+    "SELECT COUNT(*) FROM orders
+     WHERE status = 'Chờ xác nhận'"
+);
+
+// So lieu doanh thu duoc lay nhu ban Dashboard gan nhat.
+// Trang revenue.php la noi tong hop day du doanh thu tour va ban hang.
+$revenueDone = vnnDashSum(
+    $pdo,
+    "SELECT COALESCE(SUM(total_amount),0)
+     FROM orders
+     WHERE status IN ('Đã giao','Đã hoàn thành','completed','delivered')"
+);
+
+// Duong dan
+$baseUrl = rtrim(BASE_URL, '/') . '/';
+$adminUrl = $baseUrl . 'admin/';
+
+// Danh sach o Truy cap nhanh
+$quickItems = [
+    [
+        'title' => 'Tư vấn khách hàng',
+        'description' => 'Tiếp nhận và trả lời tin nhắn.',
+        'icon' => 'fa-headset',
+        'link' => $adminUrl . 'chat/'
+    ],
+    [
+        'title' => 'Quản lý Tour',
+        'description' => 'Quản lý thông tin các tour trekking.',
+        'icon' => 'fa-person-hiking',
+        'link' => $adminUrl . 'tours/'
+    ],
+    [
+        'title' => 'Doanh thu & Báo cáo',
+        'description' => 'Xem doanh thu và thống kê.',
+        'icon' => 'fa-chart-line',
+        'link' => $adminUrl . 'revenue.php'
+    ],
+    [
+        'title' => 'Dụng cụ & Tồn kho',
+        'description' => 'Quản lý sản phẩm và kho hàng.',
+        'icon' => 'fa-warehouse',
+        'link' => $adminUrl . 'products/'
+    ],
+    [
+        'title' => 'Duyệt Tour',
+        'description' => 'Xử lý đăng ký tour của khách.',
+        'icon' => 'fa-ticket',
+        'link' => $adminUrl . 'bookings/'
+    ],
+    [
+        'title' => 'Đơn hàng',
+        'description' => 'Xử lý đơn mua dụng cụ trekking.',
+        'icon' => 'fa-box',
+        'link' => $adminUrl . 'orders/'
+    ]
+];
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= adm_h($page_title) ?></title>
 
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link rel="stylesheet" href="../assets/css/admin.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <title><?= vnnDashH($page_title) ?></title>
 
-    <style>
-        * { box-sizing: border-box; }
+    <link
+        rel="stylesheet"
+        href="../assets/css/style.css"
+    >
 
-        .dashboard-main-wrap{
-            flex: 1;
-            min-width: 0;
-            background: #eef3f8;
-        }
+    <link
+        rel="stylesheet"
+        href="../assets/css/admin.css"
+    >
 
-        .dashboard-topbar{
-            background: #ffffff;
-            border-bottom: 1px solid #e5ebf3;
-            padding: 22px 32px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-        }
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
 
-        .dashboard-topbar h1{
-            margin: 0;
-            font-size: 22px;
-            font-weight: 900;
-            color: #0f2e57;
-            letter-spacing: 0.2px;
-        }
+<style>
+* {
+    box-sizing: border-box;
+}
 
-        .dashboard-topbar-right{
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
+.vnn-dashboard {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: #f0f5fa;
+    color: #102744;
+    font-family: inherit;
+}
 
-        .logout-btn{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 14px 28px;
-            border-radius: 16px;
-            background: #ef4444;
-            color: #fff;
-            text-decoration: none;
-            font-weight: 800;
-            font-size: 16px;
-            border: none;
-            transition: all 0.2s ease;
-        }
+/* =================================
+   THANH TREN CUNG
+   ================================= */
 
-        .logout-btn:hover{
-            background: #dc2626;
-            transform: translateY(-1px);
-        }
+.vnn-dashboard-header {
+    min-height: 82px;
+    padding: 19px 29px;
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
 
-        .dashboard-content{
-            padding: 28px 32px 36px;
-        }
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
 
-        .hero-box{
-            position: relative;
-            overflow: hidden;
-            border-radius: 28px;
-            min-height: 320px;
-            padding: 48px 46px;
-            background:
-                linear-gradient(90deg, rgba(7, 25, 55, 0.82) 0%, rgba(10, 42, 71, 0.70) 34%, rgba(12, 88, 56, 0.54) 100%),
-                url('https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1400&q=80') center/cover no-repeat;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 18px;
-        }
+.vnn-dashboard-header h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.4;
+    color: #0e2d52;
+    letter-spacing: 0;
+}
 
-        .hero-badge{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: fit-content;
-            padding: 13px 20px;
-            border-radius: 999px;
-            background: #f97316;
-            color: #fff;
-            font-size: 16px;
-            font-weight: 900;
-        }
+.vnn-dashboard-logout {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
 
-        .hero-title{
-            margin: 0;
-            color: #fff;
-            font-size: 58px;
-            line-height: 1.08;
-            font-weight: 900;
-            max-width: 760px;
-        }
+    padding: 11px 18px;
+    min-height: 42px;
 
-        .hero-desc{
-            margin: 0;
-            color: rgba(255,255,255,0.95);
-            font-size: 20px;
-            line-height: 1.7;
-            max-width: 900px;
-            font-weight: 500;
-        }
+    border-radius: 10px;
+    background: #ef4444;
+    color: white;
 
-        .notice-box{
-            margin-top: 26px;
-            background: #f8f1e7;
-            border-radius: 22px;
-            padding: 24px 26px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 20px;
-            flex-wrap: wrap;
-        }
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
 
-        .notice-text{
-            color: #c4550d;
-            font-size: 18px;
-            line-height: 1.6;
-            font-weight: 700;
-        }
+.vnn-dashboard-logout:hover {
+    background: #dc2626;
+    color: white;
+}
 
-        .notice-text strong{
-            font-size: 19px;
-        }
+/* =================================
+   NOI DUNG CHINH
+   ================================= */
 
-        .notice-actions{
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            flex-wrap: wrap;
-        }
+.vnn-dashboard-body {
+    padding: 25px 29px 35px;
+    max-width: 1800px;
+    margin: 0 auto;
+}
 
-        .notice-btn{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 15px 28px;
-            border-radius: 14px;
-            text-decoration: none;
-            font-size: 16px;
-            font-weight: 800;
-            color: #fff;
-            transition: all 0.2s ease;
-        }
+/* =================================
+   BANNER
+   ================================= */
 
-        .notice-btn.orange{
-            background: #f97316;
-        }
+.vnn-dashboard-hero {
+    min-height: 225px;
+    padding: 31px 35px;
 
-        .notice-btn.green{
-            background: #166534;
-        }
+    border-radius: 20px;
+    overflow: hidden;
 
-        .notice-btn:hover{
-            transform: translateY(-1px);
-            opacity: 0.95;
-        }
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 16px;
 
-        .stats-grid{
-            margin-top: 30px;
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 22px;
-        }
+    background:
+        linear-gradient(
+            90deg,
+            rgba(8, 25, 53, .87) 0%,
+            rgba(12, 39, 64, .71) 44%,
+            rgba(12, 93, 59, .56) 100%
+        ),
+        url('https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1400&q=80')
+        center / cover no-repeat;
+}
 
-        .stat-card{
-            background: #fff;
-            border: 1px solid #dbe5f0;
-            border-radius: 22px;
-            padding: 28px 28px 22px;
-            min-height: 170px;
-        }
+.vnn-dashboard-hero-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 9px 15px;
+    border-radius: 25px;
+    background: #f97316;
+    color: white;
+    font-size: 12px;
+    font-weight: 800;
+}
 
-        .stat-label{
-            color: #58708f;
-            font-size: 16px;
-            font-weight: 900;
-            text-transform: uppercase;
-            margin-bottom: 24px;
-        }
+.vnn-dashboard-hero h2 {
+    margin: 0;
+    color: white;
+    font-size: clamp(26px, 2.7vw, 36px);
+    line-height: 1.2;
+    font-weight: 800;
+}
 
-        .stat-value{
-            color: #0b1f44;
-            font-size: 54px;
-            font-weight: 900;
-            line-height: 1;
-            margin-bottom: 10px;
-        }
+.vnn-dashboard-hero p {
+    margin: 0;
+    max-width: 880px;
 
-        .stat-value.money{
-            font-size: 33px;
-            line-height: 1.2;
-            word-break: break-word;
-        }
+    font-size: 14px;
+    line-height: 1.7;
+    color: #f8fafc;
+    font-weight: 400;
+}
 
-        .stat-sub{
-            color: #7c8ea8;
-            font-size: 14px;
-            font-weight: 600;
-        }
+/* =================================
+   THONG BAO CHO XU LY
+   ================================= */
 
-        .section-grid{
-            margin-top: 28px;
-            display: grid;
-            grid-template-columns: 1.35fr 0.95fr;
-            gap: 22px;
-        }
+.vnn-dashboard-notice {
+    margin-top: 20px;
+    padding: 16px 20px;
 
-        .panel-card{
-            background: #fff;
-            border: 1px solid #dbe5f0;
-            border-radius: 22px;
-            padding: 24px;
-        }
+    border-radius: 14px;
+    background: #fff7ed;
 
-        .panel-title{
-            margin: 0 0 18px;
-            color: #0b1f44;
-            font-size: 22px;
-            font-weight: 900;
-        }
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
 
-        .quick-list{
-            display: grid;
-            gap: 14px;
-        }
+.vnn-dashboard-notice-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 
-        .quick-item{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            padding: 18px 18px;
-            border: 1px solid #e6edf5;
-            border-radius: 16px;
-            background: #fafcff;
-        }
+    color: #c2410c;
+    font-size: 13px;
+    line-height: 1.5;
+}
 
-        .quick-item strong{
-            color: #17335c;
-            font-size: 16px;
-            font-weight: 800;
-        }
+.vnn-dashboard-notice-text strong {
+    font-size: 13px;
+    font-weight: 800;
+}
 
-        .quick-item span{
-            display: block;
-            color: #71819a;
-            font-size: 14px;
-            margin-top: 5px;
-        }
+.vnn-dashboard-notice-actions {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+}
 
-        .mini-btn{
-            flex-shrink: 0;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 10px 16px;
-            border-radius: 12px;
-            text-decoration: none;
-            background: #0f766e;
-            color: #fff;
-            font-size: 14px;
-            font-weight: 800;
-        }
+.vnn-dashboard-notice-actions a {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
 
-        .activity-list{
-            display: grid;
-            gap: 14px;
-        }
+    min-height: 38px;
+    padding: 9px 13px;
 
-        .activity-item{
-            padding: 16px 18px;
-            border: 1px solid #e6edf5;
-            border-radius: 16px;
-            background: #fafcff;
-        }
+    border-radius: 9px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+}
 
-        .activity-item-top{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 6px;
-            flex-wrap: wrap;
-        }
+.vnn-dashboard-notice-actions .btn-tour {
+    background: #ea580c;
+}
 
-        .activity-code{
-            color: #17335c;
-            font-weight: 900;
-            font-size: 15px;
-        }
+.vnn-dashboard-notice-actions .btn-order {
+    background: #166534;
+}
 
-        .activity-type{
-            font-size: 12px;
-            font-weight: 800;
-            padding: 7px 10px;
-            border-radius: 999px;
-            color: #fff;
-        }
+/* =================================
+   4 O THONG KE
+   ================================= */
 
-        .activity-type.booking{
-            background: #ea580c;
-        }
+.vnn-dashboard-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+}
 
-        .activity-type.order{
-            background: #166534;
-        }
+.vnn-dashboard-stat {
+    min-width: 0;
+    padding: 19px 21px;
+    border: 1px solid #dce6f0;
+    border-radius: 15px;
+    background: white;
+}
 
-        .activity-name{
-            color: #4f627d;
-            font-size: 14px;
-            margin-bottom: 6px;
-            font-weight: 600;
-        }
+.vnn-dashboard-stat-label {
+    color: #5b718d;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.5;
+    text-transform: uppercase;
+}
 
-        .activity-time{
-            color: #8da0b7;
-            font-size: 13px;
-            font-weight: 600;
-        }
+.vnn-dashboard-stat-value {
+    margin-top: 13px;
+    margin-bottom: 7px;
+    color: #102345;
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
 
-        @media (max-width: 1400px){
-            .stats-grid{
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
+.vnn-dashboard-stat-value.money {
+    font-size: 25px;
+}
 
-            .section-grid{
-                grid-template-columns: 1fr;
-            }
+.vnn-dashboard-stat-desc {
+    color: #8292a8;
+    font-size: 11px;
+    line-height: 1.5;
+}
 
-            .hero-title{
-                font-size: 48px;
-            }
-        }
+/* =================================
+   TRUY CAP NHANH DANG LUOI
+   ================================= */
 
-        @media (max-width: 900px){
-            .dashboard-topbar{
-                padding: 18px 16px;
-                flex-direction: column;
-                align-items: flex-start;
-            }
+.vnn-dashboard-section {
+    margin-top: 21px;
+    padding: 21px;
 
-            .dashboard-content{
-                padding: 16px;
-            }
+    border: 1px solid #dce6f0;
+    border-radius: 17px;
+    background: white;
+}
 
-            .hero-box{
-                padding: 30px 22px;
-                min-height: 260px;
-            }
+.vnn-dashboard-section h3 {
+    margin: 0 0 18px;
+    color: #102345;
+    font-size: 19px;
+    font-weight: 800;
+}
 
-            .hero-title{
-                font-size: 38px;
-            }
+/* 3 cot, 2 hang */
 
-            .hero-desc{
-                font-size: 17px;
-            }
+.vnn-dashboard-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
 
-            .stats-grid{
-                grid-template-columns: 1fr;
-            }
+.vnn-dashboard-quick-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
 
-            .notice-box{
-                align-items: flex-start;
-            }
+    min-width: 0;
+    min-height: 135px;
+    padding: 17px;
 
-            .notice-actions{
-                width: 100%;
-            }
+    border: 1px solid #e2e8f0;
+    border-radius: 13px;
+    background: #f9fbfd;
 
-            .notice-btn{
-                width: 100%;
-            }
-        }
-    </style>
+    text-decoration: none;
+    transition:
+        border-color .2s,
+        background .2s,
+        transform .2s;
+}
+
+.vnn-dashboard-quick-card:hover {
+    background: #f0fdf4;
+    border-color: #86efac;
+    transform: translateY(-2px);
+    text-decoration: none;
+}
+
+.vnn-dashboard-quick-icon {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+
+    width: 32px;
+    height: 32px;
+
+    border-radius: 9px;
+    background: #e8f5ed;
+    color: #166534;
+    font-size: 15px;
+}
+
+.vnn-dashboard-quick-title {
+    margin: 0;
+    color: #153d2a;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.45;
+}
+
+.vnn-dashboard-quick-desc {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.vnn-dashboard-quick-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+
+    padding: 6px 10px;
+    border: 1px solid #bad8c7;
+    border-radius: 7px;
+
+    background: white;
+    color: #166534;
+
+    font-size: 11px;
+    font-weight: 800;
+}
+
+/* =================================
+   RESPONSIVE
+   ================================= */
+
+@media (max-width: 1200px) {
+    .vnn-dashboard-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vnn-dashboard-quick-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .vnn-dashboard-header {
+        padding: 16px;
+    }
+
+    .vnn-dashboard-header h1 {
+        font-size: 16px;
+    }
+
+    .vnn-dashboard-body {
+        padding: 15px;
+    }
+
+    .vnn-dashboard-hero {
+        min-height: 200px;
+        padding: 22px;
+    }
+
+    .vnn-dashboard-hero h2 {
+        font-size: 27px;
+    }
+
+    .vnn-dashboard-notice {
+        align-items: flex-start;
+    }
+
+    .vnn-dashboard-stats {
+        gap: 10px;
+    }
+
+    .vnn-dashboard-stat {
+        padding: 15px;
+    }
+
+    .vnn-dashboard-stat-value {
+        font-size: 25px;
+    }
+
+    .vnn-dashboard-stat-value.money {
+        font-size: 19px;
+    }
+
+    .vnn-dashboard-section {
+        padding: 15px;
+    }
+
+    .vnn-dashboard-quick-grid {
+        gap: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .vnn-dashboard-stats,
+    .vnn-dashboard-quick-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 </head>
 
 <body class="admin-body">
 
 <?php require __DIR__ . '/includes/sidebar.php'; ?>
 
-<main class="dashboard-main-wrap">
+<main class="admin-main vnn-dashboard">
 
-    <header class="dashboard-topbar">
+    <!-- THANH TREN -->
+
+    <header class="vnn-dashboard-header">
+
         <h1>HỆ THỐNG QUẢN LÝ VNN TRAVEL</h1>
 
-        <div class="dashboard-topbar-right">
-            <a href="../auth/logout.php" class="logout-btn">
-                <i class="fa-solid fa-right-from-bracket"></i>
-                Đăng xuất
-            </a>
-        </div>
+        <a
+            href="<?= vnnDashH($baseUrl . 'auth/logout.php') ?>"
+            class="vnn-dashboard-logout"
+        >
+            <i class="fa-solid fa-right-from-bracket"></i>
+            Đăng xuất
+        </a>
+
     </header>
 
-    <div class="dashboard-content">
+    <div class="vnn-dashboard-body">
 
-        <section class="hero-box">
-            <div class="hero-badge">TRANG QUẢN LÝ HỆ THỐNG</div>
+        <!-- BANNER -->
 
-            <h2 class="hero-title">Chào mừng trở lại!</h2>
+        <section class="vnn-dashboard-hero">
 
-            <p class="hero-desc">
-                Điều hành tour trekking, kho hàng dã ngoại, đơn hàng và chăm sóc khách hàng của VNN Travel.
+            <span class="vnn-dashboard-hero-label">
+                TRANG QUẢN LÝ HỆ THỐNG
+            </span>
+
+            <h2>Chào mừng trở lại!</h2>
+
+            <p>
+                Điều hành tour trekking, kho hàng dã ngoại,
+                đơn hàng và chăm sóc khách hàng của VNN Travel.
             </p>
+
         </section>
 
-        <section class="notice-box">
-            <div class="notice-text">
-                <strong><i class="fa-solid fa-bell"></i> Cần xử lý:</strong>
-                <?= (int)$pendingTourCount ?> đăng ký tour và
-                <?= (int)$pendingOrderCount ?> đơn hàng đang chờ xác nhận.
+        <!-- THONG BAO CHO XU LY -->
+
+        <section class="vnn-dashboard-notice">
+
+            <div class="vnn-dashboard-notice-text">
+
+                <i class="fa-solid fa-bell"></i>
+
+                <span>
+                    <strong>Cần xử lý:</strong>
+                    <?= (int)$pendingTourCount ?> đăng ký tour
+                    và <?= (int)$pendingOrderCount ?> đơn hàng
+                    đang chờ xác nhận.
+                </span>
+
             </div>
 
-            <div class="notice-actions">
-                <a href="bookings/" class="notice-btn orange">Duyệt Tour</a>
-                <a href="orders/" class="notice-btn green">Duyệt Đơn Hàng</a>
+            <div class="vnn-dashboard-notice-actions">
+
+                <a
+                    class="btn-tour"
+                    href="<?= vnnDashH($adminUrl . 'bookings/') ?>"
+                >
+                    Duyệt Tour
+                </a>
+
+                <a
+                    class="btn-order"
+                    href="<?= vnnDashH($adminUrl . 'orders/') ?>"
+                >
+                    Duyệt Đơn Hàng
+                </a>
+
             </div>
+
         </section>
 
-        <section class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label">Khách hàng</div>
-                <div class="stat-value"><?= (int)$customerCount ?></div>
-                <div class="stat-sub">Tổng số tài khoản khách hàng</div>
-            </div>
+        <!-- 4 O THONG KE -->
 
-            <div class="stat-card">
-                <div class="stat-label">Tour hoạt động</div>
-                <div class="stat-value"><?= (int)$tourCount ?></div>
-                <div class="stat-sub">Số tour đang hiển thị / hoạt động</div>
-            </div>
+        <section class="vnn-dashboard-stats">
 
-            <div class="stat-card">
-                <div class="stat-label">Tồn kho dụng cụ</div>
-                <div class="stat-value"><?= (int)$productStockTotal ?></div>
-                <div class="stat-sub">Tổng số lượng sản phẩm trong kho</div>
-            </div>
+            <div class="vnn-dashboard-stat">
 
-            <div class="stat-card">
-                <div class="stat-label">Doanh thu hoàn thành</div>
-                <div class="stat-value money"><?= adm_h(money_vnd($revenueDone)) ?></div>
-                <div class="stat-sub">Tổng giá trị đơn / giao dịch đã hoàn tất</div>
-            </div>
-        </section>
-
-        <section class="section-grid">
-            <div class="panel-card">
-                <h3 class="panel-title">Truy cập nhanh</h3>
-
-                <div class="quick-list">
-                    <div class="quick-item">
-                        <div>
-                            <strong>Duyệt đăng ký tour</strong>
-                            <span>Xử lý các yêu cầu đăng ký tour từ khách hàng.</span>
-                        </div>
-                        <a href="bookings/" class="mini-btn">Mở</a>
-                    </div>
-
-                    <div class="quick-item">
-                        <div>
-                            <strong>Duyệt đơn hàng</strong>
-                            <span>Xác nhận và cập nhật trạng thái đơn hàng.</span>
-                        </div>
-                        <a href="orders/" class="mini-btn">Mở</a>
-                    </div>
-
-                    <div class="quick-item">
-                        <div>
-                            <strong>Quản lý tour</strong>
-                            <span>Thêm, sửa, ẩn hiện và theo dõi danh sách tour.</span>
-                        </div>
-                        <a href="tours/" class="mini-btn">Mở</a>
-                    </div>
-
-                    <div class="quick-item">
-                        <div>
-                            <strong>Dụng cụ, kho & danh mục</strong>
-                            <span>Quản lý sản phẩm trekking và số lượng tồn kho.</span>
-                        </div>
-                        <a href="products/" class="mini-btn">Mở</a>
-                    </div>
+                <div class="vnn-dashboard-stat-label">
+                    Khách hàng
                 </div>
-            </div>
 
-            <div class="panel-card">
-                <h3 class="panel-title">Hoạt động gần đây</h3>
-
-                <div class="activity-list">
-                    <?php if (!empty($recentActivities)): ?>
-                        <?php foreach ($recentActivities as $item): ?>
-                            <div class="activity-item">
-                                <div class="activity-item-top">
-                                    <div class="activity-code">
-                                        <?= adm_h($item['code'] ?? '') ?>
-                                    </div>
-
-                                    <div class="activity-type <?= ($item['item_type'] ?? '') === 'booking' ? 'booking' : 'order' ?>">
-                                        <?= ($item['item_type'] ?? '') === 'booking' ? 'Đăng ký tour' : 'Đơn hàng' ?>
-                                    </div>
-                                </div>
-
-                                <div class="activity-name">
-                                    <?= adm_h($item['name'] ?? 'Khách hàng') ?>
-                                </div>
-
-                                <div class="activity-time">
-                                    <?=
-                                        !empty($item['created_at'])
-                                        ? adm_h(date('d/m/Y H:i', strtotime($item['created_at'])))
-                                        : ''
-                                    ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="activity-item">
-                            <div class="activity-name">Chưa có hoạt động gần đây.</div>
-                        </div>
-                    <?php endif; ?>
+                <div class="vnn-dashboard-stat-value">
+                    <?= (int)$customerCount ?>
                 </div>
+
+                <div class="vnn-dashboard-stat-desc">
+                    Tổng số tài khoản khách hàng
+                </div>
+
             </div>
+
+            <div class="vnn-dashboard-stat">
+
+                <div class="vnn-dashboard-stat-label">
+                    Tour hoạt động
+                </div>
+
+                <div class="vnn-dashboard-stat-value">
+                    <?= (int)$tourCount ?>
+                </div>
+
+                <div class="vnn-dashboard-stat-desc">
+                    Tour đang hoạt động
+                </div>
+
+            </div>
+
+            <div class="vnn-dashboard-stat">
+
+                <div class="vnn-dashboard-stat-label">
+                    Tồn kho dụng cụ
+                </div>
+
+                <div class="vnn-dashboard-stat-value">
+                    <?= (int)$productStockTotal ?>
+                </div>
+
+                <div class="vnn-dashboard-stat-desc">
+                    Tổng số lượng sản phẩm tồn kho
+                </div>
+
+            </div>
+
+            <div class="vnn-dashboard-stat">
+
+                <div class="vnn-dashboard-stat-label">
+                    Doanh thu hoàn thành
+                </div>
+
+                <div class="vnn-dashboard-stat-value money">
+                    <?= vnnDashH(vnnDashMoney($revenueDone)) ?>
+                </div>
+
+                <div class="vnn-dashboard-stat-desc">
+                    Doanh thu đơn hàng hoàn thành
+                </div>
+
+            </div>
+
+        </section>
+
+        <!-- TRUY CAP NHANH 6 O VUONG -->
+
+        <section class="vnn-dashboard-section">
+
+            <h3>
+                <i class="fa-solid fa-table-cells-large"></i>
+                Truy cập nhanh
+            </h3>
+
+            <div class="vnn-dashboard-quick-grid">
+
+                <?php foreach ($quickItems as $item): ?>
+
+                    <a
+                        class="vnn-dashboard-quick-card"
+                        href="<?= vnnDashH($item['link']) ?>"
+                    >
+
+                        <div class="vnn-dashboard-quick-icon">
+                            <i class="fa-solid <?= vnnDashH($item['icon']) ?>"></i>
+                        </div>
+
+                        <div>
+
+                            <h4 class="vnn-dashboard-quick-title">
+                                <?= vnnDashH($item['title']) ?>
+                            </h4>
+
+                            <p class="vnn-dashboard-quick-desc">
+                                <?= vnnDashH($item['description']) ?>
+                            </p>
+
+                        </div>
+
+                        <span class="vnn-dashboard-quick-open">
+                            Mở mục
+                            <i class="fa-solid fa-arrow-right"></i>
+                        </span>
+
+                    </a>
+
+                <?php endforeach; ?>
+
+            </div>
+
         </section>
 
     </div>
+
 </main>
 
 </body>
