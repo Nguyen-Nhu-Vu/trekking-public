@@ -1,109 +1,179 @@
 <?php
-// VNN Travel - Lich su mua trang bi
-// shop/my-orders.php
+ob_start();
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-requireLogin();
-
-$page_title = 'Lịch Sử Mua Trang Bị - VNN Travel';
-$active_menu = 'shop';
-
-function moh($value)
-{
-    return htmlspecialchars(
-        (string) $value,
-        ENT_QUOTES,
-        'UTF-8'
-    );
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    session_start();
 }
 
-$base = rtrim(BASE_URL, '/') . '/';
-$userId = (int) ($_SESSION['user_id'] ?? 0);
+$page_title = 'Đơn Mua Thiết Bị - VNN Travel';
 
-// Lay danh sach don hang cua tai khoan
-$stmt = $pdo->prepare("
-    SELECT *
-    FROM orders
-    WHERE user_id = ?
-    ORDER BY id DESC
-");
-$stmt->execute([$userId]);
-$orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Lay chi tiet san pham trong cac don hang
-$orderItems = [];
-$detailError = '';
-
-if ($orders) {
-    try {
-        $orderIds = array_map(
-            'intval',
-            array_column($orders, 'id')
+if (!function_exists('shopOrderH')) {
+    function shopOrderH($value): string {
+        return htmlspecialchars(
+            (string)($value ?? ''),
+            ENT_QUOTES,
+            'UTF-8'
         );
-
-        $placeholders = implode(
-            ',',
-            array_fill(0, count($orderIds), '?')
-        );
-
-        $stmt = $pdo->prepare("
-            SELECT
-                od.order_id,
-                od.product_id,
-                od.quantity,
-                od.price,
-                od.total,
-                p.name AS product_name,
-                p.image AS product_image
-            FROM order_details od
-            LEFT JOIN products p
-                ON p.id = od.product_id
-            WHERE od.order_id IN ($placeholders)
-            ORDER BY od.order_id DESC, od.product_id
-        ");
-
-        $stmt->execute($orderIds);
-
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
-            $orderId = (int) $item['order_id'];
-
-            if (!isset($orderItems[$orderId])) {
-                $orderItems[$orderId] = [];
-            }
-
-            $orderItems[$orderId][] = $item;
-        }
-
-    } catch (Throwable $e) {
-        error_log(
-            'My orders details: ' . $e->getMessage()
-        );
-
-        $detailError =
-            'Không thể tải chi tiết sản phẩm. ' .
-            'Vui lòng thử lại sau.';
     }
 }
 
-function moStatusStyle($status)
-{
-    switch ((string) $status) {
-        case 'Đã xác nhận':
-            return 'background:#dbeafe;color:#1e40af';
+if (!function_exists('shopOrderMoney')) {
+    function shopOrderMoney($value): string {
+        return number_format((float)$value, 0, ',', '.') . ' đ';
+    }
+}
 
-        case 'Đang giao':
-            return 'background:#ffedd5;color:#c2410c';
+if (!function_exists('shopOrderColumn')) {
+    function shopOrderColumn(
+        array $columns,
+        array $candidates
+    ): ?string {
+        foreach ($candidates as $candidate) {
+            if (in_array($candidate, $columns, true)) {
+                return $candidate;
+            }
+        }
+        return null;
+    }
+}
 
-        case 'Đã giao':
-            return 'background:#dcfce7;color:#166534';
+if (!function_exists('shopOrderColumns')) {
+    function shopOrderColumns(PDO $pdo, string $table): array {
+        if (!in_array(
+            $table,
+            ['orders', 'order_details', 'products'],
+            true
+        )) {
+            return [];
+        }
 
-        case 'Đã hủy':
-            return 'background:#fee2e2;color:#991b1b';
+        return array_column(
+            $pdo->query("SHOW COLUMNS FROM `$table`")
+                ->fetchAll(PDO::FETCH_ASSOC),
+            'Field'
+        );
+    }
+}
 
-        default:
-            return 'background:#fef3c7;color:#92400e';
+$userId = (int)($_SESSION['user_id'] ?? 0);
+$orders = [];
+$orderItems = [];
+$error = '';
+
+if (empty($_SESSION['shop_cancel_csrf'])) {
+    $_SESSION['shop_cancel_csrf'] = bin2hex(random_bytes(32));
+}
+
+$csrf = $_SESSION['shop_cancel_csrf'];
+
+$notice = $_SESSION['shop_order_notice'] ?? null;
+unset($_SESSION['shop_order_notice']);
+
+if ($userId > 0) {
+    try {
+        // Chỉ tải đơn của tài khoản đang đăng nhập.
+        $stmt = $pdo->prepare("
+            SELECT *
+            FROM orders
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC
+        ");
+
+        $stmt->execute([$userId]);
+        $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if ($orders) {
+            $detailCols = shopOrderColumns(
+                $pdo,
+                'order_details'
+            );
+
+            $productCols = shopOrderColumns(
+                $pdo,
+                'products'
+            );
+
+            $nameCol = shopOrderColumn(
+                $productCols,
+                ['name', 'product_name', 'title']
+            );
+
+            $detailNameCol = shopOrderColumn(
+                $detailCols,
+                ['product_name', 'name', 'title']
+            );
+
+            $qtyCol = shopOrderColumn(
+                $detailCols,
+                ['quantity', 'qty']
+            );
+
+            $nameExpr = "'Sản phẩm'";
+
+            if ($detailNameCol) {
+                $nameExpr = "d.`$detailNameCol`";
+            }
+
+            $joinProducts = '';
+
+            if (
+                $nameCol &&
+                in_array('product_id', $detailCols, true)
+            ) {
+                $joinProducts = "
+                    LEFT JOIN products p
+                        ON p.id = d.product_id
+                ";
+
+                $nameExpr = "COALESCE(
+                    NULLIF(p.`$nameCol`, ''),
+                    " . ($detailNameCol
+                        ? "NULLIF(d.`$detailNameCol`, ''),"
+                        : "") . "
+                    'Sản phẩm'
+                )";
+            }
+
+            $qtyExpr = $qtyCol
+                ? "d.`$qtyCol`"
+                : "1";
+
+            $ids = array_map(
+                fn($row) => (int)$row['id'],
+                $orders
+            );
+
+            $placeholders = implode(
+                ',',
+                array_fill(0, count($ids), '?')
+            );
+
+            $sql = "
+                SELECT
+                    d.order_id,
+                    $nameExpr AS item_name,
+                    $qtyExpr AS item_quantity
+                FROM order_details d
+                $joinProducts
+                WHERE d.order_id IN ($placeholders)
+                ORDER BY d.order_id, d.id
+            ";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($ids);
+
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+                $orderId = (int)$item['order_id'];
+                $orderItems[$orderId][] = $item;
+            }
+        }
+
+    } catch (Throwable $e) {
+        error_log('My orders: ' . $e->getMessage());
+        $error = 'Không thể tải danh sách đơn hàng.';
     }
 }
 
@@ -111,381 +181,565 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-.mo-page {
-    padding-top: 35px;
-    padding-bottom: 65px;
+.vnn-orders-page {
+    min-height: 65vh;
+    background: #f3f6fa;
+    padding: 35px 18px 60px;
 }
-.mo-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 15px;
-    flex-wrap: wrap;
-    margin-bottom: 26px;
+
+.vnn-orders-container {
+    max-width: 1160px;
+    margin: 0 auto;
 }
-.mo-header h1 {
-    color: #0f172a;
-    font-size: 27px;
-    margin: 10px 0;
-}
-.mo-subtitle {
-    color: #ea580c;
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 1px;
-}
-.mo-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    padding: 12px 18px;
-    border-radius: 10px;
-    color: white !important;
-    background: #166534;
-    font-size: 14px;
+
+.vnn-orders-title {
+    margin: 0 0 22px;
+    color: #102d50;
+    font-size: 26px;
     font-weight: 800;
-    text-decoration: none;
 }
-.mo-back:hover {
-    background: #15803d;
-}
-.mo-card {
+
+.vnn-order-card {
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 15px;
+    margin-bottom: 18px;
     overflow: hidden;
-    box-shadow: 0 4px 18px rgba(15,23,42,.05);
+    box-shadow: 0 5px 20px rgba(15,23,42,.04);
 }
-.mo-scroll {
-    overflow-x: auto;
-    width: 100%;
-}
-.mo-table {
-    min-width: 1050px;
-    width: 100%;
-    border-collapse: collapse;
-}
-.mo-table th {
-    padding: 17px 13px;
+
+.vnn-order-top {
+    padding: 17px 20px;
     background: #f8fafc;
-    color: #0f172a;
-    text-align: left;
-    font-size: 13px;
-}
-.mo-table td {
-    padding: 16px 13px;
-    border-top: 1px solid #e2e8f0;
-    vertical-align: middle;
-    font-size: 13px;
-    color: #334155;
-}
-.mo-table tbody tr:hover {
-    background: #fafcff;
-}
-.mo-order-code {
-    font-weight: 900;
-    color: #1e3a5f;
-}
-.mo-products {
-    min-width: 240px;
-}
-.mo-product {
+    border-bottom: 1px solid #e2e8f0;
+
     display: flex;
     align-items: center;
-    gap: 11px;
-    padding: 9px 0;
-    border-bottom: 1px dashed #e2e8f0;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
 }
-.mo-product:last-child {
-    border-bottom: none;
-}
-.mo-product-image {
-    width: 49px;
-    height: 49px;
-    border-radius: 8px;
-    object-fit: cover;
-    background: #f1f5f9;
-    flex-shrink: 0;
-}
-.mo-product-name {
+
+.vnn-order-code {
+    color: #123257;
+    font-size: 14px;
     font-weight: 800;
-    color: #0f172a;
-    line-height: 1.5;
 }
-.mo-product-meta {
-    margin-top: 4px;
+
+.vnn-order-date {
+    margin-top: 6px;
     color: #64748b;
     font-size: 12px;
 }
-.mo-price {
-    color: #ea580c !important;
-    font-weight: 900;
-    white-space: nowrap;
-}
-.mo-badge {
-    display: inline-block;
-    padding: 6px 11px;
-    border-radius: 20px;
-    font-weight: 800;
+
+.vnn-order-status {
+    display: inline-flex;
+    padding: 8px 12px;
+    border-radius: 25px;
+    background: #dbeafe;
+    color: #1d4ed8;
     font-size: 12px;
-    white-space: nowrap;
+    font-weight: 800;
 }
-.mo-notice {
+
+.vnn-order-status.pending {
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.vnn-order-status.success {
     background: #dcfce7;
     color: #166534;
-    border-radius: 10px;
-    padding: 17px 20px;
-    margin-bottom: 20px;
-    line-height: 1.8;
 }
-.mo-warning {
-    background: #fef3c7;
-    color: #92400e;
-    padding: 14px 18px;
-    border-radius: 10px;
-    margin-bottom: 20px;
+
+.vnn-order-status.cancelled {
+    background: #fee2e2;
+    color: #b91c1c;
 }
-.mo-empty {
-    text-align: center;
-    padding: 45px 20px;
+
+.vnn-order-content {
+    padding: 18px 20px;
+}
+
+.vnn-order-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 15px;
+    padding: 11px 0;
+    border-bottom: 1px solid #edf2f7;
+    font-size: 13px;
+}
+
+.vnn-order-item:last-child {
+    border-bottom: none;
+}
+
+.vnn-order-item-name {
+    color: #1e3658;
+    font-weight: 600;
+}
+
+.vnn-order-item-qty {
+    color: #166534;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.vnn-order-bottom {
+    padding: 15px 20px;
+    border-top: 1px solid #e2e8f0;
+
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.vnn-order-total {
+    color: #ea580c;
+    font-size: 18px;
+    font-weight: 900;
+}
+
+.vnn-order-cancel {
+    padding: 10px 16px;
+    border-radius: 9px;
+    background: white;
+    border: 1px solid #dc2626;
+    color: #dc2626;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.vnn-order-cancel:hover {
+    background: #fef2f2;
+}
+
+.vnn-order-message {
+    background: white;
+    border: 1px solid #e2e8f0;
+    padding: 23px;
+    border-radius: 14px;
     color: #64748b;
+    font-size: 14px;
+    text-align: center;
 }
-.mo-empty i {
-    font-size: 40px;
-    color: #94a3b8;
-    display: block;
-    margin-bottom: 14px;
+
+.vnn-order-login {
+    color: #166534;
+    font-weight: 800;
 }
-@media (max-width: 700px) {
-    .mo-header h1 {
-        font-size: 22px;
+
+/* POPUP */
+
+.vnn-order-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    background: rgba(15,23,42,.52);
+    padding: 20px;
+}
+
+.vnn-order-overlay[hidden] {
+    display: none !important;
+}
+
+.vnn-order-modal {
+    width: 100%;
+    max-width: 420px;
+    background: white;
+    border-radius: 18px;
+    padding: 28px;
+    text-align: center;
+    box-shadow: 0 20px 65px rgba(0,0,0,.2);
+}
+
+.vnn-order-modal-icon {
+    font-size: 43px;
+    color: #dc2626;
+}
+
+.vnn-order-modal-icon.success {
+    color: #16a34a;
+}
+
+.vnn-order-modal h2 {
+    margin: 14px 0 10px;
+    font-size: 21px;
+    color: #0f172a;
+}
+
+.vnn-order-modal p {
+    color: #64748b;
+    line-height: 1.7;
+    font-size: 13px;
+}
+
+.vnn-order-modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 23px;
+}
+
+.vnn-order-modal-actions button {
+    padding: 11px 18px;
+    border: none;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.vnn-modal-back {
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.vnn-modal-confirm {
+    background: #dc2626;
+    color: white;
+}
+
+.vnn-modal-ok {
+    background: #166534;
+    color: white;
+}
+
+@media(max-width:600px) {
+    .vnn-orders-page {
+        padding: 20px 12px 40px;
+    }
+
+    .vnn-orders-title {
+        font-size: 21px;
     }
 }
 </style>
 
-<div class="container section mo-page">
+<main class="vnn-orders-page">
+    <div class="vnn-orders-container">
 
-    <div class="mo-header">
+        <h1 class="vnn-orders-title">
+            <i class="fa-solid fa-box"></i>
+            ĐƠN MUA THIẾT BỊ CỦA TÔI
+        </h1>
 
-        <div>
-            <span class="mo-subtitle">
-                TÀI KHOẢN KHÁCH HÀNG
-            </span>
+        <?php if ($userId <= 0): ?>
 
-            <h1>
-                <i class="fa-solid fa-bag-shopping"></i>
-                Lịch Sử Mua Trang Bị
-            </h1>
-        </div>
-
-        <a
-            href="<?= moh($base) ?>shop/shop.php"
-            class="mo-back"
-        >
-            <i class="fa-solid fa-arrow-left"></i>
-            Tiếp tục mua hàng
-        </a>
-
-    </div>
-
-    <!-- THONG BAO SAU KHI DAT HANG -->
-
-    <?php if (isset($_GET['success'])): ?>
-
-        <div class="mo-notice" role="status">
-            <i class="fa-solid fa-circle-check"></i>
-
-            <strong>Đặt hàng thành công!</strong>
-
-            <?php if (!empty($_GET['code'])): ?>
-                <div>
-                    Mã đơn hàng:
-                    <strong>
-                        <?= moh($_GET['code']) ?>
-                    </strong>
-                </div>
-            <?php endif; ?>
-
-            <div>
-                Đơn hàng sẽ sớm được giao đến tay bạn.
+            <div class="vnn-order-message">
+                Vui lòng
+                <a
+                    class="vnn-order-login"
+                    href="/auth/login.php"
+                >
+                    đăng nhập
+                </a>
+                để xem đơn hàng.
             </div>
-        </div>
 
-    <?php endif; ?>
+        <?php elseif ($error !== ''): ?>
 
-    <?php if ($detailError): ?>
+            <div class="vnn-order-message">
+                <?= shopOrderH($error) ?>
+            </div>
 
-        <div class="mo-warning" role="alert">
-            <?= moh($detailError) ?>
-        </div>
+        <?php elseif (!$orders): ?>
 
-    <?php endif; ?>
+            <div class="vnn-order-message">
+                Bạn chưa có đơn mua thiết bị nào.
+            </div>
 
-    <!-- LICH SU DON HANG -->
+        <?php else: ?>
 
-    <div class="mo-card">
+            <?php foreach ($orders as $order): ?>
 
-        <div class="mo-scroll">
+                <?php
+                $orderId = (int)$order['id'];
 
-            <table class="mo-table">
+                $code = (string)(
+                    $order['order_code'] ??
+                    ('Đơn #' . $orderId)
+                );
 
-                <thead>
-                    <tr>
-                        <th>Mã đơn hàng</th>
-                        <th>Sản phẩm đã mua</th>
-                        <th>Người nhận</th>
-                        <th>Địa chỉ nhận</th>
-                        <th>Tổng tiền</th>
-                        <th>Ngày đặt</th>
-                        <th>Trạng thái</th>
-                    </tr>
-                </thead>
+                $status = trim(
+                    (string)($order['status'] ?? '')
+                );
 
-                <tbody>
+                $canCancel = $status === 'Chờ xác nhận';
 
-                    <?php foreach ($orders as $order): ?>
+                $statusClass = match ($status) {
+                    'Chờ xác nhận' => 'pending',
+                    'Đã giao',
+                    'Đã hoàn thành' => 'success',
+                    'Đã hủy' => 'cancelled',
+                    default => ''
+                };
 
-                        <?php
-                        $orderId = (int) $order['id'];
-                        $items = $orderItems[$orderId] ?? [];
-                        ?>
+                $amount =
+                    $order['total_amount'] ??
+                    $order['total_price'] ??
+                    0;
 
-                        <tr>
+                $items = $orderItems[$orderId] ?? [];
+                ?>
 
-                            <td>
-                                <span class="mo-order-code">
-                                    <?= moh($order['order_code']) ?>
-                                </span>
-                            </td>
+                <article class="vnn-order-card">
 
-                            <td class="mo-products">
+                    <div class="vnn-order-top">
+                        <div>
+                            <div class="vnn-order-code">
+                                Mã đơn: <?= shopOrderH($code) ?>
+                            </div>
 
-                                <?php if ($items): ?>
+                            <div class="vnn-order-date">
+                                Ngày đặt:
+                                <?= !empty($order['created_at'])
+                                    ? shopOrderH(date(
+                                        'd/m/Y H:i',
+                                        strtotime($order['created_at'])
+                                    ))
+                                    : '—' ?>
+                            </div>
+                        </div>
 
-                                    <?php foreach ($items as $item): ?>
+                        <span class="vnn-order-status <?= $statusClass ?>">
+                            <?= shopOrderH($status) ?>
+                        </span>
+                    </div>
 
-                                        <div class="mo-product">
+                    <div class="vnn-order-content">
 
-                                            <?php if (!empty($item['product_image'])): ?>
+                        <?php if ($items): ?>
 
-                                                <img
-                                                    class="mo-product-image"
-                                                    src="<?= moh($item['product_image']) ?>"
-                                                    alt=""
-                                                    loading="lazy"
-                                                >
+                            <?php foreach ($items as $item): ?>
 
-                                            <?php endif; ?>
+                                <div class="vnn-order-item">
 
-                                            <div>
-
-                                                <div class="mo-product-name">
-                                                    <?= moh(
-                                                        $item['product_name']
-                                                        ?: 'Sản phẩm đã ngừng kinh doanh'
-                                                    ) ?>
-                                                </div>
-
-                                                <div class="mo-product-meta">
-                                                    SL:
-                                                    <strong>
-                                                        <?= (int) $item['quantity'] ?>
-                                                    </strong>
-
-                                                    · Giá:
-                                                    <?= format_price($item['price']) ?>
-                                                </div>
-
-                                            </div>
-
-                                        </div>
-
-                                    <?php endforeach; ?>
-
-                                <?php else: ?>
-
-                                    <span style="color:#94a3b8">
-                                        Chưa có chi tiết sản phẩm
+                                    <span class="vnn-order-item-name">
+                                        <?= shopOrderH($item['item_name']) ?>
                                     </span>
 
-                                <?php endif; ?>
-
-                            </td>
-
-                            <td>
-                                <?= moh($order['fullname']) ?>
-                            </td>
-
-                            <td>
-                                <?= moh($order['address']) ?>
-                            </td>
-
-                            <td class="mo-price">
-                                <?= format_price($order['total_amount']) ?>
-                            </td>
-
-                            <td style="white-space:nowrap">
-                                <?= date(
-                                    'd/m/Y H:i',
-                                    strtotime($order['created_at'])
-                                ) ?>
-                            </td>
-
-                            <td>
-                                <span
-                                    class="mo-badge"
-                                    style="<?= moStatusStyle($order['status']) ?>"
-                                >
-                                    <?= moh($order['status']) ?>
-                                </span>
-                            </td>
-
-                        </tr>
-
-                    <?php endforeach; ?>
-
-                    <?php if (!$orders): ?>
-
-                        <tr>
-                            <td colspan="7">
-
-                                <div class="mo-empty">
-
-                                    <i class="fa-solid fa-box-open"></i>
-
-                                    <strong>
-                                        Bạn chưa có đơn hàng nào.
-                                    </strong>
-
-                                    <p>
-                                        Hãy khám phá các trang bị
-                                        trekking tại cửa hàng.
-                                    </p>
-
-                                    <a
-                                        href="<?= moh($base) ?>shop/shop.php"
-                                        class="mo-back"
-                                    >
-                                        Khám phá cửa hàng
-                                    </a>
+                                    <span class="vnn-order-item-qty">
+                                        × <?= (int)$item['item_quantity'] ?>
+                                    </span>
 
                                 </div>
 
-                            </td>
-                        </tr>
+                            <?php endforeach; ?>
 
-                    <?php endif; ?>
+                        <?php else: ?>
 
-                </tbody>
+                            <div class="vnn-order-item">
+                                <span>Chưa có thông tin chi tiết sản phẩm.</span>
+                            </div>
 
-            </table>
+                        <?php endif; ?>
 
-        </div>
+                    </div>
+
+                    <div class="vnn-order-bottom">
+
+                        <div>
+                            <span style="color:#64748b;font-size:13px">
+                                Tổng tiền:
+                            </span>
+
+                            <strong class="vnn-order-total">
+                                <?= shopOrderMoney($amount) ?>
+                            </strong>
+                        </div>
+
+                        <?php if ($canCancel): ?>
+
+                            <button
+                                type="button"
+                                class="vnn-order-cancel"
+                                data-order-id="<?= $orderId ?>"
+                                data-order-code="<?= shopOrderH($code) ?>"
+                            >
+                                <i class="fa-solid fa-xmark"></i>
+                                Hủy đơn hàng
+                            </button>
+
+                        <?php endif; ?>
+
+                    </div>
+
+                </article>
+
+            <?php endforeach; ?>
+
+        <?php endif; ?>
 
     </div>
+</main>
 
+<!-- FORM GUI YEU CAU HUY -->
+
+<form
+    id="vnnCancelOrderForm"
+    method="POST"
+    action="/shop/cancel-order.php"
+    hidden
+>
+    <input
+        type="hidden"
+        name="csrf"
+        value="<?= shopOrderH($csrf) ?>"
+    >
+
+    <input
+        type="hidden"
+        name="order_id"
+        id="vnnCancelOrderId"
+    >
+</form>
+
+<!-- POPUP XAC NHAN -->
+
+<div
+    class="vnn-order-overlay"
+    id="vnnCancelModal"
+    hidden
+>
+    <div class="vnn-order-modal">
+
+        <div class="vnn-order-modal-icon">
+            <i class="fa-solid fa-circle-exclamation"></i>
+        </div>
+
+        <h2>Xác nhận hủy đơn hàng</h2>
+
+        <p>
+            Bạn có chắc chắn muốn hủy đơn
+            <strong id="vnnCancelCode"></strong>?
+        </p>
+
+        <p>
+            Chỉ đơn hàng đang chờ xác nhận mới được hủy.
+            Sau khi hủy, bạn không thể khôi phục đơn này.
+        </p>
+
+        <div class="vnn-order-modal-actions">
+
+            <button
+                class="vnn-modal-back"
+                type="button"
+                id="vnnCancelBack"
+            >
+                Quay lại
+            </button>
+
+            <button
+                class="vnn-modal-confirm"
+                type="button"
+                id="vnnCancelConfirm"
+            >
+                Xác nhận hủy
+            </button>
+
+        </div>
+    </div>
 </div>
 
-<?php
-require_once __DIR__ . '/../includes/footer.php';
-?>
+<!-- POPUP KET QUA -->
+
+<div
+    class="vnn-order-overlay"
+    id="vnnOrderResultModal"
+    <?= $notice ? '' : 'hidden' ?>
+>
+    <div class="vnn-order-modal">
+
+        <div class="vnn-order-modal-icon <?= ($notice['type'] ?? '') === 'success'
+            ? 'success'
+            : '' ?>">
+            <i class="fa-solid <?= ($notice['type'] ?? '') === 'success'
+                ? 'fa-circle-check'
+                : 'fa-circle-xmark' ?>"></i>
+        </div>
+
+        <h2>
+            <?= ($notice['type'] ?? '') === 'success'
+                ? 'Đã hủy đơn hàng'
+                : 'Thông báo' ?>
+        </h2>
+
+        <p>
+            <?= shopOrderH($notice['message'] ?? '') ?>
+        </p>
+
+        <div class="vnn-order-modal-actions">
+            <button
+                class="vnn-modal-ok"
+                type="button"
+                id="vnnResultClose"
+            >
+                Đóng
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const modal = document.getElementById('vnnCancelModal');
+    const form = document.getElementById('vnnCancelOrderForm');
+    const idInput = document.getElementById('vnnCancelOrderId');
+    const codeLabel = document.getElementById('vnnCancelCode');
+    const resultModal = document.getElementById('vnnOrderResultModal');
+
+    document.querySelectorAll('.vnn-order-cancel')
+        .forEach(button => {
+            button.addEventListener('click', () => {
+                idInput.value = button.dataset.orderId;
+                codeLabel.textContent = button.dataset.orderCode;
+                modal.hidden = false;
+            });
+        });
+
+    document.getElementById('vnnCancelBack')
+        ?.addEventListener('click', () => {
+            modal.hidden = true;
+        });
+
+    document.getElementById('vnnCancelConfirm')
+        ?.addEventListener('click', () => {
+            const button = document.getElementById('vnnCancelConfirm');
+            button.disabled = true;
+            button.textContent = 'Đang xử lý...';
+            form.requestSubmit();
+        });
+
+    document.getElementById('vnnResultClose')
+        ?.addEventListener('click', () => {
+            resultModal.hidden = true;
+        });
+
+    [modal, resultModal].forEach(overlay => {
+        overlay?.addEventListener('click', event => {
+            if (event.target === overlay) {
+                overlay.hidden = true;
+            }
+        });
+    });
+
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            modal.hidden = true;
+            resultModal.hidden = true;
+        }
+    });
+})();
+</script>
+
+<?php require_once __DIR__ . '/../includes/footer.php'; ?>
