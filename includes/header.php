@@ -1,6 +1,5 @@
 <?php
-// VNN Travel - Header
-// Menu ngang gon, gio hang nam trong Tai Khoan.
+// VNN Travel - Header dong bo font va giao dien gon.
 
 if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
@@ -12,16 +11,11 @@ require_once __DIR__ . '/functions.php';
 $cart_count = getCartCount();
 $active_menu = $active_menu ?? '';
 $page_title = $page_title ?? 'VNN Travel - Khám Phá & Chinh Phục Đỉnh Cao';
-
 $baseUrl = rtrim(BASE_URL, '/') . '/';
 
 if (!function_exists('vnnHeaderH')) {
     function vnnHeaderH($value) {
-        return htmlspecialchars(
-            (string)$value,
-            ENT_QUOTES,
-            'UTF-8'
-        );
+        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
     }
 }
 
@@ -39,11 +33,7 @@ $navItems = [
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title><?= vnnHeaderH($page_title) ?></title>
 
@@ -63,117 +53,129 @@ $navItems = [
     >
 
     <style>
-        /* ===== HEADER CHUNG ===== */
+        /* ===================================
+           HEADER VNN TRAVEL - DONG BO FONT
+           =================================== */
 
         .site-header {
             position: relative;
             z-index: 1000;
             background: #fff;
+            border-bottom: 1px solid #e9edf2;
+        }
+
+        .site-header,
+        .site-header button,
+        .site-header a {
+            font-family: Arial, Helvetica, sans-serif !important;
+            letter-spacing: 0 !important;
         }
 
         .site-header .vnn-header-container {
-            width: min(1600px, calc(100% - 48px));
+            width: calc(100% - 64px);
             max-width: 1600px;
             margin: 0 auto;
         }
 
         .site-header .navbar {
             display: flex;
+            flex-wrap: nowrap;
             align-items: center;
             justify-content: space-between;
-            flex-wrap: nowrap;
-            gap: 22px;
-            min-height: 91px;
-            padding: 10px 0;
+            min-height: 68px;
+            padding: 5px 0;
+            gap: 16px;
         }
 
-        /* ===== LOGO ===== */
+        /* ===================================
+           LOGO
+           =================================== */
 
-        .vnn-brand-container {
+        .site-header .vnn-brand-container {
             display: inline-flex;
             align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
+            flex: 0 0 auto;
+            gap: 8px;
             text-decoration: none;
             white-space: nowrap;
         }
 
         .vnn-mountain-left {
-            width: 86px;
-            height: 60px;
+            width: 66px;
+            height: 47px;
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
         .vnn-mountain-left svg {
-            display: block;
             width: 100%;
             height: 100%;
+            display: block;
         }
 
         .vnn-text-right {
             display: flex;
             flex-direction: column;
-            align-items: flex-start;
             justify-content: center;
-            gap: 4px;
+            gap: 3px;
         }
 
         .vnn-letters-row {
             display: flex;
             align-items: center;
-            font-family: system-ui, sans-serif;
-            font-size: 32px;
+            font-size: 26px;
             font-weight: 900;
-            letter-spacing: .5px;
             line-height: 1;
         }
 
         .vnn-travel-row {
             color: #1e293b;
             font-weight: 900;
-            font-size: 13px;
-            letter-spacing: 4px;
+            font-size: 10px;
+            letter-spacing: 3px;
             line-height: 1.3;
         }
 
-        /* ===== MENU NGANG ===== */
+        /* ===================================
+           MENU NGANG
+           =================================== */
 
         .site-header .nav-menu {
             display: flex;
+            flex: 1 1 auto;
             align-items: center;
             justify-content: center;
-            flex: 1 1 auto;
+            flex-wrap: nowrap;
             min-width: 0;
             width: auto;
-            gap: clamp(10px, 1.25vw, 25px);
-            flex-wrap: nowrap;
-            padding: 0;
             margin: 0;
+            padding: 0;
+            gap: clamp(10px, 1.35vw, 23px);
             list-style: none;
         }
 
         .site-header .nav-menu > li {
-            list-style: none;
-            flex: 0 0 auto;
             margin: 0;
             padding: 0;
+            flex: 0 0 auto;
+            list-style: none;
         }
 
         .site-header .nav-link {
+            position: relative;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            position: relative;
-            padding: 12px 0;
+            padding: 9px 0;
+            color: #16213b;
             text-decoration: none;
             white-space: nowrap;
-            color: #14213d;
-            font-size: clamp(11px, .85vw, 14px);
-            font-weight: 900;
-            line-height: 1.3;
-            transition: color .2s;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            line-height: 1.4;
+            transition: color .2s ease;
         }
 
         .site-header .nav-link:hover,
@@ -182,25 +184,27 @@ $navItems = [
         }
 
         .site-header .nav-link.active::after {
-            position: absolute;
             content: "";
+            position: absolute;
             bottom: 1px;
             left: 0;
             right: 0;
-            height: 3px;
+            height: 2px;
             border-radius: 3px;
             background: #ea580c;
         }
 
-        /* ===== KHU VUC TAI KHOAN ===== */
+        /* ===================================
+           NUT TAI KHOAN
+           =================================== */
 
         .site-header .nav-actions {
             display: flex;
-            flex: 0 0 auto;
             align-items: center;
             justify-content: flex-end;
             flex-wrap: nowrap;
-            gap: 10px;
+            flex: 0 0 auto;
+            gap: 8px;
         }
 
         .vnn-account {
@@ -212,30 +216,30 @@ $navItems = [
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 9px;
-            min-height: 44px;
-            padding: 10px 17px;
-            border: none;
-            border-radius: 28px;
+            gap: 8px;
+            height: 39px;
+            min-height: 39px;
+            padding: 0 16px;
+            border: 0;
+            border-radius: 25px;
             background: #166534;
-            color: white;
-            font-family: inherit;
-            font-size: 14px;
-            font-weight: 800;
+            color: #fff;
             cursor: pointer;
+            font-size: 13px !important;
+            font-weight: 700 !important;
             white-space: nowrap;
-            text-decoration: none;
+            line-height: 1;
             transition: background .2s;
         }
 
         .vnn-account-button:hover,
         .vnn-account-button:focus-visible {
             background: #14532d;
-            color: white;
+            color: #fff;
         }
 
         .vnn-account-button i {
-            font-size: 15px;
+            font-size: 14px;
         }
 
         .vnn-account-chevron {
@@ -247,21 +251,23 @@ $navItems = [
             transform: rotate(180deg);
         }
 
-        /* ===== MENU XO XUONG ===== */
+        /* ===================================
+           DROPDOWN GON GANG
+           =================================== */
 
         .vnn-account-dropdown {
             display: none;
             position: absolute;
+            top: calc(100% + 6px);
             right: 0;
-            top: calc(100% + 8px);
             z-index: 9999;
-            width: 285px;
-            max-width: calc(100vw - 30px);
-            padding: 9px 0;
-            background: #fff;
+            width: 242px;
+            max-width: calc(100vw - 25px);
+            padding: 5px 0;
+            background: white;
             border: 1px solid #e2e8f0;
-            border-radius: 15px;
-            box-shadow: 0 15px 40px rgba(15,23,42,.16);
+            border-radius: 11px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, .15);
         }
 
         .vnn-account.open .vnn-account-dropdown,
@@ -272,23 +278,25 @@ $navItems = [
         .vnn-account-dropdown::before {
             content: "";
             position: absolute;
-            height: 10px;
+            top: -8px;
             left: 0;
             right: 0;
-            top: -10px;
+            height: 8px;
         }
 
         .vnn-account-dropdown a {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            padding: 13px 19px;
-            color: #1e293b;
-            font-size: 13px;
-            font-weight: 800;
+            gap: 8px;
+            min-height: 40px;
+            padding: 10px 14px;
+            color: #243047;
             text-decoration: none;
-            transition: background .2s;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            line-height: 1.4;
+            transition: background .2s, color .2s;
         }
 
         .vnn-account-dropdown a:hover {
@@ -299,19 +307,21 @@ $navItems = [
         .vnn-dropdown-label {
             display: inline-flex;
             align-items: center;
-            gap: 12px;
+            gap: 11px;
+            min-width: 0;
         }
 
         .vnn-dropdown-label i {
-            width: 20px;
-            text-align: center;
+            width: 18px;
+            flex-shrink: 0;
             color: #166534;
-            font-size: 15px;
+            text-align: center;
+            font-size: 14px;
         }
 
         .vnn-dropdown-divider {
-            margin: 7px 0;
             height: 1px;
+            margin: 4px 0;
             background: #e2e8f0;
         }
 
@@ -319,93 +329,91 @@ $navItems = [
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-width: 22px;
-            height: 22px;
-            padding: 0 6px;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 5px;
             border-radius: 20px;
-            background: #f97316;
             color: white;
+            background: #f97316;
             font-size: 11px;
-            font-weight: 900;
+            font-weight: 800;
         }
 
-        .vnn-account-dropdown a.vnn-logout {
-            color: #dc2626;
-        }
-
+        .vnn-account-dropdown a.vnn-logout,
         .vnn-account-dropdown a.vnn-logout i {
             color: #dc2626;
         }
 
+        /* ===================================
+           DANG NHAP / DANG KY
+           =================================== */
+
         .vnn-login-actions {
             display: flex;
             align-items: center;
-            gap: 8px;
             flex-shrink: 0;
+            gap: 7px;
         }
 
         .vnn-login-actions a {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 11px 14px;
-            border-radius: 25px;
-            font-weight: 800;
-            font-size: 12px;
-            white-space: nowrap;
+            min-height: 37px;
+            padding: 8px 13px;
+            border-radius: 22px;
             text-decoration: none;
+            white-space: nowrap;
+            font-size: 12px !important;
+            font-weight: 700 !important;
         }
 
         .vnn-login {
             background: #166534;
-            color: white;
+            color: #fff;
         }
 
         .vnn-register {
             background: #f97316;
-            color: white;
+            color: #fff;
         }
 
-        /* ===== RESPONSIVE ===== */
+        /* ===================================
+           RESPONSIVE
+           =================================== */
 
-        @media (max-width: 1380px) {
+        @media(max-width: 1370px) {
+            .site-header .vnn-header-container {
+                width: calc(100% - 32px);
+            }
+
             .site-header .navbar {
-                gap: 14px;
-            }
-
-            .vnn-mountain-left {
-                width: 67px;
-                height: 51px;
-            }
-
-            .vnn-letters-row {
-                font-size: 27px;
-            }
-
-            .vnn-travel-row {
-                font-size: 11px;
-                letter-spacing: 3px;
+                gap: 10px;
             }
 
             .site-header .nav-menu {
-                gap: 11px;
+                gap: 10px;
             }
 
             .site-header .nav-link {
-                font-size: 11px;
+                font-size: 12px !important;
             }
 
-            .vnn-account-button {
-                padding: 10px 13px;
-                font-size: 12px;
+            .vnn-mountain-left {
+                width: 59px;
+                height: 43px;
+            }
+
+            .vnn-letters-row {
+                font-size: 24px;
             }
         }
 
-        @media (max-width: 1090px) {
+        @media(max-width: 1100px) {
             .site-header .navbar {
                 flex-wrap: wrap;
                 justify-content: space-between;
-                row-gap: 12px;
+                row-gap: 5px;
             }
 
             .site-header .nav-menu {
@@ -413,72 +421,60 @@ $navItems = [
                 flex: 0 0 100%;
                 width: 100%;
                 justify-content: center;
-                gap: 15px;
-                padding-bottom: 6px;
-            }
-
-            .site-header .nav-link {
-                font-size: 12px;
+                padding-bottom: 5px;
             }
         }
 
-        @media (max-width: 680px) {
+        @media(max-width: 680px) {
             .site-header .vnn-header-container {
-                width: calc(100% - 24px);
+                width: calc(100% - 22px);
             }
 
             .site-header .navbar {
-                padding: 12px 0;
+                padding: 7px 0;
             }
 
             .vnn-mountain-left {
-                width: 57px;
-                height: 43px;
+                width: 52px;
+                height: 38px;
             }
 
             .vnn-letters-row {
-                font-size: 24px;
+                font-size: 21px;
             }
 
             .vnn-travel-row {
-                font-size: 10px;
+                font-size: 9px;
                 letter-spacing: 2px;
             }
 
             .site-header .nav-menu {
                 justify-content: flex-start;
-                overflow-x: auto;
                 flex-wrap: nowrap;
-                padding: 8px 0 11px;
-                gap: 17px;
+                overflow-x: auto;
+                gap: 16px;
+                padding: 6px 0 9px;
                 scrollbar-width: thin;
             }
 
-            .site-header .nav-menu > li {
-                flex-shrink: 0;
-            }
-
             .site-header .nav-link {
-                font-size: 12px;
+                font-size: 12px !important;
             }
 
             .vnn-account-button {
-                font-size: 12px;
-                min-height: 40px;
-                padding: 9px 12px;
+                height: 37px;
+                min-height: 37px;
+                padding: 0 11px;
+                font-size: 12px !important;
             }
 
             .vnn-account-dropdown {
-                width: 265px;
-            }
-
-            .vnn-login-actions {
-                gap: 5px;
+                width: 230px;
             }
 
             .vnn-login-actions a {
-                font-size: 11px;
-                padding: 10px;
+                padding: 8px 10px;
+                font-size: 11px !important;
             }
         }
     </style>
@@ -502,83 +498,52 @@ $navItems = [
 
                 <div class="vnn-mountain-left">
 
-                    <svg
-                        viewBox="0 0 180 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                        role="img"
-                        aria-label="VNN Travel"
-                    >
+                    <svg viewBox="0 0 180 100"
+                         xmlns="http://www.w3.org/2000/svg"
+                         role="img"
+                         aria-label="VNN Travel">
 
-                        <polygon
-                            points="50,42 22,86 82,86"
-                            fill="#58a82d"
-                        />
+                        <polygon points="50,42 22,86 82,86"
+                                 fill="#58a82d"/>
 
-                        <polygon
-                            points="50,42 58,56 44,56"
-                            fill="#ffffff"
-                        />
+                        <polygon points="50,42 58,56 44,56"
+                                 fill="#ffffff"/>
 
-                        <polygon
-                            points="95,8 42,94 150,94"
-                            fill="#4d9e26"
-                        />
+                        <polygon points="95,8 42,94 150,94"
+                                 fill="#4d9e26"/>
 
-                        <polygon
-                            points="95,8 116,40 105,36 95,48 85,36 76,42"
-                            fill="#ffffff"
-                        />
+                        <polygon points="95,8 116,40 105,36 95,48 85,36 76,42"
+                                 fill="#ffffff"/>
 
-                        <path
-                            d="M95,48 L108,66 L99,62 L92,76 L82,64 Z"
-                            fill="#ffffff"
-                            opacity="0.95"
-                        />
+                        <path d="M95,48 L108,66 L99,62 L92,76 L82,64 Z"
+                              fill="#ffffff" opacity="0.95"/>
 
-                        <polygon
-                            points="135,38 106,86 170,86"
-                            fill="#3b7a1e"
-                        />
+                        <polygon points="135,38 106,86 170,86"
+                                 fill="#3b7a1e"/>
 
-                        <polygon
-                            points="135,38 144,52 128,52"
-                            fill="#ffffff"
-                        />
+                        <polygon points="135,38 144,52 128,52"
+                                 fill="#ffffff"/>
 
-                        <path
-                            d="M6,90 C48,58 132,58 174,90 C140,84 40,84 6,90 Z"
-                            fill="#6db832"
-                        />
+                        <path d="M6,90 C48,58 132,58 174,90 C140,84 40,84 6,90 Z"
+                              fill="#6db832"/>
 
-                        <path
-                            d="M16,88 C52,74 128,74 164,88 C138,102 42,102 16,88 Z"
-                            fill="#1b5e20"
-                        />
+                        <path d="M16,88 C52,74 128,74 164,88 C138,102 42,102 16,88 Z"
+                              fill="#1b5e20"/>
 
-                        <polygon
-                            points="36,76 31,86 41,86"
-                            fill="#0d3c13"
-                        />
+                        <polygon points="36,76 31,86 41,86"
+                                 fill="#0d3c13"/>
 
-                        <polygon
-                            points="44,74 39,86 49,86"
-                            fill="#0d3c13"
-                        />
+                        <polygon points="44,74 39,86 49,86"
+                                 fill="#0d3c13"/>
 
-                        <polygon
-                            points="54,74 49,86 59,86"
-                            fill="#0d3c13"
-                        />
+                        <polygon points="54,74 49,86 59,86"
+                                 fill="#0d3c13"/>
 
-                        <polygon
-                            points="134,76 129,86 139,86"
-                            fill="#0d3c13"
-                        />
+                        <polygon points="134,76 129,86 139,86"
+                                 fill="#0d3c13"/>
 
-                        <polygon
-                            points="144,74 139,86 149,86"
-                            fill="#0d3c13"
-                        />
+                        <polygon points="144,74 139,86 149,86"
+                                 fill="#0d3c13"/>
 
                     </svg>
 
@@ -607,23 +572,19 @@ $navItems = [
                 <?php foreach ($navItems as $item): ?>
 
                     <li>
-
                         <a
                             href="<?= vnnHeaderH($baseUrl . $item[1]) ?>"
                             class="nav-link <?= $active_menu === $item[0] ? 'active' : '' ?>"
                         >
-
                             <?= vnnHeaderH($item[2]) ?>
-
                         </a>
-
                     </li>
 
                 <?php endforeach; ?>
 
             </ul>
 
-            <!-- TAI KHOAN VA CAC TAC VU -->
+            <!-- TAI KHOAN -->
 
             <div class="nav-actions">
 
@@ -638,7 +599,7 @@ $navItems = [
                         <a
                             href="<?= vnnHeaderH($baseUrl) ?>admin/index.php"
                             class="btn btn-accent btn-sm"
-                            style="border-radius:22px;white-space:nowrap"
+                            style="border-radius:20px;white-space:nowrap;font-size:12px"
                         >
                             <i class="fa-solid fa-gauge"></i>
                             Quản trị
@@ -646,10 +607,7 @@ $navItems = [
 
                     <?php endif; ?>
 
-                    <div
-                        class="vnn-account"
-                        id="vnnAccount"
-                    >
+                    <div class="vnn-account" id="vnnAccount">
 
                         <button
                             type="button"
@@ -659,13 +617,9 @@ $navItems = [
                             aria-controls="vnnAccountDropdown"
                             aria-haspopup="true"
                         >
-
                             <i class="fa-regular fa-user"></i>
-
                             <span>Tài Khoản</span>
-
                             <i class="fa-solid fa-chevron-down vnn-account-chevron"></i>
-
                         </button>
 
                         <div
@@ -673,74 +627,52 @@ $navItems = [
                             id="vnnAccountDropdown"
                         >
 
-                            <!-- GIO HANG -->
-
                             <a href="<?= vnnHeaderH($baseUrl) ?>shop/cart.php">
-
                                 <span class="vnn-dropdown-label">
                                     <i class="fa-solid fa-cart-shopping"></i>
                                     Giỏ Hàng
                                 </span>
 
                                 <?php if ($cart_count > 0): ?>
-
                                     <span class="vnn-cart-count">
                                         <?= (int)$cart_count ?>
                                     </span>
-
                                 <?php endif; ?>
-
                             </a>
 
-                            <!-- TOUR CUA TOI -->
-
                             <a href="<?= vnnHeaderH($baseUrl) ?>tours/my-tours.php">
-
                                 <span class="vnn-dropdown-label">
                                     <i class="fa-solid fa-ticket"></i>
                                     Tour Tôi Đã Đăng Ký
                                 </span>
-
                             </a>
 
-                            <!-- DON HANG -->
-
                             <a href="<?= vnnHeaderH($baseUrl) ?>shop/my-orders.php">
-
                                 <span class="vnn-dropdown-label">
                                     <i class="fa-solid fa-box-open"></i>
                                     Đơn Mua Thiết Bị
                                 </span>
-
                             </a>
 
                             <div class="vnn-dropdown-divider"></div>
 
-                            <!-- THONG TIN CA NHAN -->
-
                             <a href="<?= vnnHeaderH($baseUrl) ?>auth/profile.php">
-
                                 <span class="vnn-dropdown-label">
                                     <i class="fa-regular fa-id-card"></i>
                                     Thông Tin Cá Nhân
                                 </span>
-
                             </a>
 
                             <div class="vnn-dropdown-divider"></div>
 
-                            <!-- DANG XUAT -->
-
                             <a
-                                href="<?= vnnHeaderH($baseUrl) ?>auth/logout.php"
                                 class="vnn-logout"
+                                href="<?= vnnHeaderH($baseUrl) ?>auth/logout.php"
                             >
-
                                 <span class="vnn-dropdown-label">
                                     <i class="fa-solid fa-right-from-bracket"></i>
                                     Đăng Xuất
                                 </span>
-
                             </a>
 
                         </div>
@@ -748,8 +680,6 @@ $navItems = [
                     </div>
 
                 <?php else: ?>
-
-                    <!-- KHACH CHUA DANG NHAP -->
 
                     <div class="vnn-login-actions">
 
@@ -788,7 +718,7 @@ $navItems = [
 </header>
 
 <script>
-(function () {
+(function() {
     const account = document.getElementById('vnnAccount');
     const button = document.getElementById('vnnAccountButton');
 
@@ -798,44 +728,33 @@ $navItems = [
 
     function setOpen(value) {
         account.classList.toggle('open', value);
-
-        button.setAttribute(
-            'aria-expanded',
-            String(value)
-        );
+        button.setAttribute('aria-expanded', String(value));
     }
 
-    // Bam tai khoan de mo / dong menu.
-    button.addEventListener('click', function (event) {
+    button.addEventListener('click', function(event) {
         event.stopPropagation();
-
-        setOpen(
-            !account.classList.contains('open')
-        );
+        setOpen(!account.classList.contains('open'));
     });
 
-    // Di chuot tren desktop van co the mo menu.
-    account.addEventListener('mouseenter', function () {
+    account.addEventListener('mouseenter', function() {
         if (window.matchMedia('(hover: hover)').matches) {
             setOpen(true);
         }
     });
 
-    account.addEventListener('mouseleave', function () {
+    account.addEventListener('mouseleave', function() {
         if (window.matchMedia('(hover: hover)').matches) {
             setOpen(false);
         }
     });
 
-    // Bam ra ngoai thi dong.
-    document.addEventListener('click', function (event) {
+    document.addEventListener('click', function(event) {
         if (!account.contains(event.target)) {
             setOpen(false);
         }
     });
 
-    // Nhan Escape de dong.
-    document.addEventListener('keydown', function (event) {
+    document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape') {
             setOpen(false);
         }
