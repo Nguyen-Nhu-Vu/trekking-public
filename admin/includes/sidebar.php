@@ -2,10 +2,10 @@
 $current_page = $current_page ?? '';
 
 if (!function_exists('vnnCount')) {
-    function vnnCount(PDO $pdo, string $sql): int
-    {
+
+    function vnnCount(PDO $pdo, string $sql): int {
         try {
-            return max(0, (int) $pdo->query($sql)->fetchColumn());
+            return max(0, (int)$pdo->query($sql)->fetchColumn());
         } catch (Throwable $e) {
             error_log('Sidebar: ' . $e->getMessage());
             return 0;
@@ -19,30 +19,18 @@ if (!function_exists('vnnCount')) {
         string $title,
         int $count = 0
     ): void {
+
         global $current_page;
 
         $active = $current_page === $page ? 'active' : '';
 
-        $safeUrl = htmlspecialchars(
-            $url,
-            ENT_QUOTES,
-            'UTF-8'
-        );
-
-        $safeTitle = htmlspecialchars(
-            $title,
-            ENT_QUOTES,
-            'UTF-8'
-        );
-
-        $safeIcon = htmlspecialchars(
-            $icon,
-            ENT_QUOTES,
-            'UTF-8'
-        );
+        $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+        $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+        $safeIcon = htmlspecialchars($icon, ENT_QUOTES, 'UTF-8');
 
         echo '<li class="' . $active . '">';
         echo '<a href="' . $safeUrl . '">';
+
         echo '<span class="menu-label">';
         echo '<i class="fa-solid ' . $safeIcon . '"></i>';
         echo '<span>' . $safeTitle . '</span>';
@@ -64,40 +52,20 @@ $siteBase = rtrim(BASE_URL, '/') . '/';
 
 $pendingTours = vnnCount(
     $pdo,
-    "SELECT COUNT(*)
-     FROM tour_bookings
+    "SELECT COUNT(*) FROM tour_bookings
      WHERE status = 'Chờ xác nhận'"
 );
 
 $pendingOrders = vnnCount(
     $pdo,
-    "SELECT COUNT(*)
-     FROM orders
+    "SELECT COUNT(*) FROM orders
      WHERE status = 'Chờ xác nhận'"
 );
 
 $pendingReviews = vnnCount(
     $pdo,
-    "SELECT COUNT(*)
-     FROM reviews
-     WHERE status = 0"
+    "SELECT COUNT(*) FROM reviews WHERE status = 0"
 );
-
-$customerPages = [
-    'chat',
-    'bookings',
-    'orders',
-    'reviews',
-    'contacts'
-];
-
-$contentPages = [
-    'tours',
-    'products',
-    'categories',
-    'locations',
-    'posts'
-];
 ?>
 
 <style>
@@ -106,12 +74,11 @@ $contentPages = [
     min-width: 250px !important;
     max-width: 250px !important;
     flex: 0 0 250px !important;
-    flex-shrink: 0 !important;
     height: 100vh;
     position: sticky;
     top: 0;
-    overflow-y: auto;
     overflow-x: hidden;
+    overflow-y: auto;
     background: #1e293b;
     color: #e2e8f0;
     z-index: 100;
@@ -126,16 +93,16 @@ $contentPages = [
 
 .vnn-brand {
     display: flex;
-    gap: 12px;
     align-items: center;
+    gap: 12px;
     min-height: 76px;
     padding: 15px;
     background: #0f172a;
 }
 
 .vnn-brand i {
-    color: #65a30d;
     font-size: 34px;
+    color: #65a30d;
 }
 
 .vnn-brand-title {
@@ -166,22 +133,22 @@ $contentPages = [
     justify-content: center;
     align-items: center;
     gap: 8px;
-    margin: 13px;
     padding: 12px;
+    margin: 13px;
     border: 1px solid #334155;
     border-radius: 9px;
     color: #38bdf8;
-    text-decoration: none;
-    font-weight: 800;
     font-size: 13px;
+    font-weight: 800;
     text-align: center;
+    text-decoration: none;
 }
 
 .admin-menu,
 .admin-menu ul {
-    list-style: none;
     margin: 0;
     padding: 0;
+    list-style: none;
 }
 
 .admin-menu li > a {
@@ -191,8 +158,8 @@ $contentPages = [
     gap: 9px;
     padding: 12px 15px;
     color: #cbd5e1;
-    text-decoration: none;
     font-size: 13px;
+    text-decoration: none;
 }
 
 .admin-menu li > a:hover,
@@ -229,7 +196,7 @@ $contentPages = [
     gap: 8px;
     width: 100%;
     padding: 14px 15px;
-    border: none;
+    border: 0;
     background: #253247;
     color: white;
     font-size: 13px;
@@ -285,7 +252,7 @@ $contentPages = [
     border-radius: 50%;
 }
 
-@media (max-width: 700px) {
+@media(max-width:700px) {
     .admin-sidebar {
         width: 200px !important;
         min-width: 200px !important;
@@ -319,7 +286,7 @@ $contentPages = [
     </div>
 
     <a
-        href="<?= htmlspecialchars($siteBase) ?>index.php"
+        href="<?= htmlspecialchars($siteBase, ENT_QUOTES, 'UTF-8') ?>index.php"
         class="vnn-view-website"
         target="_blank"
         rel="noopener"
@@ -347,6 +314,7 @@ $contentPages = [
                     class="vnn-group-heading"
                     type="button"
                     onclick="vnnToggleMenu(this)"
+                    aria-expanded="true"
                 >
                     <span>
                         <i class="fa-solid fa-headset"></i>
@@ -411,6 +379,7 @@ $contentPages = [
                     class="vnn-group-heading"
                     type="button"
                     onclick="vnnToggleMenu(this)"
+                    aria-expanded="true"
                 >
                     <span>
                         <i class="fa-solid fa-boxes-stacked"></i>
@@ -428,6 +397,13 @@ $contentPages = [
                         $adminBase . 'tours/',
                         'fa-person-hiking',
                         'Quản Lý Tour'
+                    );
+
+                    vnnMenu(
+                        'leaders',
+                        $adminBase . 'leaders/',
+                        'fa-person-hiking',
+                        'Đội Ngũ Leader'
                     );
 
                     vnnMenu(
@@ -455,16 +431,14 @@ $contentPages = [
                 </ul>
             </li>
 
-            <li>
-                <?php
-                vnnMenu(
-                    'revenue',
-                    $adminBase . 'revenue.php',
-                    'fa-chart-line',
-                    'Doanh Thu & Báo Cáo'
-                );
-                ?>
-            </li>
+            <?php
+            vnnMenu(
+                'revenue',
+                $adminBase . 'revenue.php',
+                'fa-chart-line',
+                'Doanh Thu & Báo Cáo'
+            );
+            ?>
 
         <?php endif; ?>
 
@@ -476,6 +450,7 @@ $contentPages = [
                     class="vnn-group-heading"
                     type="button"
                     onclick="vnnToggleMenu(this)"
+                    aria-expanded="true"
                 >
                     <span>
                         <i class="fa-solid fa-shield-halved"></i>
@@ -486,6 +461,7 @@ $contentPages = [
                 </button>
 
                 <ul class="vnn-submenu">
+
                     <?php
                     vnnMenu(
                         'users',
@@ -494,21 +470,21 @@ $contentPages = [
                         'Cấp Quyền & Tài Khoản'
                     );
                     ?>
+
                 </ul>
             </li>
 
         <?php endif; ?>
 
     </ul>
+
 </aside>
 
 <script>
 function vnnToggleMenu(button) {
     const group = button.closest('.vnn-group');
 
-    if (!group) {
-        return;
-    }
+    if (!group) return;
 
     const open = group.classList.toggle('open');
 
