@@ -11,137 +11,97 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
 requireStaff();
 
 $current_page = 'bookings';
-$page_title = 'Quản Lý Đăng Ký Tour - VNN Travel';
+$page_title   = 'Quản Lý Đăng Ký Tour - VNN Travel';
 
 if (!function_exists('bk_h')) {
     function bk_h($value) {
-        return htmlspecialchars(
-            (string)$value,
-            ENT_QUOTES,
-            'UTF-8'
-        );
+        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
     }
 }
 
-// =======================================
-// DANH SACH TRANG THAI
-// =======================================
+/* =========================================================
+   DANH SÁCH TRẠNG THÁI
+========================================================= */
+$statuses = ['Chờ xác nhận', 'Đã xác nhận', 'Đã thanh toán', 'Đã hoàn thành', 'Đã hủy'];
 
-$statuses = [
-    'Chờ xác nhận',
-    'Đã xác nhận',
-    'Đã thanh toán',
-    'Đã hoàn thành',
-    'Đã hủy'
-];
-
-$error = '';
+$error   = '';
 $success = '';
 
+/* =========================================================
+   CSRF
+========================================================= */
 if (empty($_SESSION['bookings_csrf'])) {
     $_SESSION['bookings_csrf'] = bin2hex(random_bytes(32));
 }
-
 $csrf = $_SESSION['bookings_csrf'];
 
-// =======================================
-// CAP NHAT TRANG THAI BOOKING
-// KHONG SUA HDV CO DINH CUA TOUR
-// =======================================
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
+/* =========================================================
+   LƯU THAY ĐỔI HÀNG LOẠT
+========================================================= */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_all_changes'])) {
     try {
-
         $postedCsrf = (string)($_POST['csrf'] ?? '');
-
         if (!hash_equals($csrf, $postedCsrf)) {
-            throw new RuntimeException(
-                'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
-            );
+            throw new RuntimeException('Phiên làm việc không hợp lệ. Vui lòng tải lại trang.');
         }
 
-        if (!isset($_POST['update_booking'])) {
-            throw new RuntimeException(
-                'Thao tác không hợp lệ.'
-            );
+        $postedStatuses = $_POST['status'] ?? [];
+
+        if (!is_array($postedStatuses)) {
+            throw new RuntimeException('Dữ liệu cập nhật không hợp lệ.');
         }
 
-        $bookingId = (int)($_POST['booking_id'] ?? 0);
+        $pdo->beginTransaction();
 
-        $newStatus = trim(
-            (string)($_POST['status'] ?? '')
-        );
+        $checkStmt  = $pdo->prepare("SELECT status FROM tour_bookings WHERE id = ? LIMIT 1");
+        $updateStmt = $pdo->prepare("UPDATE tour_bookings SET status = ? WHERE id = ?");
 
-        if ($bookingId <= 0) {
-            throw new RuntimeException(
-                'Mã đăng ký tour không hợp lệ.'
-            );
+        $updatedCount = 0;
+
+        foreach ($postedStatuses as $bookingId => $newStatus) {
+            $bookingId = (int)$bookingId;
+            $newStatus = trim((string)$newStatus);
+
+            if ($bookingId <= 0) {
+                continue;
+            }
+
+            if (!in_array($newStatus, $statuses, true)) {
+                continue;
+            }
+
+            $checkStmt->execute([$bookingId]);
+            $oldStatus = $checkStmt->fetchColumn();
+
+            if ($oldStatus === false) {
+                continue;
+            }
+
+            if ($oldStatus !== $newStatus) {
+                $updateStmt->execute([$newStatus, $bookingId]);
+                $updatedCount++;
+            }
         }
 
-        if (!in_array($newStatus, $statuses, true)) {
-            throw new RuntimeException(
-                'Trạng thái đăng ký không hợp lệ.'
-            );
+        $pdo->commit();
+
+        $_SESSION['bookings_notice'] = $updatedCount > 0
+            ? "Đã lưu {$updatedCount} thay đổi thành công."
+            : "Không có thay đổi nào để lưu.";
+
+        $filterRedirect = trim((string)($_POST['current_filter'] ?? ''));
+        if ($filterRedirect !== '' && in_array($filterRedirect, $statuses, true)) {
+            header('Location: index.php?status=' . rawurlencode($filterRedirect));
+        } else {
+            header('Location: index.php');
         }
-
-        $check = $pdo->prepare("
-            SELECT id
-            FROM tour_bookings
-            WHERE id = ?
-            LIMIT 1
-        ");
-
-        $check->execute([$bookingId]);
-
-        if (!$check->fetchColumn()) {
-            throw new RuntimeException(
-                'Không tìm thấy đăng ký tour.'
-            );
-        }
-
-        // Chi cap nhat trang thai.
-        // Khong thay doi guide_id hay leader_id.
-        $update = $pdo->prepare("
-            UPDATE tour_bookings
-            SET status = ?
-            WHERE id = ?
-        ");
-
-        $update->execute([
-            $newStatus,
-            $bookingId
-        ]);
-
-        $_SESSION['bookings_notice'] =
-            'Đã cập nhật trạng thái đăng ký thành công.';
-
-        $filterRedirect = trim(
-            (string)($_POST['current_filter'] ?? '')
-        );
-
-        $redirect = 'index.php';
-
-        if (
-            $filterRedirect !== '' &&
-            in_array($filterRedirect, $statuses, true)
-        ) {
-            $redirect .= '?status=' .
-                rawurlencode($filterRedirect);
-        }
-
-        header('Location: ' . $redirect, true, 303);
         exit;
-
     } catch (Throwable $e) {
-
-        error_log(
-            'Booking update: ' . $e->getMessage()
-        );
-
-        $error = $e instanceof RuntimeException
-            ? $e->getMessage()
-            : 'Không thể cập nhật đăng ký.';
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('Bookings bulk update error: ' . $e->getMessage());
+        $error = $e instanceof RuntimeException ? $e->getMessage() : 'Không thể lưu thay đổi. Vui lòng thử lại.';
     }
 }
 
@@ -150,756 +110,405 @@ if (!empty($_SESSION['bookings_notice'])) {
     unset($_SESSION['bookings_notice']);
 }
 
-// =======================================
-// BO LOC TRANG THAI
-// =======================================
-
-$filter = trim(
-    (string)($_GET['status'] ?? '')
-);
-
+/* =========================================================
+   BỘ LỌC TRẠNG THÁI
+========================================================= */
+$filter = trim((string)($_GET['status'] ?? ''));
 $params = [];
-
-// =======================================
-// LAY BOOKING + LEADER CO DINH CUA TOUR
-// =======================================
-//
-// tours.leader_id
-//       |
-//       v
-// trekking_leaders.id
-//
-// Khong lay HDV tu tour_bookings.guide_id
-// nua vi Leader da co dinh theo tour.
-//
-// LEFT JOIN de booking cu van hien thi
-// ke ca tour chua duoc phan Leader.
-// =======================================
 
 $sql = "
     SELECT
         b.*,
-
         t.title AS tour_name,
         t.leader_id AS fixed_leader_id,
-        t.tour_guide AS old_guide_name,
-
-        l.id AS leader_profile_id,
         l.fullname AS fixed_leader_name,
         l.nickname AS fixed_leader_nickname,
         l.image AS fixed_leader_image,
         l.experience_years AS leader_experience
-
     FROM tour_bookings b
-
-    INNER JOIN tours t
-        ON t.id = b.tour_id
-
-    LEFT JOIN trekking_leaders l
-        ON l.id = t.leader_id
+    INNER JOIN tours t ON t.id = b.tour_id
+    LEFT JOIN trekking_leaders l ON l.id = t.leader_id
 ";
 
-if (
-    $filter !== '' &&
-    in_array($filter, $statuses, true)
-) {
-
-    $sql .= " WHERE b.status = ?";
-
+if ($filter !== '' && in_array($filter, $statuses, true)) {
+    $sql .= " WHERE b.status = ? ";
     $params[] = $filter;
 }
 
-$sql .= " ORDER BY b.id DESC";
+$sql .= " ORDER BY b.id DESC ";
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
-
 $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// =======================================
-// THONG KE
-// =======================================
-
 $totalBookings = count($bookings);
-
-$withLeader = 0;
-
-foreach ($bookings as $booking) {
-    if (!empty($booking['fixed_leader_name'])) {
-        $withLeader++;
-    }
-}
-
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
-
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= bk_h($page_title) ?></title>
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1"
-    >
-
-    <title>
-        <?= bk_h($page_title) ?>
-    </title>
-
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="../../assets/css/style.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="../../assets/css/admin.css"
-    >
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
-        /* =====================================
-           TRANG QUAN LY DANG KY TOUR
-           ===================================== */
-
-        .bk-top {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 15px;
+        *{
+            box-sizing:border-box;
+        }
+        body{
+            margin:0;
+            font-family:Arial, Helvetica, sans-serif;
+            background:#f4f7fb;
+            color:#1f2d3d;
+        }
+        .admin-layout{
+            display:flex;
+            min-height:100vh;
+        }
+        .admin-main{
+            flex:1;
+            padding:24px;
+        }
+        .page-header{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:16px;
+            margin-bottom:18px;
+        }
+        .page-header h1{
+            margin:0;
+            font-size:20px;
+            font-weight:800;
+            color:#17345f;
+        }
+        .filter-box form{
+            display:flex;
+            gap:10px;
+            align-items:center;
+        }
+        .filter-box select{
+            min-width:180px;
+            padding:12px 14px;
+            border:1px solid #d9e2ef;
+            border-radius:12px;
+            background:#fff;
+            font-size:15px;
         }
 
-        .bk-toolbar {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 20px;
-            margin-bottom: 20px;
+        .alert{
+            padding:14px 16px;
+            border-radius:12px;
+            margin-bottom:16px;
+            font-size:14px;
+            line-height:1.5;
+        }
+        .alert-success{
+            background:#eaf8ee;
+            color:#1c7a35;
+            border:1px solid #bfe8c8;
+        }
+        .alert-error{
+            background:#fff1f1;
+            color:#c0392b;
+            border:1px solid #f1c0c0;
         }
 
-        .bk-stat {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            color: #64748b;
-            font-size: 14px;
+        .toolbar{
+            display:flex;
+            flex-wrap:wrap;
+            justify-content:space-between;
+            align-items:center;
+            gap:16px;
+            margin-bottom:16px;
+            padding:18px 20px;
+            background:#eef3f9;
+            border-radius:18px;
+            border:1px solid #dfe7f1;
+        }
+        .toolbar-left{
+            display:flex;
+            align-items:center;
+            gap:20px;
+            flex-wrap:wrap;
+        }
+        .booking-count{
+            display:flex;
+            align-items:center;
+            gap:10px;
+            font-size:18px;
+            color:#566b86;
+        }
+        .booking-count i{
+            color:#146c43;
+            font-size:20px;
         }
 
-        .bk-stat i {
-            color: #166534;
+        .btn{
+            border:none;
+            border-radius:12px;
+            padding:12px 18px;
+            font-size:15px;
+            font-weight:700;
+            cursor:pointer;
+            transition:.2s;
+            text-decoration:none;
+            display:inline-flex;
+            align-items:center;
+            gap:8px;
+        }
+        .btn-save{
+            background:#166534;
+            color:#fff;
+        }
+        .btn-save:hover{
+            background:#14532d;
         }
 
-        .bk-success {
-            background: #dcfce7;
-            color: #166534;
-            padding: 14px;
-            border-radius: 9px;
-            margin-bottom: 18px;
+        .table-card{
+            background:#fff;
+            border-radius:20px;
+            overflow:hidden;
+            border:1px solid #e3eaf3;
         }
 
-        .bk-error {
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 14px;
-            border-radius: 9px;
-            margin-bottom: 18px;
+        table{
+            width:100%;
+            border-collapse:collapse;
+        }
+        thead th{
+            background:#ffffff;
+            color:#0f274e;
+            font-size:18px;
+            font-weight:800;
+            padding:26px 18px;
+            text-align:left;
+            border-bottom:1px solid #e6edf5;
+        }
+        tbody td{
+            padding:22px 18px;
+            border-bottom:1px solid #edf2f7;
+            vertical-align:middle;
+            font-size:15px;
+            color:#243b53;
+        }
+        tbody tr:hover{
+            background:#fafcff;
         }
 
-        /* =====================================
-           BANG BOOKING
-           ===================================== */
-
-        .bk-table-wrap {
-            background: white;
-            border-radius: 14px;
-            overflow-x: auto;
-            border: 1px solid #e2e8f0;
+        .booking-code{
+            font-weight:800;
+            font-size:18px;
+            line-height:1.45;
+            color:#17345f;
+            word-break:break-word;
+        }
+        .customer-name{
+            font-size:18px;
+            line-height:1.4;
+            color:#243b53;
+            margin-bottom:10px;
+        }
+        .customer-phone{
+            color:#74839a;
+            font-size:15px;
+        }
+        .tour-name{
+            font-size:18px;
+            font-weight:700;
+            color:#243b53;
+            line-height:1.4;
+        }
+        .depart-date{
+            color:#f35b04;
+            font-weight:800;
+            font-size:18px;
+        }
+        .guest-count{
+            font-size:18px;
+            color:#2b3e55;
+            line-height:1.5;
         }
 
-        .bk-table {
-            width: 100%;
-            min-width: 1150px;
-            border-collapse: collapse;
+        .leader-name{
+            font-size:18px;
+            font-weight:800;
+            color:#166534;
+            margin-bottom:8px;
+            line-height:1.4;
+        }
+        .leader-exp{
+            color:#6b7c93;
+            font-size:15px;
+        }
+        .leader-empty{
+            color:#9aa8b8;
+            font-style:italic;
+            font-size:15px;
         }
 
-        .bk-table th {
-            padding: 18px 14px;
-            background: #f8fafc;
-            color: #0f172a;
-            font-weight: 800;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 13px;
+        .status-select{
+            min-width:180px;
+            padding:12px 14px;
+            border:1px solid #ccd8e6;
+            border-radius:12px;
+            background:#fff;
+            font-size:15px;
+            color:#22354a;
         }
 
-        .bk-table td {
-            padding: 17px 14px;
-            border-bottom: 1px solid #e2e8f0;
-            vertical-align: middle;
-            font-size: 13px;
+        .empty-box{
+            padding:40px 20px;
+            text-align:center;
+            color:#7a8ca5;
+            font-size:16px;
         }
 
-        .bk-table tr:hover td {
-            background: #f8fafc;
-        }
-
-        .bk-code {
-            font-weight: 800;
-            color: #1e3a5f;
-            overflow-wrap: anywhere;
-        }
-
-        .bk-phone {
-            display: block;
-            color: #64748b;
-            font-size: 12px;
-            margin-top: 7px;
-        }
-
-        .bk-date {
-            color: #ea580c;
-            font-weight: 800;
-            white-space: nowrap;
-        }
-
-        /* =====================================
-           LEADER CO DINH
-           ===================================== */
-
-        .bk-leader {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            min-width: 170px;
-        }
-
-        .bk-leader-avatar {
-            width: 43px;
-            height: 43px;
-            flex-shrink: 0;
-            border-radius: 50%;
-            object-fit: cover;
-            background: #dcfce7;
-            border: 1px solid #bbf7d0;
-        }
-
-        .bk-leader-placeholder {
-            width: 43px;
-            height: 43px;
-            flex-shrink: 0;
-            border-radius: 50%;
-            display: grid;
-            place-items: center;
-            background: #dcfce7;
-            color: #166534;
-            font-size: 18px;
-        }
-
-        .bk-leader-info {
-            min-width: 0;
-        }
-
-        .bk-leader-name {
-            display: block;
-            font-weight: 800;
-            color: #166534;
-            line-height: 1.5;
-            text-decoration: none;
-        }
-
-        .bk-leader-name:hover {
-            color: #ea580c;
-            text-decoration: underline;
-        }
-
-        .bk-leader-sub {
-            display: block;
-            margin-top: 5px;
-            font-size: 11px;
-            color: #64748b;
-        }
-
-        .bk-no-leader {
-            color: #94a3b8;
-            font-style: italic;
-            font-size: 12px;
-        }
-
-        /* =====================================
-           TRANG THAI VA NUT LUU
-           ===================================== */
-
-        .bk-select {
-            width: 100%;
-            min-width: 145px;
-            max-width: 230px;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            padding: 10px 8px;
-            background: white;
-            font: inherit;
-            font-size: 13px;
-        }
-
-        .bk-save {
-            background: #166534;
-            color: white;
-            border: none;
-            padding: 11px 17px;
-            border-radius: 9px;
-            font-weight: 800;
-            cursor: pointer;
-        }
-
-        .bk-save:hover {
-            background: #15803d;
-        }
-
-        .bk-form {
-            margin: 0;
-        }
-
-        @media(max-width:700px) {
-            .bk-table th,
-            .bk-table td {
-                padding: 12px;
+        @media (max-width: 1200px){
+            .table-card{
+                overflow-x:auto;
             }
-
-            .bk-toolbar {
-                gap: 10px;
+            table{
+                min-width:1200px;
             }
         }
     </style>
 </head>
-
-<body class="admin-body">
-
-<?php
-require_once __DIR__ . '/../includes/sidebar.php';
-?>
-
-<main class="admin-main">
-
-    <!-- THANH TIEU DE -->
-
-    <div class="admin-topbar bk-top">
-
-        <strong>
-            <i class="fa-solid fa-person-hiking"></i>
-            QUẢN LÝ ĐĂNG KÝ TOUR TREKKING
-        </strong>
-
-        <!-- LOC TRANG THAI -->
-
-        <form method="GET">
-
-            <select
-                name="status"
-                class="form-control"
-                onchange="this.form.submit()"
-            >
-
-                <option value="">
-                    Tất cả trạng thái
-                </option>
-
-                <?php foreach ($statuses as $status): ?>
-
-                    <option
-                        value="<?= bk_h($status) ?>"
-                        <?= $filter === $status
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= bk_h($status) ?>
-                    </option>
-
-                <?php endforeach; ?>
-
-            </select>
-
-        </form>
-
-    </div>
-
-    <!-- NOI DUNG QUAN LY -->
-
-    <div class="admin-content">
-
-        <!-- THONG BAO -->
-
-        <?php if ($success): ?>
-
-            <div class="bk-success" role="status">
-                <i class="fa-solid fa-circle-check"></i>
-                <?= bk_h($success) ?>
-            </div>
-
-        <?php endif; ?>
-
-        <?php if ($error): ?>
-
-            <div class="bk-error" role="alert">
-                <i class="fa-solid fa-circle-exclamation"></i>
-                <?= bk_h($error) ?>
-            </div>
-
-        <?php endif; ?>
-
-        <!-- THONG KE BOOKING -->
-
-        <div class="bk-toolbar">
-
-            <span class="bk-stat">
-                <i class="fa-solid fa-ticket"></i>
-
-                <?= $totalBookings ?>
-                đăng ký tour
-            </span>
-
-            <span class="bk-stat">
-                <i class="fa-solid fa-person-hiking"></i>
-
-                <?= $withLeader ?>
-                đăng ký có Leader cố định
-            </span>
-
-        </div>
-
-        <!-- BANG QUAN LY -->
-
-        <div class="bk-table-wrap">
-
-            <table class="bk-table">
-
-                <thead>
-                    <tr>
-                        <th>Mã Booking</th>
-                        <th>Khách Hàng</th>
-                        <th>Tour</th>
-                        <th>Ngày Khởi Hành</th>
-                        <th>Số Khách</th>
-                        <th>HDV</th>
-                        <th>Trạng Thái</th>
-                        <th>Thao Tác</th>
-                    </tr>
-                </thead>
-
-                <tbody>
-
-                    <?php if ($bookings): ?>
-
-                        <?php foreach ($bookings as $booking): ?>
-
-                            <?php
-                            $bookingId = (int)$booking['id'];
-
-                            $formId = 'booking-form-' . $bookingId;
-
-                            $leaderId = (int)(
-                                $booking['leader_profile_id'] ?? 0
-                            );
-
-                            $leaderName = trim(
-                                (string)(
-                                    $booking['fixed_leader_name'] ?? ''
-                                )
-                            );
-
-                            $leaderImage = trim(
-                                (string)(
-                                    $booking['fixed_leader_image'] ?? ''
-                                )
-                            );
-
-                            $experience = (int)(
-                                $booking['leader_experience'] ?? 0
-                            );
-
-                            $leaderUrl = rtrim(
-                                BASE_URL,
-                                '/'
-                            ) . '/pages/leader-detail.php?id=' .
-                                $leaderId;
-                            ?>
-
-                            <tr>
-
-                                <!-- MA BOOKING -->
-
-                                <td class="bk-code">
-
-                                    <?= bk_h(
-                                        $booking['booking_code'] ?? ''
-                                    ) ?>
-
-                                </td>
-
-                                <!-- KHACH HANG -->
-
-                                <td>
-
-                                    <?= bk_h(
-                                        $booking['fullname'] ?? ''
-                                    ) ?>
-
-                                    <small class="bk-phone">
-
-                                        <?= bk_h(
-                                            $booking['phone'] ?? ''
-                                        ) ?>
-
-                                    </small>
-
-                                </td>
-
-                                <!-- TOUR -->
-
-                                <td>
-
-                                    <strong>
-                                        <?= bk_h(
-                                            $booking['tour_name']
-                                        ) ?>
-                                    </strong>
-
-                                </td>
-
-                                <!-- NGAY KHOI HANH -->
-
-                                <td class="bk-date">
-
-                                    <?php if (
-                                        !empty(
-                                            $booking['departure_date']
-                                        )
-                                    ): ?>
-
-                                        <?= date(
-                                            'd/m/Y',
-                                            strtotime(
-                                                $booking['departure_date']
-                                            )
-                                        ) ?>
-
-                                    <?php else: ?>
-
-                                        Tự thỏa thuận
-
-                                    <?php endif; ?>
-
-                                </td>
-
-                                <!-- SO KHACH -->
-
-                                <td>
-
-                                    <?= (int)(
-                                        $booking['number_people'] ?? 0
-                                    ) ?>
-
-                                    người
-
-                                </td>
-
-                                <!-- HDV CO DINH CUA TOUR -->
-
-                                <td>
-
-                                    <?php if ($leaderName !== ''): ?>
-
-                                        <div class="bk-leader">
-
-                                            <?php if ($leaderImage !== ''): ?>
-
-                                                <img
-                                                    class="bk-leader-avatar"
-                                                    src="<?= bk_h(
-                                                        $leaderImage
-                                                    ) ?>"
-                                                    alt="<?= bk_h(
-                                                        $leaderName
-                                                    ) ?>"
-                                                    loading="lazy"
-                                                >
-
-                                            <?php else: ?>
-
-                                                <div class="bk-leader-placeholder">
-
-                                                    <i class="fa-solid fa-person-hiking"></i>
-
-                                                </div>
-
-                                            <?php endif; ?>
-
-                                            <div class="bk-leader-info">
-
-                                                <a
-                                                    href="<?= bk_h(
-                                                        $leaderUrl
-                                                    ) ?>"
-                                                    class="bk-leader-name"
-                                                    target="_blank"
-                                                    rel="noopener"
-                                                >
-
-                                                    <?= bk_h(
-                                                        $leaderName
-                                                    ) ?>
-
-                                                </a>
-
-                                                <?php if ($experience > 0): ?>
-
-                                                    <span class="bk-leader-sub">
-
-                                                        <?= $experience ?>
-
-                                                        năm kinh nghiệm
-
-                                                    </span>
-
-                                                <?php endif; ?>
-
-                                            </div>
-
-                                        </div>
-
-                                    <?php else: ?>
-
-                                        <span class="bk-no-leader">
-
-                                            Chưa gán HDV cho tour
-
-                                        </span>
-
-                                    <?php endif; ?>
-
-                                </td>
-
-                                <!-- TRANG THAI -->
-
-                                <td>
-
-                                    <select
-                                        name="status"
-                                        form="<?= bk_h($formId) ?>"
-                                        class="bk-select"
-                                    >
-
-                                        <?php foreach (
-                                            $statuses as $status
-                                        ): ?>
-
-                                            <option
-                                                value="<?= bk_h(
-                                                    $status
-                                                ) ?>"
-                                                <?= (
-                                                    $booking['status']
-                                                    === $status
-                                                )
-                                                    ? 'selected'
-                                                    : '' ?>
-                                            >
-
-                                                <?= bk_h(
-                                                    $status
-                                                ) ?>
-
-                                            </option>
-
-                                        <?php endforeach; ?>
-
-                                    </select>
-
-                                </td>
-
-                                <!-- NUT LUU -->
-
-                                <td>
-
-                                    <form
-                                        id="<?= bk_h($formId) ?>"
-                                        method="POST"
-                                        class="bk-form"
-                                    >
-
-                                        <input
-                                            type="hidden"
-                                            name="csrf"
-                                            value="<?= bk_h($csrf) ?>"
-                                        >
-
-                                        <input
-                                            type="hidden"
-                                            name="booking_id"
-                                            value="<?= $bookingId ?>"
-                                        >
-
-                                        <input
-                                            type="hidden"
-                                            name="current_filter"
-                                            value="<?= bk_h($filter) ?>"
-                                        >
-
-                                        <button
-                                            class="bk-save"
-                                            name="update_booking"
-                                            value="1"
-                                            type="submit"
-                                        >
-
-                                            <i class="fa-solid fa-floppy-disk"></i>
-
-                                            Lưu
-
-                                        </button>
-
-                                    </form>
-
-                                </td>
-
-                            </tr>
-
+<body>
+<div class="admin-layout">
+    <?php require __DIR__ . '/../includes/sidebar.php'; ?>
+
+    <main class="admin-main">
+        <div class="page-header">
+            <h1><i class="fa-solid fa-person-hiking"></i> QUẢN LÝ ĐĂNG KÝ TOUR TREKKING</h1>
+
+            <div class="filter-box">
+                <form method="get">
+                    <select name="status" onchange="this.form.submit()">
+                        <option value="">Tất cả trạng thái</option>
+                        <?php foreach ($statuses as $status): ?>
+                            <option value="<?= bk_h($status) ?>" <?= $filter === $status ? 'selected' : '' ?>>
+                                <?= bk_h($status) ?>
+                            </option>
                         <?php endforeach; ?>
-
-                    <?php else: ?>
-
-                        <tr>
-
-                            <td
-                                colspan="8"
-                                style="
-                                    text-align:center;
-                                    padding:45px;
-                                    color:#64748b;
-                                "
-                            >
-
-                                Không có đăng ký tour phù hợp.
-
-                            </td>
-
-                        </tr>
-
-                    <?php endif; ?>
-
-                </tbody>
-
-            </table>
-
+                    </select>
+                </form>
+            </div>
         </div>
 
-    </div>
+        <?php if ($success !== ''): ?>
+            <div class="alert alert-success"><?= bk_h($success) ?></div>
+        <?php endif; ?>
 
-</main>
+        <?php if ($error !== ''): ?>
+            <div class="alert alert-error"><?= bk_h($error) ?></div>
+        <?php endif; ?>
 
+        <form method="post">
+            <input type="hidden" name="csrf" value="<?= bk_h($csrf) ?>">
+            <input type="hidden" name="current_filter" value="<?= bk_h($filter) ?>">
+
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <div class="booking-count">
+                        <i class="fa-regular fa-credit-card"></i>
+                        <span><?= $totalBookings ?> đăng ký tour</span>
+                    </div>
+                </div>
+
+                <button type="submit" name="save_all_changes" class="btn btn-save">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    Lưu thay đổi
+                </button>
+            </div>
+
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:180px;">Mã Booking</th>
+                            <th style="width:260px;">Khách Hàng</th>
+                            <th style="width:280px;">Tour</th>
+                            <th style="width:150px;">Ngày Khởi Hành</th>
+                            <th style="width:120px;">Số Khách</th>
+                            <th style="width:260px;">HDV</th>
+                            <th style="width:210px;">Trạng Thái</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php if (!empty($bookings)): ?>
+                        <?php foreach ($bookings as $booking): ?>
+                            <tr>
+                                <td>
+                                    <div class="booking-code">
+                                        <?= nl2br(bk_h(chunk_split((string)$booking['booking_code'], 12, "\n"))) ?>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <div class="customer-name">
+                                        <?= bk_h($booking['full_name'] ?? $booking['name'] ?? '---') ?>
+                                    </div>
+                                    <div class="customer-phone">
+                                        <?= bk_h($booking['phone'] ?? '---') ?>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <div class="tour-name">
+                                        <?= bk_h($booking['tour_name'] ?? '---') ?>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <div class="depart-date">
+                                        <?= !empty($booking['departure_date']) ? bk_h(date('d/m/Y', strtotime($booking['departure_date']))) : '---' ?>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <div class="guest-count">
+                                        <?= (int)($booking['people_count'] ?? 0) ?> người
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <?php if (!empty($booking['fixed_leader_name'])): ?>
+                                        <div class="leader-name">
+                                            <?= bk_h($booking['fixed_leader_name']) ?>
+                                        </div>
+                                        <div class="leader-exp">
+                                            <?= (int)($booking['leader_experience'] ?? 0) ?> năm kinh nghiệm
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="leader-empty">Chưa gán HDV cho tour</div>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td>
+                                    <select name="status[<?= (int)$booking['id'] ?>]" class="status-select">
+                                        <?php foreach ($statuses as $status): ?>
+                                            <option value="<?= bk_h($status) ?>" <?= (($booking['status'] ?? '') === $status) ? 'selected' : '' ?>>
+                                                <?= bk_h($status) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr>
+                            <td colspan="7">
+                                <div class="empty-box">Không có đăng ký tour nào.</div>
+                            </td>
+                        </tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </form>
+    </main>
+</div>
 </body>
 </html>
