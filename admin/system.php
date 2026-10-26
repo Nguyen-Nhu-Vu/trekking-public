@@ -7,13 +7,13 @@ require_once __DIR__ . '/../includes/functions.php';
 requireAdmin();
 
 if (!function_exists('vnnSysH')) {
-    function vnnSysH($value) {
-        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    function vnnSysH($v) {
+        return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
     }
 }
 
 if (!function_exists('vnnSysQuery')) {
-    function vnnSysQuery(PDO $pdo, string $sql, array $params = []): array {
+    function vnnSysQuery(PDO $pdo, string $sql, array $params = []) {
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -28,20 +28,22 @@ if (!function_exists('vnnSysAudit')) {
         string $id,
         string $old,
         string $new
-    ): void {
+    ) {
         $actorId = (int)($_SESSION['user_id'] ?? 0);
 
-        $stmt = $pdo->prepare("
-            SELECT fullname FROM users WHERE id = ? LIMIT 1
-        ");
+        $stmt = $pdo->prepare(
+            "SELECT fullname FROM users WHERE id = ? LIMIT 1"
+        );
         $stmt->execute([$actorId]);
+
         $actorName = (string)($stmt->fetchColumn() ?: 'Admin');
 
         $stmt = $pdo->prepare("
             INSERT INTO admin_audit_logs
             (
-                actor_id, actor_name, category, action,
-                target_type, target_id, old_value, new_value
+                actor_id, actor_name, category,
+                action, target_type, target_id,
+                old_value, new_value
             )
             VALUES (?, ?, 'accounts', ?, ?, ?, ?, ?)
         ");
@@ -53,23 +55,57 @@ if (!function_exists('vnnSysAudit')) {
     }
 }
 
+if (!function_exists('vnnLoginDevice')) {
+    function vnnLoginDevice($ua) {
+        $ua = (string)$ua;
+
+        $os = 'Không xác định';
+
+        if (stripos($ua, 'Windows') !== false) {
+            $os = 'Windows';
+        } elseif (stripos($ua, 'Android') !== false) {
+            $os = 'Android';
+        } elseif (stripos($ua, 'iPhone') !== false) {
+            $os = 'iPhone';
+        } elseif (stripos($ua, 'Mac OS') !== false) {
+            $os = 'macOS';
+        } elseif (stripos($ua, 'Linux') !== false) {
+            $os = 'Linux';
+        }
+
+        $browser = 'Khác';
+
+        if (stripos($ua, 'Edg/') !== false) {
+            $browser = 'Edge';
+        } elseif (stripos($ua, 'Chrome/') !== false) {
+            $browser = 'Chrome';
+        } elseif (stripos($ua, 'Firefox/') !== false) {
+            $browser = 'Firefox';
+        } elseif (stripos($ua, 'Safari/') !== false) {
+            $browser = 'Safari';
+        }
+
+        return $os . ' / ' . $browser;
+    }
+}
+
 $tab = (string)($_GET['tab'] ?? 'users');
 
 if (!in_array($tab, ['users', 'logins', 'edits'], true)) {
     $tab = 'users';
 }
 
-$current_page = match ($tab) {
-    'logins' => 'system-login-history',
-    'edits' => 'system-edit-history',
-    default => 'system-users'
-};
-
 $names = [
     'users' => 'Quản lý & Cấp quyền tài khoản',
     'logins' => 'Lịch sử đăng nhập',
     'edits' => 'Lịch sử chỉnh sửa'
 ];
+
+$current_page = match ($tab) {
+    'logins' => 'system-login-history',
+    'edits' => 'system-edit-history',
+    default => 'system-users'
+};
 
 $page_title = $names[$tab] . ' - VNN Travel';
 
@@ -80,9 +116,9 @@ if (empty($_SESSION['vnn_sys_csrf'])) {
 $csrf = $_SESSION['vnn_sys_csrf'];
 $popup = null;
 
-// ====================================
-// XU LY TAI KHOAN
-// ====================================
+// =====================================
+// THEM / KHOA / MO KHOA / XOA TAI KHOAN
+// =====================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -108,7 +144,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if (strlen($password) < 8) {
-                throw new RuntimeException('Mật khẩu phải có ít nhất 8 ký tự.');
+                throw new RuntimeException(
+                    'Mật khẩu phải có ít nhất 8 ký tự.'
+                );
             }
 
             if (!in_array($role, ['staff', 'customer'], true)) {
@@ -117,13 +155,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->beginTransaction();
 
-            $stmt = $pdo->prepare("
-                SELECT id FROM users WHERE email = ? LIMIT 1
-            ");
+            $stmt = $pdo->prepare(
+                "SELECT id FROM users WHERE email = ? LIMIT 1"
+            );
             $stmt->execute([$email]);
 
             if ($stmt->fetchColumn()) {
-                throw new RuntimeException('Email này đã tồn tại.');
+                throw new RuntimeException('Email đã tồn tại.');
             }
 
             $stmt = $pdo->prepare("
@@ -190,16 +228,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($user['role'] === 'admin') {
                 throw new RuntimeException(
-                    'Không thể thay đổi tài khoản Admin.'
+                    'Tài khoản Admin được bảo vệ.'
                 );
             }
 
             if ($action === 'toggle') {
                 $next = (int)$user['status'] === 1 ? 0 : 1;
 
-                $stmt = $pdo->prepare("
-                    UPDATE users SET status = ? WHERE id = ?
-                ");
+                $stmt = $pdo->prepare(
+                    "UPDATE users SET status = ? WHERE id = ?"
+                );
                 $stmt->execute([$next, $id]);
 
                 vnnSysAudit(
@@ -238,8 +276,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("
                     DELETE FROM users
                     WHERE id = ?
-                      AND role IN ('staff', 'customer')
+                    AND role IN ('staff', 'customer')
                 ");
+
                 $stmt->execute([$id]);
 
                 if ($stmt->rowCount() !== 1) {
@@ -276,8 +315,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $e instanceof PDOException &&
             (string)$e->getCode() === '23000'
         ) {
-            $message = 'Tài khoản còn dữ liệu liên quan. ' .
-                       'Hãy khóa thay vì xóa để bảo toàn lịch sử.';
+            $message = 'Tài khoản có dữ liệu liên quan. ' .
+                'Hãy khóa tài khoản để giữ lịch sử.';
         }
 
         $popup = [
@@ -291,9 +330,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $current_page = 'system-users';
 }
 
-// ====================================
-// DU LIEU
-// ====================================
+// =====================================
+// LAY DU LIEU
+// =====================================
 
 $users = [];
 $loginRows = [];
@@ -338,37 +377,6 @@ try {
     error_log('VNN Admin load: ' . $e->getMessage());
     $dataError = 'Không thể tải dữ liệu từ database.';
 }
-
-function vnnLoginDevice($ua): string {
-    $ua = (string)$ua;
-    $os = 'Không xác định';
-
-    if (stripos($ua, 'Windows') !== false) {
-        $os = 'Windows';
-    } elseif (stripos($ua, 'Android') !== false) {
-        $os = 'Android';
-    } elseif (stripos($ua, 'iPhone') !== false) {
-        $os = 'iPhone';
-    } elseif (stripos($ua, 'Mac OS') !== false) {
-        $os = 'macOS';
-    } elseif (stripos($ua, 'Linux') !== false) {
-        $os = 'Linux';
-    }
-
-    $browser = 'Khác';
-
-    if (stripos($ua, 'Edg/') !== false) {
-        $browser = 'Edge';
-    } elseif (stripos($ua, 'Chrome/') !== false) {
-        $browser = 'Chrome';
-    } elseif (stripos($ua, 'Firefox/') !== false) {
-        $browser = 'Firefox';
-    } elseif (stripos($ua, 'Safari/') !== false) {
-        $browser = 'Safari';
-    }
-
-    return $os . ' / ' . $browser;
-}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -388,9 +396,9 @@ function vnnLoginDevice($ua): string {
 <link rel="stylesheet" href="../assets/css/admin.css">
 
 <style>
-/* ===================================
-   GIAO DIEN CHUNG
-   =================================== */
+* {
+    box-sizing: border-box;
+}
 
 .vs-main {
     flex: 1 1 auto;
@@ -403,7 +411,7 @@ function vnnLoginDevice($ua): string {
     align-items: center;
     gap: 15px;
     padding: 25px 28px;
-    background: white;
+    background: #fff;
     border-bottom: 1px solid #e2e8f0;
 }
 
@@ -419,12 +427,6 @@ function vnnLoginDevice($ua): string {
     font-weight: 900;
 }
 
-.vs-head p {
-    margin: 7px 0 0;
-    color: #64748b;
-    font-size: 13px;
-}
-
 .vs-content {
     padding: 24px;
     min-width: 0;
@@ -435,7 +437,7 @@ function vnnLoginDevice($ua): string {
     margin-bottom: 18px;
     border: 1px solid #e3eaf3;
     border-radius: 15px;
-    background: white;
+    background: #fff;
 }
 
 .vs-panel h2 {
@@ -444,9 +446,7 @@ function vnnLoginDevice($ua): string {
     font-size: 18px;
 }
 
-/* ===================================
-   BO LOC - CAN THANG HANG
-   =================================== */
+/* BO LOC */
 
 .vs-toolbar {
     display: grid;
@@ -459,47 +459,43 @@ function vnnLoginDevice($ua): string {
     gap: 14px;
     align-items: end;
     margin-bottom: 20px;
-    width: 100%;
 }
 
-/* Moi o loc duoc dat trong cung mot khoi */
+.vs-toolbar-users {
+    grid-template-columns:
+        minmax(220px, 2fr)
+        minmax(150px, 1fr)
+        minmax(150px, 1fr)
+        100px;
+}
 
 .vs-filter-field {
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    min-width: 0;
     gap: 8px;
+    min-width: 0;
 }
-
-/* Nhan loc co chieu cao dong nhat */
 
 .vs-filter-field label {
     display: flex;
     align-items: center;
     height: 18px;
-    min-height: 18px;
     margin: 0;
     color: #17345f;
     font-size: 12px;
     font-weight: 800;
-    line-height: 18px;
 }
-
-/* Label an nhung van giu cho */
 
 .vs-filter-field label.vs-label-placeholder {
     visibility: hidden;
 }
-
-/* Tat ca input / select chung chieu cao */
 
 .vs-filter-field input,
 .vs-filter-field select {
     width: 100%;
     height: 51px;
     min-width: 0;
-    box-sizing: border-box;
     padding: 0 13px;
     border: 1px solid #cbd5e1;
     border-radius: 10px;
@@ -507,24 +503,15 @@ function vnnLoginDevice($ua): string {
     color: #334155;
     font: inherit;
     font-size: 13px;
-    line-height: normal;
-}
-
-.vs-filter-field input:focus,
-.vs-filter-field select:focus {
-    outline: none;
-    border-color: #1877ee;
-    box-shadow: 0 0 0 3px rgba(24,119,238,.09);
 }
 
 .vs-filter-button {
     display: inline-flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     gap: 8px;
     width: 100%;
     height: 51px;
-    box-sizing: border-box;
     border: 0;
     border-radius: 10px;
     background: #1877ee;
@@ -534,28 +521,12 @@ function vnnLoginDevice($ua): string {
     cursor: pointer;
 }
 
-.vs-filter-button:hover {
-    background: #1266d4;
-}
-
-/* Bo loc tai khoan gom 4 cot */
-
-.vs-toolbar.vs-toolbar-users {
-    grid-template-columns:
-        minmax(220px, 2fr)
-        minmax(150px, 1fr)
-        minmax(150px, 1fr)
-        100px;
-}
-
-/* ===================================
-   CAC THANH PHAN KHAC
-   =================================== */
+/* NUT */
 
 .vs-button {
     display: inline-flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     gap: 7px;
     padding: 10px 14px;
     border: 0;
@@ -576,23 +547,24 @@ function vnnLoginDevice($ua): string {
     background: #166534;
 }
 
-.vs-button.outline {
-    border: 1px solid #ef4444;
-    background: white;
-    color: #dc2626;
-}
-
 .vs-button.soft {
-    border: 1px solid #bfdbfe;
     background: #eff6ff;
     color: #1877ee;
+    border: 1px solid #bfdbfe;
+}
+
+.vs-button.outline {
+    background: white;
+    color: #dc2626;
+    border: 1px solid #ef4444;
 }
 
 .vs-button:disabled {
-    background: #e2e8f0;
-    color: #94a3b8;
+    opacity: .55;
     cursor: not-allowed;
 }
+
+/* BANG */
 
 .vs-panel-top {
     display: flex;
@@ -639,14 +611,13 @@ function vnnLoginDevice($ua): string {
 }
 
 .vs-strong {
-    color: #172b4d;
     font-weight: 800;
+    color: #172b4d;
 }
 
 .vs-muted {
     color: #64748b;
     font-size: 12px;
-    line-height: 1.7;
 }
 
 .vs-badge {
@@ -660,47 +631,61 @@ function vnnLoginDevice($ua): string {
     white-space: nowrap;
 }
 
-.vs-badge.blue {
-    background: #dbeafe;
-    color: #1d4ed8;
-}
-
 .vs-badge.red {
     background: #fee2e2;
     color: #b91c1c;
 }
 
-.vs-action {
-    display: flex;
-    gap: 8px;
+.vs-badge.blue {
+    background: #dbeafe;
+    color: #1d4ed8;
 }
 
-.vs-count {
-    margin-top: 15px;
-    color: #64748b;
-    font-size: 12px;
-}
+/* PHAN TRANG
+   CHI HIEN KHI CO TREN 10 BAN GHI */
 
 .vs-pager {
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
     flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 15px;
+    margin-top: 22px;
+}
+
+.vs-pager:empty {
+    display: none;
 }
 
 .vs-page {
-    padding: 8px 12px;
+    min-width: 37px;
+    height: 37px;
+    padding: 0 11px;
     border: 1px solid #dbe4f0;
-    border-radius: 7px;
+    border-radius: 8px;
     background: white;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 700;
     cursor: pointer;
+}
+
+.vs-page:hover {
+    background: #eff6ff;
 }
 
 .vs-page.active {
     background: #1877ee;
+    border-color: #1877ee;
     color: white;
 }
+
+.vs-page:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+/* THEM TAI KHOAN */
 
 .vs-quickadd {
     padding: 18px;
@@ -730,18 +715,14 @@ function vnnLoginDevice($ua): string {
 .vs-field input,
 .vs-field select {
     width: 100%;
-    box-sizing: border-box;
     padding: 12px;
     border: 1px solid #cbd5e1;
     border-radius: 9px;
-    background: white;
     font: inherit;
     font-size: 13px;
 }
 
-/* ===================================
-   POPUP
-   =================================== */
+/* POPUP */
 
 .vs-modal-layer {
     position: fixed;
@@ -752,7 +733,6 @@ function vnnLoginDevice($ua): string {
     justify-content: center;
     padding: 20px;
     background: rgba(15, 23, 42, .48);
-    box-sizing: border-box;
 }
 
 .vs-modal-layer[hidden] {
@@ -762,7 +742,6 @@ function vnnLoginDevice($ua): string {
 .vs-modal {
     width: 100%;
     max-width: 430px;
-    box-sizing: border-box;
     padding: 28px;
     border-radius: 17px;
     background: white;
@@ -809,21 +788,17 @@ function vnnLoginDevice($ua): string {
     font-size: 12px;
 }
 
-/* ===================================
-   RESPONSIVE
-   =================================== */
-
 @media (max-width: 1250px) {
     .vs-toolbar {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .vs-toolbar .vs-filter-action {
-        grid-column: 1 / -1;
+    .vs-toolbar-users {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .vs-toolbar-users {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    .vs-filter-action {
+        grid-column: 1 / -1;
     }
 }
 
@@ -836,17 +811,13 @@ function vnnLoginDevice($ua): string {
         padding: 18px;
     }
 
-    .vs-head h1 {
-        font-size: 19px;
-    }
-
     .vs-toolbar,
     .vs-toolbar-users {
-        grid-template-columns: 1fr !important;
+        grid-template-columns: 1fr;
     }
 
     .vs-filter-action {
-        grid-column: auto !important;
+        grid-column: auto;
     }
 
     .vs-field-grid {
@@ -863,45 +834,36 @@ function vnnLoginDevice($ua): string {
 <main class="admin-main vs-main">
 
 <header class="vs-head">
+
     <i class="fa-solid <?= $tab === 'users'
         ? 'fa-users-gear'
         : ($tab === 'logins'
             ? 'fa-clock-rotate-left'
             : 'fa-file-pen') ?>"></i>
 
-    <div>
-        <h1><?= vnnSysH($names[$tab]) ?></h1>
+    <h1><?= vnnSysH($names[$tab]) ?></h1>
 
-        <p>
-            <?php if ($tab === 'users'): ?>
-                Quản lý người dùng, phân quyền và kiểm soát truy cập hệ thống.
-            <?php elseif ($tab === 'logins'): ?>
-                Theo dõi thời gian, địa chỉ IP và thiết bị đăng nhập.
-            <?php else: ?>
-                Theo dõi các thay đổi nội dung được hệ thống ghi nhận.
-            <?php endif; ?>
-        </p>
-    </div>
 </header>
 
 <div class="vs-content">
 
 <?php if ($dataError): ?>
-    <section class="vs-panel" style="color:#b91c1c">
+    <div class="vs-panel" style="color:#b91c1c">
         <?= vnnSysH($dataError) ?>
-    </section>
+    </div>
 <?php endif; ?>
 
 <?php if ($tab === 'users'): ?>
 
-    <!-- ===================================
-         QUAN LY TAI KHOAN
-         =================================== -->
+    <!-- QUAN LY TAI KHOAN -->
 
     <section class="vs-panel">
 
         <div class="vs-panel-top">
-            <h2 style="margin:0">Danh sách tài khoản</h2>
+
+            <h2 style="margin:0">
+                Danh sách tài khoản
+            </h2>
 
             <button
                 type="button"
@@ -911,7 +873,10 @@ function vnnLoginDevice($ua): string {
                 <i class="fa-solid fa-plus"></i>
                 Thêm tài khoản mới
             </button>
+
         </div>
+
+        <!-- THEM TAI KHOAN -->
 
         <div class="vs-quickadd" id="vsAddPanel" hidden>
 
@@ -943,8 +908,12 @@ function vnnLoginDevice($ua): string {
 
                     <div class="vs-field">
                         <label>Mật khẩu khởi tạo</label>
-                        <input name="password" type="password"
-                            minlength="8" required>
+                        <input
+                            name="password"
+                            type="password"
+                            minlength="8"
+                            required
+                        >
                     </div>
 
                     <div class="vs-field">
@@ -958,18 +927,23 @@ function vnnLoginDevice($ua): string {
                 </div>
 
                 <div style="margin-top:17px">
-                    <button class="vs-button green" type="submit">
+
+                    <button type="submit" class="vs-button green">
                         Tạo tài khoản
                     </button>
 
-                    <button class="vs-button soft" type="button"
+                    <button type="button" class="vs-button soft"
                         id="vsCancelAdd">
                         Hủy
                     </button>
+
                 </div>
 
             </form>
+
         </div>
+
+        <!-- LOC TAI KHOAN -->
 
         <div class="vs-toolbar vs-toolbar-users">
 
@@ -983,6 +957,7 @@ function vnnLoginDevice($ua): string {
 
             <div class="vs-filter-field">
                 <label for="vsRoleFilter">Vai trò</label>
+
                 <select id="vsRoleFilter">
                     <option value="">Tất cả vai trò</option>
                     <option value="admin">Admin</option>
@@ -994,6 +969,7 @@ function vnnLoginDevice($ua): string {
 
             <div class="vs-filter-field">
                 <label for="vsStatusFilter">Trạng thái</label>
+
                 <select id="vsStatusFilter">
                     <option value="">Tất cả trạng thái</option>
                     <option value="1">Hoạt động</option>
@@ -1003,8 +979,9 @@ function vnnLoginDevice($ua): string {
 
             <div class="vs-filter-field vs-filter-action">
                 <label class="vs-label-placeholder">Thao tác</label>
-                <button type="button" id="vsReset"
-                    class="vs-filter-button">
+
+                <button type="button" class="vs-filter-button"
+                    id="vsReset">
                     <i class="fa-solid fa-rotate"></i>
                     Làm mới
                 </button>
@@ -1012,7 +989,10 @@ function vnnLoginDevice($ua): string {
 
         </div>
 
+        <!-- BANG TAI KHOAN -->
+
         <div class="vs-table-scroll">
+
             <table class="vs-table">
 
                 <thead>
@@ -1080,20 +1060,25 @@ function vnnLoginDevice($ua): string {
                         </td>
 
                         <td>
+
                             <?php if ($user['role'] === 'admin'): ?>
+
                                 <button class="vs-button" disabled>
                                     Được bảo vệ
                                 </button>
+
                             <?php else: ?>
 
                                 <form method="POST">
+
                                     <input type="hidden" name="csrf"
                                         value="<?= vnnSysH($csrf) ?>">
 
-                                    <input type="hidden" name="action"
-                                        value="toggle">
+                                    <input type="hidden"
+                                        name="action" value="toggle">
 
-                                    <input type="hidden" name="user_id"
+                                    <input type="hidden"
+                                        name="user_id"
                                         value="<?= (int)$user['id'] ?>">
 
                                     <button
@@ -1106,12 +1091,15 @@ function vnnLoginDevice($ua): string {
                                             ? 'Khóa'
                                             : 'Mở khóa' ?>
                                     </button>
+
                                 </form>
 
                             <?php endif; ?>
+
                         </td>
 
                         <td>
+
                             <button
                                 type="button"
                                 class="vs-button outline vs-delete"
@@ -1122,6 +1110,7 @@ function vnnLoginDevice($ua): string {
                                 <i class="fa-solid fa-trash"></i>
                                 Xóa
                             </button>
+
                         </td>
 
                     </tr>
@@ -1129,19 +1118,22 @@ function vnnLoginDevice($ua): string {
                 <?php endforeach; ?>
 
                 </tbody>
+
             </table>
+
         </div>
 
-        <div class="vs-count" id="vsCount"></div>
-        <div class="vs-pager" id="vsPager"></div>
+        <nav
+            class="vs-pager"
+            id="vsPager"
+            aria-label="Phân trang tài khoản"
+        ></nav>
 
     </section>
 
 <?php elseif ($tab === 'logins'): ?>
 
-    <!-- ===================================
-         LICH SU DANG NHAP
-         =================================== -->
+    <!-- LICH SU DANG NHAP -->
 
     <section class="vs-panel">
 
@@ -1159,8 +1151,12 @@ function vnnLoginDevice($ua): string {
 
             <div class="vs-filter-field">
                 <label for="vsAccountFilter">Tài khoản</label>
+
                 <select id="vsAccountFilter">
-                    <option value="">Tất cả tài khoản</option>
+
+                    <option value="">
+                        Tất cả tài khoản
+                    </option>
 
                     <?php
                     $accounts = [];
@@ -1171,15 +1167,21 @@ function vnnLoginDevice($ua): string {
 
                     foreach (array_keys($accounts) as $account):
                     ?>
+
                         <option value="<?= vnnSysH($account) ?>">
                             <?= vnnSysH($account) ?>
                         </option>
+
                     <?php endforeach; ?>
+
                 </select>
             </div>
 
             <div class="vs-filter-field">
-                <label for="vsResultFilter">Kết quả đăng nhập</label>
+                <label for="vsResultFilter">
+                    Kết quả đăng nhập
+                </label>
+
                 <select id="vsResultFilter">
                     <option value="">Tất cả kết quả</option>
                     <option value="success">Thành công</option>
@@ -1190,6 +1192,7 @@ function vnnLoginDevice($ua): string {
 
             <div class="vs-filter-field vs-filter-action">
                 <label class="vs-label-placeholder">Thao tác</label>
+
                 <button
                     type="button"
                     id="vsReset"
@@ -1202,7 +1205,10 @@ function vnnLoginDevice($ua): string {
 
         </div>
 
+        <!-- BANG LICH SU DANG NHAP -->
+
         <div class="vs-table-scroll">
+
             <table class="vs-table">
 
                 <thead>
@@ -1291,19 +1297,22 @@ function vnnLoginDevice($ua): string {
                 <?php endforeach; ?>
 
                 </tbody>
+
             </table>
+
         </div>
 
-        <div class="vs-count" id="vsCount"></div>
-        <div class="vs-pager" id="vsPager"></div>
+        <nav
+            class="vs-pager"
+            id="vsPager"
+            aria-label="Phân trang lịch sử đăng nhập"
+        ></nav>
 
     </section>
 
 <?php else: ?>
 
-    <!-- ===================================
-         LICH SU CHINH SUA
-         =================================== -->
+    <!-- LICH SU CHINH SUA -->
 
     <section class="vs-panel">
 
@@ -1320,7 +1329,9 @@ function vnnLoginDevice($ua): string {
             </div>
 
             <div class="vs-filter-field">
-                <label for="vsTypeFilter">Loại nội dung</label>
+                <label for="vsTypeFilter">
+                    Loại nội dung
+                </label>
 
                 <select id="vsTypeFilter">
                     <option value="">Tất cả loại nội dung</option>
@@ -1355,6 +1366,8 @@ function vnnLoginDevice($ua): string {
             </div>
 
         </div>
+
+        <!-- BANG LICH SU CHINH SUA -->
 
         <div class="vs-table-scroll">
 
@@ -1450,12 +1463,16 @@ function vnnLoginDevice($ua): string {
                 <?php endforeach; ?>
 
                 </tbody>
+
             </table>
 
         </div>
 
-        <div class="vs-count" id="vsCount"></div>
-        <div class="vs-pager" id="vsPager"></div>
+        <nav
+            class="vs-pager"
+            id="vsPager"
+            aria-label="Phân trang lịch sử chỉnh sửa"
+        ></nav>
 
     </section>
 
@@ -1476,6 +1493,7 @@ function vnnLoginDevice($ua): string {
 <!-- POPUP XAC NHAN XOA -->
 
 <div class="vs-modal-layer" id="vsConfirm" hidden>
+
     <div class="vs-modal">
 
         <div class="vs-modal-icon red">
@@ -1493,18 +1511,26 @@ function vnnLoginDevice($ua): string {
 
         <div class="vs-modal-actions">
 
-            <button type="button" class="vs-button soft"
-                id="vsCancelDelete">
+            <button
+                type="button"
+                class="vs-button soft"
+                id="vsCancelDelete"
+            >
                 Hủy
             </button>
 
-            <button type="button" class="vs-button red"
-                id="vsConfirmDelete">
+            <button
+                type="button"
+                class="vs-button red"
+                id="vsConfirmDelete"
+            >
                 Xóa tài khoản
             </button>
 
         </div>
+
     </div>
+
 </div>
 
 <!-- POPUP KET QUA -->
@@ -1517,25 +1543,33 @@ function vnnLoginDevice($ua): string {
         <div class="vs-modal-icon <?= ($popup['type'] ?? '') === 'error'
             ? 'red'
             : '' ?>">
+
             <i class="fa-solid <?= ($popup['type'] ?? '') === 'error'
                 ? 'fa-circle-xmark'
                 : 'fa-circle-check' ?>"></i>
+
         </div>
 
         <h2><?= vnnSysH($popup['title'] ?? 'Thông báo') ?></h2>
 
         <p><?= vnnSysH($popup['message'] ?? '') ?></p>
 
-        <button type="button" class="vs-button green"
-            id="vsCloseResult">
+        <button
+            type="button"
+            class="vs-button green"
+            id="vsCloseResult"
+        >
             Đóng
         </button>
+
     </div>
+
 </div>
 
 <!-- POPUP CHI TIET -->
 
 <div class="vs-modal-layer" id="vsDetailModal" hidden>
+
     <div class="vs-modal" style="max-width:540px">
 
         <h2 id="vsDetailTitle">Chi tiết chỉnh sửa</h2>
@@ -1553,28 +1587,44 @@ function vnnLoginDevice($ua): string {
         <div class="vs-detail-value" id="vsAfter"></div>
 
         <div style="margin-top:18px">
-            <button type="button" class="vs-button"
-                id="vsCloseDetail">
+
+            <button
+                type="button"
+                class="vs-button"
+                id="vsCloseDetail"
+            >
                 Đóng
             </button>
+
         </div>
+
     </div>
+
 </div>
 
 <script>
 (function() {
+
     const $ = id => document.getElementById(id);
 
     const rows = Array.from(
         document.querySelectorAll('.vs-data-row')
     );
 
-    const pageSize = 10;
-    let page = 1;
+    // CHINH XAC 10 BAN GHI MOI TRANG
 
-    function filteredRows() {
+    const PAGE_SIZE = 10;
+    let currentPage = 1;
+
+    // =====================================
+    // LOC DU LIEU
+    // =====================================
+
+    function getFilteredRows() {
+
         const search = ($('vsSearch')?.value || '')
-            .trim().toLocaleLowerCase('vi');
+            .trim()
+            .toLocaleLowerCase('vi');
 
         const role = $('vsRoleFilter')?.value || '';
         const status = $('vsStatusFilter')?.value || '';
@@ -1585,6 +1635,7 @@ function vnnLoginDevice($ua): string {
         const type = $('vsTypeFilter')?.value || '';
 
         return rows.filter(row => {
+
             const d = row.dataset;
 
             return (
@@ -1600,109 +1651,199 @@ function vnnLoginDevice($ua): string {
         });
     }
 
-    function render() {
-        const found = filteredRows();
-        const pages = Math.max(
-            1,
-            Math.ceil(found.length / pageSize)
+    // =====================================
+    // VE NUT PHAN TRANG
+    // =====================================
+
+    function createPageButton(label, targetPage, active, disabled) {
+
+        const button = document.createElement('button');
+
+        button.type = 'button';
+        button.className = 'vs-page' + (
+            active ? ' active' : ''
         );
 
-        page = Math.min(page, pages);
+        button.textContent = label;
+        button.disabled = disabled;
+
+        if (active) {
+            button.setAttribute('aria-current', 'page');
+        }
+
+        button.addEventListener('click', function() {
+
+            if (disabled || active) {
+                return;
+            }
+
+            currentPage = targetPage;
+
+            renderTable();
+        });
+
+        return button;
+    }
+
+    // =====================================
+    // HIEN THI 10 DONG / TRANG
+    // =====================================
+
+    function renderTable() {
+
+        const filtered = getFilteredRows();
+
+        const totalPages = Math.max(
+            1,
+            Math.ceil(filtered.length / PAGE_SIZE)
+        );
+
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+        }
+
+        if (currentPage < 1) {
+            currentPage = 1;
+        }
+
+        const firstIndex = (
+            currentPage - 1
+        ) * PAGE_SIZE;
+
+        const pageRows = filtered.slice(
+            firstIndex,
+            firstIndex + PAGE_SIZE
+        );
+
+        // An tat ca cac dong truoc
 
         rows.forEach(row => {
             row.hidden = true;
         });
 
-        found
-            .slice((page - 1) * pageSize, page * pageSize)
-            .forEach(row => {
-                row.hidden = false;
-            });
+        // Chi hien toi da 10 dong
 
-        const count = $('vsCount');
-
-        if (count) {
-            const start = found.length
-                ? (page - 1) * pageSize + 1
-                : 0;
-
-            const end = Math.min(
-                page * pageSize,
-                found.length
-            );
-
-            count.textContent =
-                'Hiển thị ' + start + ' - ' + end +
-                ' trong ' + found.length + ' bản ghi';
-        }
+        pageRows.forEach(row => {
+            row.hidden = false;
+        });
 
         const pager = $('vsPager');
 
-        if (!pager) return;
+        if (!pager) {
+            return;
+        }
 
         pager.replaceChildren();
 
-        for (let p = 1; p <= pages; p++) {
+        // KHONG HIEN NUT PHAN TRANG
+        // NEU CO TU 0 DEN 10 BAN GHI
+
+        if (totalPages <= 1) {
+            return;
+        }
+
+        // NUT TRANG TRUOC
+
+        pager.appendChild(
+            createPageButton(
+                '‹',
+                currentPage - 1,
+                false,
+                currentPage === 1
+            )
+        );
+
+        // CAC NUT TRANG
+
+        for (let p = 1; p <= totalPages; p++) {
+
+            // Voi nhieu trang, chi hien
+            // trang dau/cuoi va gan trang hien tai
+
             if (
-                pages > 9 &&
-                Math.abs(p - page) > 2 &&
+                totalPages > 9 &&
+                Math.abs(p - currentPage) > 2 &&
                 p !== 1 &&
-                p !== pages
+                p !== totalPages
             ) {
                 continue;
             }
 
-            const button = document.createElement('button');
-
-            button.type = 'button';
-            button.className =
-                'vs-page' + (p === page ? ' active' : '');
-
-            button.textContent = String(p);
-
-            button.addEventListener('click', function() {
-                page = p;
-                render();
-            });
-
-            pager.appendChild(button);
+            pager.appendChild(
+                createPageButton(
+                    String(p),
+                    p,
+                    p === currentPage,
+                    false
+                )
+            );
         }
+
+        // NUT TRANG SAU
+
+        pager.appendChild(
+            createPageButton(
+                '›',
+                currentPage + 1,
+                false,
+                currentPage === totalPages
+            )
+        );
     }
 
-    // BO LOC
+    // =====================================
+    // KHI THAY DOI BO LOC
+    // QUAY LAI TRANG 1
+    // =====================================
 
     document.querySelectorAll(
         '#vsSearch,#vsRoleFilter,#vsStatusFilter,' +
         '#vsFrom,#vsTo,#vsAccountFilter,' +
         '#vsResultFilter,#vsTypeFilter'
-    ).forEach(el => {
-        el.addEventListener('input', function() {
-            page = 1;
-            render();
+    ).forEach(element => {
+
+        element.addEventListener('input', function() {
+            currentPage = 1;
+            renderTable();
         });
 
-        el.addEventListener('change', function() {
-            page = 1;
-            render();
+        element.addEventListener('change', function() {
+            currentPage = 1;
+            renderTable();
         });
     });
 
-    // LAM MOI BO LOC
+    // NUT LAM MOI / LOC
 
     $('vsReset')?.addEventListener('click', function() {
+
+        // Voi trang lich su, nut Loc giu nguyen
+        // gia tri dang chon va ap dung bo loc.
+
+        const isHistory =
+            $('vsFrom') !== null;
+
+        if (isHistory) {
+            currentPage = 1;
+            renderTable();
+            return;
+        }
+
+        // Trang tai khoan: Lam moi bo loc
+
         document.querySelectorAll(
-            '#vsSearch,#vsRoleFilter,#vsStatusFilter,' +
-            '#vsFrom,#vsTo,#vsAccountFilter,' +
-            '#vsResultFilter,#vsTypeFilter'
-        ).forEach(el => {
-            el.value = '';
+            '#vsSearch,#vsRoleFilter,#vsStatusFilter'
+        ).forEach(element => {
+            element.value = '';
         });
 
-        page = 1;
-        render();
+        currentPage = 1;
+        renderTable();
     });
 
+    // =====================================
     // THEM TAI KHOAN
+    // =====================================
 
     $('vsShowAdd')?.addEventListener('click', function() {
         $('vsAddPanel').hidden = false;
@@ -1712,12 +1853,19 @@ function vnnLoginDevice($ua): string {
         $('vsAddPanel').hidden = true;
     });
 
+    // =====================================
     // XOA TAI KHOAN
+    // =====================================
 
     document.querySelectorAll('.vs-delete').forEach(button => {
+
         button.addEventListener('click', function() {
+
             $('vsDeleteId').value = button.dataset.id;
-            $('vsDeleteName').textContent = button.dataset.name;
+
+            $('vsDeleteName').textContent =
+                button.dataset.name;
+
             $('vsConfirm').hidden = false;
         });
     });
@@ -1730,10 +1878,14 @@ function vnnLoginDevice($ua): string {
         $('vsDeleteForm').requestSubmit();
     });
 
-    // XEM CHI TIET LICH SU
+    // =====================================
+    // CHI TIET CHINH SUA
+    // =====================================
 
     document.querySelectorAll('.vs-detail').forEach(button => {
+
         button.addEventListener('click', function() {
+
             $('vsDetailTitle').textContent =
                 button.dataset.action;
 
@@ -1755,14 +1907,24 @@ function vnnLoginDevice($ua): string {
         $('vsResult').hidden = true;
     });
 
+    // =====================================
     // DONG POPUP
+    // =====================================
 
-    ['vsConfirm', 'vsResult', 'vsDetailModal'].forEach(id => {
+    [
+        'vsConfirm',
+        'vsResult',
+        'vsDetailModal'
+    ].forEach(id => {
+
         const overlay = $(id);
 
-        if (!overlay) return;
+        if (!overlay) {
+            return;
+        }
 
         overlay.addEventListener('click', function(event) {
+
             if (event.target === overlay) {
                 overlay.hidden = true;
             }
@@ -1770,8 +1932,15 @@ function vnnLoginDevice($ua): string {
     });
 
     document.addEventListener('keydown', function(event) {
+
         if (event.key === 'Escape') {
-            ['vsConfirm', 'vsResult', 'vsDetailModal'].forEach(id => {
+
+            [
+                'vsConfirm',
+                'vsResult',
+                'vsDetailModal'
+            ].forEach(id => {
+
                 const overlay = $(id);
 
                 if (overlay) {
@@ -1781,7 +1950,12 @@ function vnnLoginDevice($ua): string {
         }
     });
 
-    render();
+    // =====================================
+    // KHOI TAO BANG
+    // =====================================
+
+    renderTable();
+
 })();
 </script>
 
