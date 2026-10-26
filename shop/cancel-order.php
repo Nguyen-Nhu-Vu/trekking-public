@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -8,12 +9,12 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
-function cancelOrderRedirect(): void {
+function coRedirect(): void {
     header('Location: /shop/my-orders.php', true, 303);
     exit;
 }
 
-function cancelOrderNotice(string $type, string $message): void {
+function coNotice(string $type, string $message): void {
     $_SESSION['shop_order_notice'] = [
         'type' => $type,
         'message' => $message
@@ -21,14 +22,14 @@ function cancelOrderNotice(string $type, string $message): void {
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    cancelOrderRedirect();
+    coRedirect();
 }
 
 $userId = (int)($_SESSION['user_id'] ?? 0);
 
 if ($userId <= 0) {
-    cancelOrderNotice('error', 'Vui lòng đăng nhập để hủy đơn hàng.');
-    cancelOrderRedirect();
+    coNotice('error', 'Vui lòng đăng nhập để hủy đơn hàng.');
+    coRedirect();
 }
 
 $csrf = (string)($_POST['csrf'] ?? '');
@@ -37,8 +38,8 @@ if (
     empty($_SESSION['shop_cancel_csrf']) ||
     !hash_equals((string)$_SESSION['shop_cancel_csrf'], $csrf)
 ) {
-    cancelOrderNotice('error', 'Phiên làm việc không hợp lệ. Vui lòng thử lại.');
-    cancelOrderRedirect();
+    coNotice('error', 'Phiên làm việc không hợp lệ.');
+    coRedirect();
 }
 
 $orderId = filter_var(
@@ -47,15 +48,14 @@ $orderId = filter_var(
 );
 
 if (!$orderId || $orderId <= 0) {
-    cancelOrderNotice('error', 'Đơn hàng không hợp lệ.');
-    cancelOrderRedirect();
+    coNotice('error', 'Mã đơn hàng không hợp lệ.');
+    coRedirect();
 }
 
 try {
     $pdo->beginTransaction();
 
-    // Khóa dòng đơn trong lúc kiểm tra và cập nhật.
-    // Chỉ chủ đơn mới có quyền hủy.
+    // Khoa don hang truoc khi kiem tra.
     $stmt = $pdo->prepare("
         SELECT id, status
         FROM orders
@@ -70,7 +70,7 @@ try {
 
     if (!$order) {
         throw new RuntimeException(
-            'Không tìm thấy đơn hàng thuộc tài khoản của bạn.'
+            'Không tìm thấy đơn hàng của bạn.'
         );
     }
 
@@ -80,8 +80,27 @@ try {
         );
     }
 
-    // Điều kiện status được kiểm tra lại ngay khi UPDATE.
-    $stmt = $pdo->prepare("
+    // Lay so luong san pham da tru kho luc checkout.
+    $details = $pdo->prepare("
+        SELECT product_id, SUM(quantity) AS quantity
+        FROM order_details
+        WHERE order_id = ?
+        GROUP BY product_id
+    ");
+
+    $details->execute([$orderId]);
+    $products = $details->fetchAll(PDO::FETCH_ASSOC);
+    $details->closeCursor();
+
+    if (!$products) {
+        throw new RuntimeException(
+            'Không tìm thấy chi tiết đơn hàng để hoàn kho.'
+        );
+    }
+
+    // Cap nhat trang thai truoc.
+    // Dieu kien Chờ xác nhận dam bao khong huy hai lan.
+    $update = $pdo->prepare("
         UPDATE orders
         SET status = 'Đã hủy'
         WHERE id = ?
@@ -89,17 +108,43 @@ try {
           AND status = 'Chờ xác nhận'
     ");
 
-    $stmt->execute([$orderId, $userId]);
+    $update->execute([$orderId, $userId]);
 
-    if ($stmt->rowCount() !== 1) {
+    if ($update->rowCount() !== 1) {
         throw new RuntimeException(
-            'Trạng thái đơn hàng đã thay đổi. Vui lòng tải lại trang.'
+            'Trạng thái đơn hàng đã thay đổi.'
         );
+    }
+
+    // Hoan dung so luong tung san pham.
+    $restore = $pdo->prepare("
+        UPDATE products
+        SET stock = stock + ?
+        WHERE id = ?
+    ");
+
+    foreach ($products as $product) {
+        $quantity = (int)$product['quantity'];
+        $productId = (int)$product['product_id'];
+
+        if ($quantity <= 0 || $productId <= 0) {
+            throw new RuntimeException(
+                'Số lượng hoàn kho không hợp lệ.'
+            );
+        }
+
+        $restore->execute([$quantity, $productId]);
+
+        if ($restore->rowCount() !== 1) {
+            throw new RuntimeException(
+                'Không thể hoàn tồn kho cho một sản phẩm.'
+            );
+        }
     }
 
     $pdo->commit();
 
-    cancelOrderNotice(
+    coNotice(
         'success',
         'Đơn hàng đã được hủy thành công.'
     );
@@ -109,9 +154,9 @@ try {
         $pdo->rollBack();
     }
 
-    error_log('Cancel shop order: ' . $e->getMessage());
+    error_log('Cancel order: ' . $e->getMessage());
 
-    cancelOrderNotice(
+    coNotice(
         'error',
         $e instanceof RuntimeException
             ? $e->getMessage()
@@ -119,4 +164,4 @@ try {
     );
 }
 
-cancelOrderRedirect();
+coRedirect();
