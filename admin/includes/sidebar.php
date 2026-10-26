@@ -1,45 +1,42 @@
 <?php
 $current_page = $current_page ?? '';
 
-if (!function_exists('vnnCount')) {
+$adminBase = rtrim(BASE_URL, '/') . '/admin/';
+$siteBase = rtrim(BASE_URL, '/') . '/';
 
-    function vnnCount(PDO $pdo, string $sql): int {
+if (!function_exists('vnnAdminEscape')) {
+    function vnnAdminEscape($value) {
+        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    }
+}
+
+if (!function_exists('vnnAdminCount')) {
+    function vnnAdminCount(PDO $pdo, string $sql): int {
         try {
-            return max(0, (int)$pdo->query($sql)->fetchColumn());
+            return (int)$pdo->query($sql)->fetchColumn();
         } catch (Throwable $e) {
-            error_log('Sidebar: ' . $e->getMessage());
+            error_log('Sidebar count: ' . $e->getMessage());
             return 0;
         }
     }
+}
 
-    function vnnMenu(
-        string $page,
-        string $url,
-        string $icon,
-        string $title,
-        int $count = 0
-    ): void {
-
+if (!function_exists('vnnAdminLink')) {
+    function vnnAdminLink($id, $url, $icon, $label, $count = 0) {
         global $current_page;
 
-        $active = $current_page === $page ? 'active' : '';
-
-        $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
-        $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
-        $safeIcon = htmlspecialchars($icon, ENT_QUOTES, 'UTF-8');
+        $active = $current_page === $id ? 'active' : '';
 
         echo '<li class="' . $active . '">';
-        echo '<a href="' . $safeUrl . '">';
-
-        echo '<span class="menu-label">';
-        echo '<i class="fa-solid ' . $safeIcon . '"></i>';
-        echo '<span>' . $safeTitle . '</span>';
+        echo '<a href="' . vnnAdminEscape($url) . '">';
+        echo '<span class="vnn-item-left">';
+        echo '<i class="fa-solid ' . vnnAdminEscape($icon) . '"></i>';
+        echo '<span>' . vnnAdminEscape($label) . '</span>';
         echo '</span>';
 
         if ($count > 0) {
-            echo '<span class="vnn-notification">';
-            echo '<span class="vnn-notification-dot"></span>';
-            echo $count > 99 ? '99+' : $count;
+            echo '<span class="vnn-menu-count">';
+            echo $count > 99 ? '99+' : (int)$count;
             echo '</span>';
         }
 
@@ -47,39 +44,37 @@ if (!function_exists('vnnCount')) {
     }
 }
 
-$adminBase = rtrim(BASE_URL, '/') . '/admin/';
-$siteBase = rtrim(BASE_URL, '/') . '/';
+$role = getRole();
 
-$pendingTours = vnnCount(
-    $pdo,
-    "SELECT COUNT(*) FROM tour_bookings
-     WHERE status = 'Chờ xác nhận'"
-);
+$pendingTours = 0;
+$pendingOrders = 0;
 
-$pendingOrders = vnnCount(
-    $pdo,
-    "SELECT COUNT(*) FROM orders
-     WHERE status = 'Chờ xác nhận'"
-);
+if ($role !== 'admin') {
+    $pendingTours = vnnAdminCount(
+        $pdo,
+        "SELECT COUNT(*) FROM tour_bookings
+         WHERE status = 'Chờ xác nhận'"
+    );
 
-$pendingReviews = vnnCount(
-    $pdo,
-    "SELECT COUNT(*) FROM reviews WHERE status = 0"
-);
+    $pendingOrders = vnnAdminCount(
+        $pdo,
+        "SELECT COUNT(*) FROM orders
+         WHERE status = 'Chờ xác nhận'"
+    );
+}
 ?>
 
 <style>
 .admin-sidebar {
     width: 250px !important;
     min-width: 250px !important;
-    max-width: 250px !important;
     flex: 0 0 250px !important;
     height: 100vh;
     position: sticky;
     top: 0;
-    overflow-x: hidden;
     overflow-y: auto;
-    background: #1e293b;
+    overflow-x: hidden;
+    background: #111b2c;
     color: #e2e8f0;
     z-index: 100;
 }
@@ -87,207 +82,154 @@ $pendingReviews = vnnCount(
 .admin-main {
     flex: 1 1 auto;
     min-width: 0;
-    max-width: none;
-    overflow-x: auto;
 }
 
-.vnn-brand {
+.vnn-admin-brand {
     display: flex;
     align-items: center;
     gap: 12px;
-    min-height: 76px;
-    padding: 15px;
+    padding: 22px 16px;
     background: #0f172a;
 }
 
-.vnn-brand i {
+.vnn-admin-brand i {
     font-size: 34px;
     color: #65a30d;
 }
 
-.vnn-brand-title {
-    font-size: 23px;
+.vnn-brand-name {
+    color: #f97316;
+    font-size: 25px;
     font-weight: 900;
     letter-spacing: 3px;
-    line-height: 1.1;
 }
 
-.vnn-brand-title span:first-child {
+.vnn-brand-name::first-letter {
     color: #38bdf8;
 }
 
-.vnn-brand-title span:last-child {
-    color: #f97316;
-}
-
-.vnn-brand-sub {
+.vnn-brand-caption {
+    margin-top: 2px;
+    color: white;
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 3px;
-    color: white;
-    margin-top: 4px;
 }
 
-.vnn-view-website {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
+.vnn-admin-website {
+    display: block;
+    margin: 15px;
     padding: 12px;
-    margin: 13px;
+    text-align: center;
+    color: #38bdf8;
     border: 1px solid #334155;
     border-radius: 9px;
-    color: #38bdf8;
+    font-weight: 700;
     font-size: 13px;
-    font-weight: 800;
-    text-align: center;
     text-decoration: none;
 }
 
-.admin-menu,
-.admin-menu ul {
-    margin: 0;
-    padding: 0;
+.vnn-admin-menu,
+.vnn-admin-menu ul {
     list-style: none;
+    padding: 0;
+    margin: 0;
 }
 
-.admin-menu li > a {
+.vnn-admin-menu li a {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 9px;
-    padding: 12px 15px;
-    color: #cbd5e1;
+    gap: 10px;
+    padding: 14px 15px;
     font-size: 13px;
+    color: #cbd5e1;
     text-decoration: none;
+    transition: background .2s;
 }
 
-.admin-menu li > a:hover,
-.admin-menu li.active > a {
+.vnn-admin-menu li a:hover,
+.vnn-admin-menu li.active a {
     background: #334155;
     color: #38bdf8;
 }
 
-.admin-menu li.active > a {
+.vnn-admin-menu li.active a {
     border-left: 4px solid #f97316;
 }
 
-.admin-menu .menu-label {
-    display: flex;
+.vnn-item-left {
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     min-width: 0;
 }
 
-.admin-menu .menu-label i {
+.vnn-item-left i {
     width: 19px;
-    flex-shrink: 0;
     text-align: center;
+    flex-shrink: 0;
 }
 
-.admin-menu .menu-label span {
-    overflow-wrap: anywhere;
-}
-
-.vnn-group-heading {
+.vnn-section-title {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 14px 15px;
-    border: 0;
-    background: #253247;
+    gap: 10px;
+    padding: 15px;
     color: white;
-    font-size: 13px;
-    font-weight: 800;
-    text-align: left;
-    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    background: #253247;
+    margin-top: 7px;
 }
 
-.vnn-group-heading:hover {
-    background: #334155;
-}
-
-.vnn-submenu {
-    display: none;
-    background: #141d2b;
-}
-
-.vnn-group.open > .vnn-submenu {
-    display: block;
-}
-
-.vnn-submenu li > a {
-    padding-left: 19px;
-}
-
-.vnn-chevron {
-    transition: transform .2s;
-}
-
-.vnn-group.open .vnn-chevron {
-    transform: rotate(180deg);
-}
-
-.vnn-notification {
+.vnn-menu-count {
     display: inline-flex;
     justify-content: center;
     align-items: center;
-    gap: 4px;
-    background: #ef4444;
-    color: white;
-    border-radius: 20px;
     min-width: 23px;
     height: 23px;
-    padding: 0 7px;
+    padding: 0 6px;
+    border-radius: 20px;
+    background: #ef4444;
+    color: white;
     font-size: 11px;
     font-weight: 900;
 }
 
-.vnn-notification-dot {
-    width: 5px;
-    height: 5px;
-    background: white;
-    border-radius: 50%;
+.vnn-sidebar-note {
+    margin: 22px 15px;
+    padding: 13px;
+    border: 1px solid #334155;
+    border-radius: 9px;
+    color: #94a3b8;
+    font-size: 12px;
+    line-height: 1.7;
 }
 
-@media(max-width:700px) {
+@media (max-width:700px) {
     .admin-sidebar {
         width: 200px !important;
         min-width: 200px !important;
-        max-width: 200px !important;
         flex-basis: 200px !important;
-    }
-
-    .admin-menu li > a,
-    .vnn-group-heading {
-        font-size: 12px;
-        padding-left: 9px;
-        padding-right: 9px;
     }
 }
 </style>
 
 <aside class="admin-sidebar">
 
-    <div class="vnn-brand">
+    <div class="vnn-admin-brand">
         <i class="fa-solid fa-mountain-sun"></i>
 
         <div>
-            <div class="vnn-brand-title">
-                <span>V</span><span>NN</span>
-            </div>
-
-            <div class="vnn-brand-sub">
-                TRAVEL
-            </div>
+            <div class="vnn-brand-name">VNN</div>
+            <div class="vnn-brand-caption">TRAVEL</div>
         </div>
     </div>
 
     <a
-        href="<?= htmlspecialchars($siteBase, ENT_QUOTES, 'UTF-8') ?>index.php"
-        class="vnn-view-website"
+        href="<?= vnnAdminEscape($siteBase) ?>index.php"
+        class="vnn-admin-website"
         target="_blank"
         rel="noopener"
     >
@@ -295,202 +237,159 @@ $pendingReviews = vnnCount(
         Xem Website Trực Tiếp
     </a>
 
-    <ul class="admin-menu">
+    <ul class="vnn-admin-menu">
 
-        <?php
-        vnnMenu(
-            'dashboard',
-            $adminBase . 'index.php',
-            'fa-gauge',
-            'Dashboard Bàn Làm Việc'
-        );
-        ?>
-
-        <?php if (isStaff() || isManager() || isAdmin()): ?>
-
-            <li class="vnn-group open">
-
-                <button
-                    class="vnn-group-heading"
-                    type="button"
-                    onclick="vnnToggleMenu(this)"
-                    aria-expanded="true"
-                >
-                    <span>
-                        <i class="fa-solid fa-headset"></i>
-                        XỬ LÝ KHÁCH HÀNG
-                    </span>
-
-                    <i class="fa-solid fa-chevron-down vnn-chevron"></i>
-                </button>
-
-                <ul class="vnn-submenu">
-
-                    <?php
-                    vnnMenu(
-                        'chat',
-                        $adminBase . 'chat/',
-                        'fa-comments',
-                        'Chat Trực Tuyến'
-                    );
-
-                    vnnMenu(
-                        'bookings',
-                        $adminBase . 'bookings/',
-                        'fa-ticket',
-                        'Duyệt Tour',
-                        $pendingTours
-                    );
-
-                    vnnMenu(
-                        'orders',
-                        $adminBase . 'orders/',
-                        'fa-box',
-                        'Duyệt Đơn Hàng',
-                        $pendingOrders
-                    );
-
-                    vnnMenu(
-                        'reviews',
-                        $adminBase . 'reviews/',
-                        'fa-star',
-                        'Đánh Giá Từ Khách',
-                        $pendingReviews
-                    );
-
-                    vnnMenu(
-                        'contacts',
-                        $adminBase . 'contacts/',
-                        'fa-envelope',
-                        'Tin Nhắn Liên Hệ'
-                    );
-                    ?>
-
-                </ul>
-            </li>
-
-        <?php endif; ?>
-
-        <?php if (isManager()): ?>
-
-            <li class="vnn-group open">
-
-                <button
-                    class="vnn-group-heading"
-                    type="button"
-                    onclick="vnnToggleMenu(this)"
-                    aria-expanded="true"
-                >
-                    <span>
-                        <i class="fa-solid fa-boxes-stacked"></i>
-                        NỘI DUNG & KHO
-                    </span>
-
-                    <i class="fa-solid fa-chevron-down vnn-chevron"></i>
-                </button>
-
-                <ul class="vnn-submenu">
-
-                    <?php
-                    vnnMenu(
-                        'tours',
-                        $adminBase . 'tours/',
-                        'fa-person-hiking',
-                        'Quản Lý Tour'
-                    );
-
-                    vnnMenu(
-                        'leaders',
-                        $adminBase . 'leaders/',
-                        'fa-person-hiking',
-                        'Đội Ngũ Leader'
-                    );
-
-                    vnnMenu(
-                        'products',
-                        $adminBase . 'products/',
-                        'fa-warehouse',
-                        'Dụng Cụ, Kho & Danh Mục'
-                    );
-
-                    vnnMenu(
-                        'locations',
-                        $adminBase . 'locations/',
-                        'fa-map-location-dot',
-                        'Điểm Đến Trekking'
-                    );
-
-                    vnnMenu(
-                        'posts',
-                        $adminBase . 'posts/',
-                        'fa-newspaper',
-                        'Bài Viết & Cẩm Nang'
-                    );
-                    ?>
-
-                </ul>
-            </li>
+        <?php if ($role === 'admin'): ?>
 
             <?php
-            vnnMenu(
-                'revenue',
-                $adminBase . 'revenue.php',
-                'fa-chart-line',
-                'Doanh Thu & Báo Cáo'
+            vnnAdminLink(
+                'system-overview',
+                $adminBase . 'system.php?tab=overview',
+                'fa-chart-pie',
+                'Tổng Quan Hệ Thống'
+            );
+
+            vnnAdminLink(
+                'system-users',
+                $adminBase . 'system.php?tab=users',
+                'fa-users-gear',
+                'Quản Lý Tài Khoản'
+            );
+
+            vnnAdminLink(
+                'system-content',
+                $adminBase . 'system.php?tab=content',
+                'fa-panels-top-left',
+                'Nội Dung Website'
+            );
+
+            vnnAdminLink(
+                'system-history',
+                $adminBase . 'system.php?tab=history',
+                'fa-clock-rotate-left',
+                'Lịch Sử Hoạt Động'
             );
             ?>
 
-        <?php endif; ?>
+        <?php else: ?>
 
-        <?php if (isAdmin()): ?>
+            <?php
+            vnnAdminLink(
+                'dashboard',
+                $adminBase . 'index.php',
+                'fa-gauge',
+                'Dashboard Bàn Làm Việc'
+            );
+            ?>
 
-            <li class="vnn-group open">
+            <div class="vnn-section-title">
+                <i class="fa-solid fa-headset"></i>
+                XỬ LÝ KHÁCH HÀNG
+            </div>
 
-                <button
-                    class="vnn-group-heading"
-                    type="button"
-                    onclick="vnnToggleMenu(this)"
-                    aria-expanded="true"
-                >
-                    <span>
-                        <i class="fa-solid fa-shield-halved"></i>
-                        QUẢN TRỊ HỆ THỐNG
-                    </span>
+            <?php
+            vnnAdminLink(
+                'chat',
+                $adminBase . 'chat/',
+                'fa-comments',
+                'Chat Trực Tuyến'
+            );
 
-                    <i class="fa-solid fa-chevron-down vnn-chevron"></i>
-                </button>
+            vnnAdminLink(
+                'bookings',
+                $adminBase . 'bookings/',
+                'fa-ticket',
+                'Duyệt Tour',
+                $pendingTours
+            );
 
-                <ul class="vnn-submenu">
+            vnnAdminLink(
+                'orders',
+                $adminBase . 'orders/',
+                'fa-box',
+                'Duyệt Đơn Hàng',
+                $pendingOrders
+            );
 
-                    <?php
-                    vnnMenu(
-                        'users',
-                        $adminBase . 'users/',
-                        'fa-user-shield',
-                        'Cấp Quyền & Tài Khoản'
-                    );
-                    ?>
+            vnnAdminLink(
+                'reviews',
+                $adminBase . 'reviews/',
+                'fa-star',
+                'Đánh Giá Từ Khách'
+            );
 
-                </ul>
-            </li>
+            vnnAdminLink(
+                'contacts',
+                $adminBase . 'contacts/',
+                'fa-envelope',
+                'Tin Nhắn Liên Hệ'
+            );
+            ?>
+
+            <?php if ($role === 'manager'): ?>
+
+                <div class="vnn-section-title">
+                    <i class="fa-solid fa-boxes-stacked"></i>
+                    NỘI DUNG & KHO
+                </div>
+
+                <?php
+                vnnAdminLink(
+                    'tours',
+                    $adminBase . 'tours/',
+                    'fa-person-hiking',
+                    'Quản Lý Tour'
+                );
+
+                vnnAdminLink(
+                    'leaders',
+                    $adminBase . 'leaders/',
+                    'fa-person-hiking',
+                    'Đội Ngũ Leader'
+                );
+
+                vnnAdminLink(
+                    'products',
+                    $adminBase . 'products/',
+                    'fa-warehouse',
+                    'Dụng Cụ, Kho & Danh Mục'
+                );
+
+                vnnAdminLink(
+                    'locations',
+                    $adminBase . 'locations/',
+                    'fa-map-location-dot',
+                    'Điểm Đến Trekking'
+                );
+
+                vnnAdminLink(
+                    'posts',
+                    $adminBase . 'posts/',
+                    'fa-newspaper',
+                    'Bài Viết & Cẩm Nang'
+                );
+
+                vnnAdminLink(
+                    'revenue',
+                    $adminBase . 'revenue.php',
+                    'fa-chart-line',
+                    'Doanh Thu & Báo Cáo'
+                );
+                ?>
+
+            <?php endif; ?>
 
         <?php endif; ?>
 
     </ul>
 
+    <?php if ($role === 'admin'): ?>
+
+        <div class="vnn-sidebar-note">
+            <i class="fa-solid fa-shield-halved"></i>
+            Khu vực quản trị hệ thống và tài khoản.
+        </div>
+
+    <?php endif; ?>
+
 </aside>
-
-<script>
-function vnnToggleMenu(button) {
-    const group = button.closest('.vnn-group');
-
-    if (!group) return;
-
-    const open = group.classList.toggle('open');
-
-    button.setAttribute(
-        'aria-expanded',
-        open ? 'true' : 'false'
-    );
-}
-</script>
