@@ -2,11 +2,14 @@
 // trekking/admin/tours/add.php
 require_once '../../config/database.php';
 require_once '../../includes/functions.php';
-requireAdmin();
+requireManager();
 
+$current_page = 'tours';
+$leaderOptions = $pdo->query("SELECT id,fullname FROM trekking_leaders WHERE status=1 ORDER BY fullname")->fetchAll(PDO::FETCH_ASSOC);
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = sanitize($_POST['title'] ?? '');
+    $leader_id = (int)($_POST['leader_id'] ?? 0);
     $location_id = intval($_POST['location_id'] ?? 0);
     $price = floatval($_POST['price'] ?? 0);
     $duration = sanitize($_POST['duration'] ?? '2N1Đ');
@@ -46,13 +49,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if (empty($title) || $location_id <= 0 || $price <= 0) {
+    if (empty($title) || $location_id <= 0 || $price <= 0 || $leader_id <= 0) {
         $error = "Vui lòng điền các trường bắt buộc!";
     } elseif (empty($error)) {
-        $stmt = $pdo->prepare("INSERT INTO tours (title, location_id, price, duration, difficulty, altitude, distance, max_slots, available_slots, meeting_point, transport, image, description, schedule, includes, excludes, requirements, safety_notes, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
-        $stmt->execute([$title, $location_id, $price, $duration, $difficulty, $altitude, $distance, $max_slots, $max_slots, $meeting_point, $transport, $image_path, $description, $schedule, $includes, $excludes, $requirements, $safety_notes]);
-        header("Location: index.php?msg=added");
-        exit;
+        $guideStmt = $pdo->prepare("SELECT fullname FROM trekking_leaders WHERE id=? AND status=1");
+        $guideStmt->execute([$leader_id]);
+        $guideName = $guideStmt->fetchColumn();
+        if (!$guideName) {
+            $error = 'Leader không hợp lệ hoặc đang bị ẩn.';
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO tours (title, location_id, leader_id, tour_guide, price, duration, difficulty, altitude, distance, max_slots, available_slots, meeting_point, transport, image, description, schedule, includes, excludes, requirements, safety_notes, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
+            $stmt->execute([$title, $location_id, $leader_id, $guideName, $price, $duration, $difficulty, $altitude, $distance, $max_slots, $max_slots, $meeting_point, $transport, $image_path, $description, $schedule, $includes, $excludes, $requirements, $safety_notes]);
+        }
+        if (!$error) {
+            header("Location: index.php?msg=added");
+            exit;
+        }
     }
 }
 
@@ -78,6 +90,16 @@ $locations = $pdo->query("SELECT * FROM locations ORDER BY name ASC")->fetchAll(
             <?php if ($error): ?><div class="alert alert-error"><?= $error ?></div><?php endif; ?>
 
             <form action="" method="POST" enctype="multipart/form-data">
+                <div class="form-group" style="padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
+                    <label>Leader cố định cho tour *</label>
+                    <select name="leader_id" class="form-control" required>
+                        <option value="">-- Chọn hướng dẫn viên --</option>
+                        <?php foreach ($leaderOptions as $leader): ?>
+                        <option value="<?= (int)$leader['id'] ?>" <?= (int)($_POST['leader_id'] ?? 0)===(int)$leader['id']?'selected':'' ?>><?= htmlspecialchars($leader['fullname'],ENT_QUOTES,'UTF-8') ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small>Áp dụng cho tất cả các đợt khởi hành.</small>
+                </div>
                 <div class="form-group">
                     <label>Tên Tour *</label>
                     <input type="text" name="title" class="form-control" required placeholder="Chinh phục đỉnh núi...">
