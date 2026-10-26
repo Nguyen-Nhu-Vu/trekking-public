@@ -19,10 +19,6 @@ if (!function_exists('bk_h')) {
     }
 }
 
-// ========================================
-// TRANG THAI BOOKING
-// ========================================
-
 $statuses = [
     'Chờ xác nhận',
     'Đã xác nhận',
@@ -40,10 +36,6 @@ if (empty($_SESSION['bookings_csrf'])) {
 
 $csrf = $_SESSION['bookings_csrf'];
 
-// ========================================
-// BO LOC
-// ========================================
-
 $filter = trim((string)($_GET['status'] ?? ''));
 
 if ($filter !== '' && !in_array($filter, $statuses, true)) {
@@ -51,17 +43,18 @@ if ($filter !== '' && !in_array($filter, $statuses, true)) {
 }
 
 // ========================================
-// LUU NHIEU TRANG THAI CUNG LUC
+// LUU HANG LOAT TRANG THAI
 // ========================================
 
 if (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
-    && isset($_POST['save_all_changes'])
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['save_all_changes'])
 ) {
     try {
-        $postedCsrf = (string)($_POST['csrf'] ?? '');
-
-        if (!hash_equals($csrf, $postedCsrf)) {
+        if (!hash_equals(
+            $csrf,
+            (string)($_POST['csrf'] ?? '')
+        )) {
             throw new RuntimeException(
                 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
             );
@@ -71,40 +64,40 @@ if (
 
         if (!is_array($postedStatuses)) {
             throw new RuntimeException(
-                'Danh sách trạng thái không hợp lệ.'
+                'Dữ liệu trạng thái không hợp lệ.'
             );
         }
 
-        // Kiem tra toan bo du lieu truoc khi cap nhat
-        $updates = [];
+        if (count($postedStatuses) > 1000) {
+            throw new RuntimeException(
+                'Có quá nhiều booking trong một lần cập nhật.'
+            );
+        }
+
+        $changes = [];
 
         foreach ($postedStatuses as $bookingId => $newStatus) {
-            $id = filter_var(
+            $bookingId = filter_var(
                 $bookingId,
                 FILTER_VALIDATE_INT
             );
 
-            if ($id === false || $id <= 0) {
+            if ($bookingId === false || $bookingId <= 0) {
                 throw new RuntimeException(
-                    'Có mã booking không hợp lệ.'
+                    'Mã đăng ký không hợp lệ.'
                 );
             }
 
-            if (!is_string($newStatus)) {
+            if (
+                !is_string($newStatus) ||
+                !in_array($newStatus, $statuses, true)
+            ) {
                 throw new RuntimeException(
-                    'Dữ liệu trạng thái không hợp lệ.'
+                    'Trạng thái đăng ký không hợp lệ.'
                 );
             }
 
-            $newStatus = trim($newStatus);
-
-            if (!in_array($newStatus, $statuses, true)) {
-                throw new RuntimeException(
-                    'Có trạng thái không được hỗ trợ.'
-                );
-            }
-
-            $updates[$id] = $newStatus;
+            $changes[$bookingId] = $newStatus;
         }
 
         $pdo->beginTransaction();
@@ -124,7 +117,7 @@ if (
 
         $updatedCount = 0;
 
-        foreach ($updates as $bookingId => $newStatus) {
+        foreach ($changes as $bookingId => $newStatus) {
             $checkStmt->execute([$bookingId]);
 
             $oldStatus = $checkStmt->fetchColumn();
@@ -136,7 +129,6 @@ if (
                 );
             }
 
-            // Neu khong thay doi thi giu nguyen
             if ((string)$oldStatus === $newStatus) {
                 continue;
             }
@@ -152,21 +144,21 @@ if (
         $pdo->commit();
 
         $_SESSION['bookings_notice'] = $updatedCount > 0
-            ? "Đã lưu thành công {$updatedCount} thay đổi."
+            ? 'Đã lưu thành công ' . $updatedCount . ' thay đổi.'
             : 'Không có trạng thái nào thay đổi.';
 
-        $postedFilter = trim(
+        $redirectFilter = trim(
             (string)($_POST['current_filter'] ?? '')
         );
 
         $redirect = 'index.php';
 
         if (
-            $postedFilter !== ''
-            && in_array($postedFilter, $statuses, true)
+            $redirectFilter !== '' &&
+            in_array($redirectFilter, $statuses, true)
         ) {
             $redirect .= '?status=' .
-                rawurlencode($postedFilter);
+                rawurlencode($redirectFilter);
         }
 
         header('Location: ' . $redirect, true, 303);
@@ -183,7 +175,7 @@ if (
 
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
-            : 'Không thể lưu trạng thái. Vui lòng thử lại.';
+            : 'Không thể lưu thay đổi.';
     }
 }
 
@@ -197,7 +189,13 @@ if (!empty($_SESSION['bookings_notice'])) {
 }
 
 // ========================================
-// LAY BOOKING + LEADER CO DINH
+// LAY DU LIEU BOOKING
+// ========================================
+//
+// fullname: ten khach trong booking
+// number_people: so khach da dang ky
+// Neu fullname rong: lay ten tu users
+// Leader co dinh: tours.leader_id
 // ========================================
 
 $params = [];
@@ -206,23 +204,32 @@ $sql = "
     SELECT
         b.id,
         b.booking_code,
-        b.fullname,
-        b.phone,
+        b.user_id,
         b.tour_id,
-        b.departure_date,
+        b.fullname AS booking_fullname,
+        b.phone,
         b.number_people,
+        b.departure_date,
         b.status,
+
+        COALESCE(
+            NULLIF(TRIM(b.fullname), ''),
+            NULLIF(TRIM(u.fullname), ''),
+            'Chưa có tên'
+        ) AS customer_name,
 
         t.title AS tour_name,
 
         l.id AS leader_id,
-        l.fullname AS leader_name,
-        l.experience_years AS leader_experience
+        l.fullname AS leader_name
 
     FROM tour_bookings b
 
     INNER JOIN tours t
         ON t.id = b.tour_id
+
+    LEFT JOIN users u
+        ON u.id = b.user_id
 
     LEFT JOIN trekking_leaders l
         ON l.id = t.leader_id
@@ -239,16 +246,13 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 
 $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
 $totalBookings = count($bookings);
-
 ?>
+
 <!DOCTYPE html>
 <html lang="vi">
-
 <head>
     <meta charset="UTF-8">
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
@@ -272,10 +276,6 @@ $totalBookings = count($bookings);
     >
 
     <style>
-        /* =========================================
-           TRANG QUAN LY BOOKING
-           ========================================= */
-
         .bk-main {
             min-width: 0;
             flex: 1;
@@ -286,18 +286,18 @@ $totalBookings = count($bookings);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            flex-wrap: wrap;
             gap: 15px;
+            flex-wrap: wrap;
         }
 
         .bk-content {
-            padding: 24px;
+            padding: 22px;
         }
 
         .bk-alert {
-            padding: 13px 17px;
+            border-radius: 9px;
+            padding: 14px 17px;
             margin-bottom: 17px;
-            border-radius: 10px;
             font-size: 13px;
         }
 
@@ -311,9 +311,7 @@ $totalBookings = count($bookings);
             color: #991b1b;
         }
 
-        /* =========================================
-           THANH CONG CU
-           ========================================= */
+        /* THANH CONG CU */
 
         .bk-toolbar {
             display: flex;
@@ -321,8 +319,8 @@ $totalBookings = count($bookings);
             justify-content: space-between;
             flex-wrap: wrap;
             gap: 12px;
+            padding: 14px 18px;
             margin-bottom: 17px;
-            padding: 15px 19px;
             background: #eef3f9;
             border: 1px solid #e0e7f0;
             border-radius: 13px;
@@ -338,7 +336,6 @@ $totalBookings = count($bookings);
 
         .bk-total i {
             color: #166534;
-            font-size: 16px;
         }
 
         .bk-save {
@@ -346,29 +343,21 @@ $totalBookings = count($bookings);
             align-items: center;
             justify-content: center;
             gap: 8px;
-            border: 0;
-            border-radius: 9px;
-            padding: 12px 19px;
             background: #166534;
             color: white;
+            border: none;
+            border-radius: 9px;
+            padding: 11px 18px;
             font-size: 13px;
             font-weight: 800;
             cursor: pointer;
-            white-space: nowrap;
         }
 
         .bk-save:hover {
             background: #14532d;
         }
 
-        .bk-save:disabled {
-            background: #94a3b8;
-            cursor: not-allowed;
-        }
-
-        /* =========================================
-           BANG - CAN DOI CAC COT
-           ========================================= */
+        /* BANG DANG KY */
 
         .bk-table-wrap {
             background: white;
@@ -379,12 +368,10 @@ $totalBookings = count($bookings);
 
         .bk-table {
             width: 100%;
-            min-width: 1060px;
+            min-width: 1050px;
             table-layout: fixed;
             border-collapse: collapse;
         }
-
-        /* Ty le 7 cot */
 
         .bk-col-code {
             width: 15%;
@@ -399,15 +386,15 @@ $totalBookings = count($bookings);
         }
 
         .bk-col-date {
-            width: 12%;
+            width: 13%;
         }
 
         .bk-col-people {
-            width: 9%;
+            width: 10%;
         }
 
         .bk-col-guide {
-            width: 14%;
+            width: 12%;
         }
 
         .bk-col-status {
@@ -415,20 +402,19 @@ $totalBookings = count($bookings);
         }
 
         .bk-table th {
-            background: #f8fafc;
+            padding: 17px 12px;
+            text-align: left;
             color: #0f172a;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
             font-size: 13px;
             font-weight: 800;
-            text-align: left;
-            padding: 17px 12px;
-            border-bottom: 1px solid #e2e8f0;
-            white-space: nowrap;
         }
 
         .bk-table td {
-            padding: 17px 12px;
-            border-bottom: 1px solid #e2e8f0;
+            padding: 18px 12px;
             vertical-align: middle;
+            border-bottom: 1px solid #e2e8f0;
             color: #334155;
             font-size: 13px;
         }
@@ -437,117 +423,66 @@ $totalBookings = count($bookings);
             background: #f8fafc;
         }
 
-        /* =========================================
-           MA BOOKING
-           ========================================= */
+        /* GIOI HAN HAI DONG CHO CHU DAI */
 
-        .bk-code {
+        .bk-two-lines {
             display: -webkit-box;
             -webkit-box-orient: vertical;
             -webkit-line-clamp: 2;
             line-clamp: 2;
             overflow: hidden;
             overflow-wrap: anywhere;
-            color: #17345f;
-            font-size: 13px;
-            font-weight: 800;
-            line-height: 1.6;
+            line-height: 1.55;
         }
 
-        /* =========================================
-           KHACH HANG
-           ========================================= */
-
-        .bk-customer {
-            min-width: 0;
+        .bk-code {
+            color: #17345f;
+            font-weight: 800;
         }
 
         .bk-customer-name {
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
-            overflow: hidden;
-            overflow-wrap: anywhere;
-            color: #1e293b;
-            font-size: 13px;
+            color: #0f172a;
             font-weight: 700;
-            line-height: 1.5;
         }
 
-        .bk-customer-phone {
+        .bk-phone {
             display: block;
-            margin-top: 7px;
             color: #64748b;
             font-size: 12px;
+            margin-top: 6px;
             white-space: nowrap;
         }
 
-        /* =========================================
-           TEN TOUR
-           ========================================= */
-
         .bk-tour-name {
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
-            overflow: hidden;
-            overflow-wrap: anywhere;
             color: #0f172a;
-            font-size: 13px;
             font-weight: 800;
-            line-height: 1.5;
         }
-
-        /* =========================================
-           NGAY KHOI HANH
-           ========================================= */
 
         .bk-date {
             color: #ea580c;
             font-weight: 800;
             white-space: nowrap;
-            font-size: 13px;
         }
 
-        /* =========================================
-           SO KHACH
-           ========================================= */
-
         .bk-people {
-            font-size: 13px;
             white-space: nowrap;
-            color: #334155;
         }
 
         .bk-people strong {
             color: #0f172a;
         }
 
-        /* =========================================
-           HDV CO DINH
-           ========================================= */
+        /* HDV - CHI HIEN TEN */
 
         .bk-leader-name {
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
-            overflow: hidden;
-            overflow-wrap: anywhere;
             color: #166534;
             font-size: 13px;
             font-weight: 800;
-            line-height: 1.5;
+            text-decoration: none;
         }
 
-        .bk-leader-years {
-            display: block;
-            margin-top: 6px;
-            color: #64748b;
-            font-size: 11px;
-            white-space: nowrap;
+        .bk-leader-name:hover {
+            text-decoration: underline;
         }
 
         .bk-leader-empty {
@@ -555,29 +490,25 @@ $totalBookings = count($bookings);
             font-size: 12px;
         }
 
-        /* =========================================
-           TRANG THAI
-           ========================================= */
+        /* TRANG THAI */
 
         .bk-status-select {
             width: 100%;
-            max-width: 100%;
             min-width: 0;
-            box-sizing: border-box;
-            padding: 11px 7px;
+            padding: 10px 7px;
             border: 1px solid #cbd5e1;
             border-radius: 8px;
             background: white;
             color: #334155;
-            font-size: 12px;
             font-family: inherit;
+            font-size: 12px;
             cursor: pointer;
         }
 
         .bk-status-select.changed {
-            border-color: #16a34a;
             background: #f0fdf4;
             color: #166534;
+            border-color: #16a34a;
             font-weight: 800;
         }
 
@@ -587,27 +518,15 @@ $totalBookings = count($bookings);
             color: #94a3b8 !important;
         }
 
-        /* =========================================
-           RESPONSIVE
-           ========================================= */
-
-        @media(max-width: 1200px) {
+        @media (max-width: 1200px) {
             .bk-content {
-                padding: 16px;
-            }
-
-            .bk-table {
-                min-width: 1060px;
+                padding: 14px;
             }
         }
 
-        @media(max-width: 700px) {
+        @media (max-width: 700px) {
             .bk-content {
                 padding: 10px;
-            }
-
-            .bk-toolbar {
-                padding: 12px;
             }
 
             .bk-table th,
@@ -626,8 +545,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
 <main class="admin-main bk-main">
 
-    <!-- THANH TIEU DE -->
-
     <div class="admin-topbar bk-topbar">
 
         <strong>
@@ -636,12 +553,12 @@ require_once __DIR__ . '/../includes/sidebar.php';
         </strong>
 
         <form method="GET">
-
             <select
                 name="status"
                 class="form-control"
                 onchange="this.form.submit()"
             >
+
                 <option value="">
                     Tất cả trạng thái
                 </option>
@@ -650,7 +567,9 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                     <option
                         value="<?= bk_h($status) ?>"
-                        <?= $filter === $status ? 'selected' : '' ?>
+                        <?= $filter === $status
+                            ? 'selected'
+                            : '' ?>
                     >
                         <?= bk_h($status) ?>
                     </option>
@@ -658,39 +577,27 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 <?php endforeach; ?>
 
             </select>
-
         </form>
 
     </div>
 
-    <!-- NOI DUNG -->
-
     <div class="bk-content">
 
         <?php if ($success): ?>
-
             <div class="bk-alert success" role="status">
                 <i class="fa-solid fa-circle-check"></i>
                 <?= bk_h($success) ?>
             </div>
-
         <?php endif; ?>
 
         <?php if ($error): ?>
-
             <div class="bk-alert error" role="alert">
                 <i class="fa-solid fa-circle-exclamation"></i>
                 <?= bk_h($error) ?>
             </div>
-
         <?php endif; ?>
 
-        <!-- FORM LUU HANG LOAT -->
-
-        <form
-            method="POST"
-            id="bkBulkForm"
-        >
+        <form method="POST" id="bkBulkForm">
 
             <input
                 type="hidden"
@@ -704,12 +611,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 value="<?= bk_h($filter) ?>"
             >
 
-            <!-- THANH CONG CU -->
-
             <div class="bk-toolbar">
 
                 <div class="bk-total">
                     <i class="fa-solid fa-ticket"></i>
+
                     <span>
                         <?= $totalBookings ?>
                         đăng ký tour
@@ -717,10 +623,10 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 </div>
 
                 <button
-                    class="bk-save"
                     type="submit"
                     name="save_all_changes"
                     value="1"
+                    class="bk-save"
                     id="bkSaveButton"
                 >
                     <i class="fa-solid fa-floppy-disk"></i>
@@ -728,8 +634,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 </button>
 
             </div>
-
-            <!-- BANG BOOKING -->
 
             <div class="bk-table-wrap">
 
@@ -768,15 +672,17 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                                 $customerName = trim(
                                     (string)(
-                                        $booking['fullname'] ?? ''
+                                        $booking['customer_name'] ?? ''
                                     )
                                 );
 
-                                $phone = (string)(
-                                    $booking['phone'] ?? ''
+                                $phone = trim(
+                                    (string)(
+                                        $booking['phone'] ?? ''
+                                    )
                                 );
 
-                                $people = (int)(
+                                $numberPeople = (int)(
                                     $booking['number_people'] ?? 0
                                 );
 
@@ -786,9 +692,14 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                     )
                                 );
 
-                                $leaderYears = (int)(
-                                    $booking['leader_experience'] ?? 0
+                                $leaderId = (int)(
+                                    $booking['leader_id'] ?? 0
                                 );
+
+                                $leaderLink =
+                                    rtrim(BASE_URL, '/') .
+                                    '/pages/leader-detail.php?id=' .
+                                    $leaderId;
                                 ?>
 
                                 <tr>
@@ -797,7 +708,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                                     <td>
                                         <span
-                                            class="bk-code"
+                                            class="bk-code bk-two-lines"
                                             title="<?= bk_h(
                                                 $booking['booking_code']
                                             ) ?>"
@@ -811,31 +722,27 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                     <!-- KHACH HANG -->
 
                                     <td>
-                                        <div class="bk-customer">
+                                        <span
+                                            class="bk-customer-name bk-two-lines"
+                                            title="<?= bk_h($customerName) ?>"
+                                        >
+                                            <?= bk_h($customerName) ?>
+                                        </span>
 
-                                            <span
-                                                class="bk-customer-name"
-                                                title="<?= bk_h($customerName) ?>"
-                                            >
-                                                <?= bk_h(
-                                                    $customerName !== ''
-                                                        ? $customerName
-                                                        : 'Chưa có tên'
-                                                ) ?>
-                                            </span>
+                                        <?php if ($phone !== ''): ?>
 
-                                            <span class="bk-customer-phone">
+                                            <small class="bk-phone">
                                                 <?= bk_h($phone) ?>
-                                            </span>
+                                            </small>
 
-                                        </div>
+                                        <?php endif; ?>
                                     </td>
 
-                                    <!-- TEN TOUR -->
+                                    <!-- TOUR -->
 
                                     <td>
                                         <span
-                                            class="bk-tour-name"
+                                            class="bk-tour-name bk-two-lines"
                                             title="<?= bk_h(
                                                 $booking['tour_name']
                                             ) ?>"
@@ -850,7 +757,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                                     <td>
                                         <span class="bk-date">
-
                                             <?php if (!empty(
                                                 $booking['departure_date']
                                             )): ?>
@@ -867,7 +773,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                                 Chưa chọn
 
                                             <?php endif; ?>
-
                                         </span>
                                     </td>
 
@@ -876,35 +781,30 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                     <td>
                                         <span class="bk-people">
                                             <strong>
-                                                <?= $people ?>
+                                                <?= $numberPeople ?>
                                             </strong>
                                             người
                                         </span>
                                     </td>
 
-                                    <!-- LEADER -->
+                                    <!-- HDV -->
 
                                     <td>
 
-                                        <?php if ($leaderName !== ''): ?>
+                                        <?php if (
+                                            $leaderName !== '' &&
+                                            $leaderId > 0
+                                        ): ?>
 
-                                            <span
-                                                class="bk-leader-name"
-                                                title="<?= bk_h(
-                                                    $leaderName
-                                                ) ?>"
+                                            <a
+                                                class="bk-leader-name bk-two-lines"
+                                                href="<?= bk_h($leaderLink) ?>"
+                                                title="<?= bk_h($leaderName) ?>"
+                                                target="_blank"
+                                                rel="noopener"
                                             >
                                                 <?= bk_h($leaderName) ?>
-                                            </span>
-
-                                            <?php if ($leaderYears > 0): ?>
-
-                                                <small class="bk-leader-years">
-                                                    <?= $leaderYears ?>
-                                                    năm kinh nghiệm
-                                                </small>
-
-                                            <?php endif; ?>
+                                            </a>
 
                                         <?php else: ?>
 
@@ -919,7 +819,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                     <!-- TRANG THAI -->
 
                                     <td>
-
                                         <select
                                             name="status[<?= $bookingId ?>]"
                                             class="bk-status-select"
@@ -933,9 +832,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                             ): ?>
 
                                                 <option
-                                                    value="<?= bk_h(
-                                                        $status
-                                                    ) ?>"
+                                                    value="<?= bk_h($status) ?>"
                                                     <?= $booking['status'] === $status
                                                         ? 'selected'
                                                         : '' ?>
@@ -946,7 +843,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                             <?php endforeach; ?>
 
                                         </select>
-
                                     </td>
 
                                 </tr>
@@ -957,18 +853,16 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                             <tr>
                                 <td colspan="7" class="bk-empty">
-                                    Không có đăng ký nào phù hợp.
+                                    Không có đăng ký tour phù hợp.
                                 </td>
                             </tr>
 
                         <?php endif; ?>
 
                     </tbody>
-
                 </table>
 
             </div>
-
         </form>
 
     </div>
@@ -985,9 +879,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
         'bkSaveButton'
     );
 
-    if (!saveButton) return;
+    if (!saveButton) {
+        return;
+    }
 
-    function updateChanged() {
+    function updateChangedCount() {
         let changed = 0;
 
         selects.forEach(function(select) {
@@ -1018,11 +914,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
     selects.forEach(function(select) {
         select.addEventListener(
             'change',
-            updateChanged
+            updateChangedCount
         );
     });
 
-    updateChanged();
+    updateChangedCount();
 })();
 </script>
 
