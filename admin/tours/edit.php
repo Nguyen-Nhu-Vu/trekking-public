@@ -2,8 +2,10 @@
 // trekking/admin/tours/edit.php
 require_once '../../config/database.php';
 require_once '../../includes/functions.php';
-requireManager(); // Chỉ Quản lý và Admin mới được phân công & sửa tour
+requireManager();
 
+$current_page = 'tours';
+$leaderOptions = $pdo->query("SELECT id,fullname,status FROM trekking_leaders ORDER BY fullname")->fetchAll(PDO::FETCH_ASSOC);
 $id = intval($_GET['id'] ?? 0);
 $stmt = $pdo->prepare("SELECT * FROM tours WHERE id = ?");
 $stmt->execute([$id]);
@@ -29,17 +31,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $available_slots = intval($_POST['available_slots'] ?? 15);
     $meeting_point = sanitize($_POST['meeting_point'] ?? 'Hà Nội');
     $transport = sanitize($_POST['transport'] ?? 'Xe ô tô');
-    $tour_guide = sanitize($_POST['tour_guide'] ?? 'Leader TrekHub'); // Quản lý trực tiếp phân công Guide
+    $leader_id = (int)($_POST['leader_id'] ?? 0);
+    $guideStmt = $pdo->prepare("SELECT fullname FROM trekking_leaders WHERE id=? AND status=1");
+    $guideStmt->execute([$leader_id]);
+    $tour_guide = $guideStmt->fetchColumn() ?: '';
     $description = sanitize($_POST['description'] ?? '');
     $schedule = sanitize($_POST['schedule'] ?? '');
     $includes = sanitize($_POST['includes'] ?? '');
     $excludes = sanitize($_POST['excludes'] ?? '');
     $requirements = sanitize($_POST['requirements'] ?? '');
     $safety_notes = sanitize($_POST['safety_notes'] ?? '');
-    
+
     $image_path = $tour['image'];
 
-    // Xử lý upload ảnh nếu có
     if (isset($_FILES['image_file']) && $_FILES['image_file']['error'] === UPLOAD_ERR_OK) {
         $file_tmp = $_FILES['image_file']['tmp_name'];
         $file_name = $_FILES['image_file']['name'];
@@ -58,12 +62,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if (empty($title) || $location_id <= 0 || $price <= 0) {
-        $error = "Vui lòng nhập đầy đủ các thông tin bắt buộc!";
+    if (empty($title) || $location_id <= 0 || $price <= 0 || !$tour_guide) {
+        $error = "Vui lòng nhập đầy đủ thông tin và chọn Leader đang hoạt động!";
     } else {
-        $update = $pdo->prepare("UPDATE tours SET title = ?, location_id = ?, price = ?, duration = ?, difficulty = ?, altitude = ?, distance = ?, max_slots = ?, available_slots = ?, meeting_point = ?, transport = ?, tour_guide = ?, image = ?, description = ?, schedule = ?, includes = ?, excludes = ?, requirements = ?, safety_notes = ? WHERE id = ?");
-        $update->execute([$title, $location_id, $price, $duration, $difficulty, $altitude, $distance, $max_slots, $available_slots, $meeting_point, $transport, $tour_guide, $image_path, $description, $schedule, $includes, $excludes, $requirements, $safety_notes, $id]);
-        
+        $update = $pdo->prepare("UPDATE tours SET title = ?, location_id = ?, price = ?, duration = ?, difficulty = ?, altitude = ?, distance = ?, max_slots = ?, available_slots = ?, meeting_point = ?, transport = ?, tour_guide = ?, leader_id = ?, image = ?, description = ?, schedule = ?, includes = ?, excludes = ?, requirements = ?, safety_notes = ? WHERE id = ?");
+        $update->execute([$title, $location_id, $price, $duration, $difficulty, $altitude, $distance, $max_slots, $available_slots, $meeting_point, $transport, $tour_guide, $leader_id, $image_path, $description, $schedule, $includes, $excludes, $requirements, $safety_notes, $id]);
+
         $msg = "Cập nhật tour và người dẫn tour thành công!";
         $stmt->execute([$id]);
         $tour = $stmt->fetch();
@@ -126,11 +130,18 @@ $locations = $pdo->query("SELECT * FROM locations ORDER BY name ASC")->fetchAll(
                     </div>
                 </div>
 
-                <!-- QUẢN LÝ PHÂN CÔNG NGƯỜI DẪN TOUR -->
                 <div class="grid grid-2" style="background:#fff7ed; padding:15px; border-radius:8px; border:1px solid #fed7aa;">
                     <div class="form-group" style="margin:0;">
                         <label style="color:#c2410c; font-weight:700;"><i class="fa-solid fa-user-ninja"></i> Người dẫn tour / Leader phân công:</label>
-                        <input type="text" name="tour_guide" class="form-control" value="<?= htmlspecialchars($tour['tour_guide'] ?? 'Leader TrekHub') ?>" placeholder="Ví dụ: Hoàng Nam (0933445566)...">
+                        <select name="leader_id" class="form-control" required>
+                            <option value="">-- Chọn Leader --</option>
+                            <?php foreach ($leaderOptions as $leader): ?>
+                            <?php $selectedLeader = (int)($tour['leader_id'] ?? 0)===(int)$leader['id']; ?>
+                            <?php if ((int)$leader['status']===1 || $selectedLeader): ?>
+                            <option value="<?= (int)$leader['id'] ?>" <?= $selectedLeader?'selected':'' ?>><?= htmlspecialchars($leader['fullname'],ENT_QUOTES,'UTF-8') ?><?= (int)$leader['status']!==1?' (Đang ẩn)':'' ?></option>
+                            <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label style="color:#c2410c; font-weight:700;"><i class="fa-solid fa-van-shuttle"></i> Phương tiện đưa đón:</label>
