@@ -1,67 +1,51 @@
 <?php
 $current_page = $current_page ?? '';
+$role = getRole();
+$root = rtrim(BASE_URL, '/') . '/';
 
-$adminBase = rtrim(BASE_URL, '/') . '/admin/';
-$siteBase = rtrim(BASE_URL, '/') . '/';
-
-if (!function_exists('vnnAdminEscape')) {
-    function vnnAdminEscape($value) {
-        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+if (!function_exists('vnnSideEsc')) {
+    function vnnSideEsc($x) {
+        return htmlspecialchars((string)$x, ENT_QUOTES, 'UTF-8');
     }
 }
 
-if (!function_exists('vnnAdminCount')) {
-    function vnnAdminCount(PDO $pdo, string $sql): int {
+if (!function_exists('vnnSideLink')) {
+    function vnnSideLink($href, $icon, $label, $active = false, $count = 0) {
+        echo '<a class="vnn-side-link'.($active?' active':'').'" href="'.vnnSideEsc($href).'">';
+        echo '<span><i class="fa-solid '.vnnSideEsc($icon).'"></i> '.vnnSideEsc($label).'</span>';
+        if ($count > 0) {
+            echo '<b class="vnn-side-count">'.(int)$count.'</b>';
+        }
+        echo '</a>';
+    }
+}
+
+if (!function_exists('vnnSideCount')) {
+    function vnnSideCount($pdo, $table) {
         try {
-            return (int)$pdo->query($sql)->fetchColumn();
+            $allowed = ['tour_bookings', 'orders'];
+            if (!in_array($table, $allowed, true)) return 0;
+            return (int)$pdo->query(
+                "SELECT COUNT(*) FROM `$table` WHERE status='Chờ xác nhận'"
+            )->fetchColumn();
         } catch (Throwable $e) {
-            error_log('Sidebar count: ' . $e->getMessage());
             return 0;
         }
     }
 }
 
-if (!function_exists('vnnAdminLink')) {
-    function vnnAdminLink($id, $url, $icon, $label, $count = 0) {
-        global $current_page;
+$category = (string)($_GET['category'] ?? 'accounts');
 
-        $active = $current_page === $id ? 'active' : '';
-
-        echo '<li class="' . $active . '">';
-        echo '<a href="' . vnnAdminEscape($url) . '">';
-        echo '<span class="vnn-item-left">';
-        echo '<i class="fa-solid ' . vnnAdminEscape($icon) . '"></i>';
-        echo '<span>' . vnnAdminEscape($label) . '</span>';
-        echo '</span>';
-
-        if ($count > 0) {
-            echo '<span class="vnn-menu-count">';
-            echo $count > 99 ? '99+' : (int)$count;
-            echo '</span>';
-        }
-
-        echo '</a></li>';
-    }
+if (!in_array(
+    $category,
+    ['accounts','content','transactions','security'],
+    true
+)) {
+    $category = 'accounts';
 }
 
-$role = getRole();
-
-$pendingTours = 0;
-$pendingOrders = 0;
-
-if ($role !== 'admin') {
-    $pendingTours = vnnAdminCount(
-        $pdo,
-        "SELECT COUNT(*) FROM tour_bookings
-         WHERE status = 'Chờ xác nhận'"
-    );
-
-    $pendingOrders = vnnAdminCount(
-        $pdo,
-        "SELECT COUNT(*) FROM orders
-         WHERE status = 'Chờ xác nhận'"
-    );
-}
+$historyOpen = $role === 'admin'
+    && $current_page === 'system-history';
 ?>
 
 <style>
@@ -73,8 +57,7 @@ if ($role !== 'admin') {
     position: sticky;
     top: 0;
     overflow-y: auto;
-    overflow-x: hidden;
-    background: #111b2c;
+    background: #111b2d;
     color: #e2e8f0;
     z-index: 100;
 }
@@ -84,130 +67,134 @@ if ($role !== 'admin') {
     min-width: 0;
 }
 
-.vnn-admin-brand {
+.vnn-side-brand {
     display: flex;
-    align-items: center;
     gap: 12px;
-    padding: 22px 16px;
+    align-items: center;
+    padding: 20px 16px;
     background: #0f172a;
 }
 
-.vnn-admin-brand i {
+.vnn-side-brand i {
     font-size: 34px;
     color: #65a30d;
 }
 
-.vnn-brand-name {
-    color: #f97316;
+.vnn-side-brand strong {
     font-size: 25px;
-    font-weight: 900;
     letter-spacing: 3px;
+    color: #fb923c;
 }
 
-.vnn-brand-name::first-letter {
-    color: #38bdf8;
-}
-
-.vnn-brand-caption {
-    margin-top: 2px;
-    color: white;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 3px;
-}
-
-.vnn-admin-website {
+.vnn-side-brand small {
     display: block;
-    margin: 15px;
+    letter-spacing: 3px;
+    color: #fff;
+    font-weight: 800;
+}
+
+.vnn-side-site {
+    display: block;
+    margin: 14px;
     padding: 12px;
-    text-align: center;
-    color: #38bdf8;
     border: 1px solid #334155;
-    border-radius: 9px;
+    border-radius: 10px;
+    color: #38bdf8;
+    text-align: center;
+    text-decoration: none;
     font-weight: 700;
     font-size: 13px;
-    text-decoration: none;
 }
 
-.vnn-admin-menu,
-.vnn-admin-menu ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.vnn-admin-menu li a {
+.vnn-side-link {
     display: flex;
+    align-items: center;
     justify-content: space-between;
+    gap: 8px;
+    padding: 14px 15px;
+    text-decoration: none;
+    color: #cbd5e1;
+    font-size: 13px;
+}
+
+.vnn-side-link > span {
+    display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 15px;
-    font-size: 13px;
-    color: #cbd5e1;
-    text-decoration: none;
-    transition: background .2s;
 }
 
-.vnn-admin-menu li a:hover,
-.vnn-admin-menu li.active a {
+.vnn-side-link i {
+    width: 19px;
+    text-align: center;
+}
+
+.vnn-side-link:hover,
+.vnn-side-link.active {
     background: #334155;
     color: #38bdf8;
 }
 
-.vnn-admin-menu li.active a {
-    border-left: 4px solid #f97316;
+.vnn-side-link.active {
+    border-left: 3px solid #f97316;
 }
 
-.vnn-item-left {
-    display: inline-flex;
+.vnn-side-title {
+    padding: 15px;
+    background: #253247;
+    color: white;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.vnn-side-count {
+    background: #ef4444;
+    color: white;
+    border-radius: 20px;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+.vnn-side-trigger {
+    width: 100%;
+    display: flex;
     align-items: center;
-    gap: 12px;
-    min-width: 0;
+    justify-content: space-between;
+    border: 0;
+    background: none;
+    color: #cbd5e1;
+    padding: 14px 15px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
 }
 
-.vnn-item-left i {
-    width: 19px;
-    text-align: center;
-    flex-shrink: 0;
-}
-
-.vnn-section-title {
+.vnn-side-trigger span {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 15px;
-    color: white;
+}
+
+.vnn-side-trigger:hover,
+.vnn-side-trigger.active {
+    background: #334155;
+    color: #38bdf8;
+}
+
+.vnn-side-submenu {
+    background: #0c1627;
+}
+
+.vnn-side-submenu[hidden] {
+    display: none !important;
+}
+
+.vnn-side-submenu .vnn-side-link {
+    padding-left: 28px;
     font-size: 12px;
-    font-weight: 900;
-    background: #253247;
-    margin-top: 7px;
 }
 
-.vnn-menu-count {
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    min-width: 23px;
-    height: 23px;
-    padding: 0 6px;
-    border-radius: 20px;
-    background: #ef4444;
-    color: white;
-    font-size: 11px;
-    font-weight: 900;
-}
-
-.vnn-sidebar-note {
-    margin: 22px 15px;
-    padding: 13px;
-    border: 1px solid #334155;
-    border-radius: 9px;
-    color: #94a3b8;
-    font-size: 12px;
-    line-height: 1.7;
-}
-
-@media (max-width:700px) {
+@media(max-width:700px) {
     .admin-sidebar {
         width: 200px !important;
         min-width: 200px !important;
@@ -218,18 +205,17 @@ if ($role !== 'admin') {
 
 <aside class="admin-sidebar">
 
-    <div class="vnn-admin-brand">
+    <div class="vnn-side-brand">
         <i class="fa-solid fa-mountain-sun"></i>
-
         <div>
-            <div class="vnn-brand-name">VNN</div>
-            <div class="vnn-brand-caption">TRAVEL</div>
+            <strong>VNN</strong>
+            <small>TRAVEL</small>
         </div>
     </div>
 
     <a
-        href="<?= vnnAdminEscape($siteBase) ?>index.php"
-        class="vnn-admin-website"
+        class="vnn-side-site"
+        href="<?= vnnSideEsc($root) ?>index.php"
         target="_blank"
         rel="noopener"
     >
@@ -237,159 +223,180 @@ if ($role !== 'admin') {
         Xem Website Trực Tiếp
     </a>
 
-    <ul class="vnn-admin-menu">
+    <?php if ($role === 'admin'): ?>
 
-        <?php if ($role === 'admin'): ?>
+        <?php
+        vnnSideLink(
+            $root.'admin/system.php?tab=users',
+            'fa-users-gear',
+            'Quản lý & Cấp quyền tài khoản',
+            $current_page === 'system-users'
+        );
+        ?>
 
-            <?php
-            vnnAdminLink(
-                'system-overview',
-                $adminBase . 'system.php?tab=overview',
-                'fa-chart-pie',
-                'Tổng Quan Hệ Thống'
-            );
+        <button
+            type="button"
+            class="vnn-side-trigger <?= $historyOpen?'active':'' ?>"
+            id="vnnHistoryToggle"
+            aria-expanded="<?= $historyOpen?'true':'false' ?>"
+        >
+            <span>
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                Lịch sử hoạt động
+            </span>
 
-            vnnAdminLink(
-                'system-users',
-                $adminBase . 'system.php?tab=users',
-                'fa-users-gear',
-                'Quản Lý Tài Khoản'
-            );
+            <i class="fa-solid fa-chevron-down"></i>
+        </button>
 
-            vnnAdminLink(
-                'system-content',
-                $adminBase . 'system.php?tab=content',
-                'fa-panels-top-left',
-                'Nội Dung Website'
-            );
-
-            vnnAdminLink(
-                'system-history',
-                $adminBase . 'system.php?tab=history',
-                'fa-clock-rotate-left',
-                'Lịch Sử Hoạt Động'
-            );
-            ?>
-
-        <?php else: ?>
+        <div
+            class="vnn-side-submenu"
+            id="vnnHistoryItems"
+            <?= $historyOpen?'':'hidden' ?>
+        >
 
             <?php
-            vnnAdminLink(
-                'dashboard',
-                $adminBase . 'index.php',
-                'fa-gauge',
-                'Dashboard Bàn Làm Việc'
-            );
+            foreach ([
+                'accounts' => '1. Tài khoản',
+                'content' => '2. Nội dung',
+                'transactions' => '3. Giao dịch',
+                'security' => '4. Bảo mật'
+            ] as $id => $label) {
+
+                vnnSideLink(
+                    $root.'admin/system.php?tab=history&category='.$id,
+                    'fa-angle-right',
+                    $label,
+                    $historyOpen && $category === $id
+                );
+            }
             ?>
 
-            <div class="vnn-section-title">
-                <i class="fa-solid fa-headset"></i>
-                XỬ LÝ KHÁCH HÀNG
+        </div>
+
+    <?php else: ?>
+
+        <?php
+        vnnSideLink(
+            $root.'admin/index.php',
+            'fa-gauge',
+            'Dashboard Bàn Làm Việc',
+            $current_page === 'dashboard'
+        );
+        ?>
+
+        <div class="vnn-side-title">
+            XỬ LÝ KHÁCH HÀNG
+        </div>
+
+        <?php
+        vnnSideLink(
+            $root.'admin/chat/',
+            'fa-comments',
+            'Chat Trực Tuyến',
+            $current_page === 'chat'
+        );
+
+        vnnSideLink(
+            $root.'admin/bookings/',
+            'fa-ticket',
+            'Duyệt Tour',
+            $current_page === 'bookings',
+            vnnSideCount($pdo, 'tour_bookings')
+        );
+
+        vnnSideLink(
+            $root.'admin/orders/',
+            'fa-box',
+            'Duyệt Đơn Hàng',
+            $current_page === 'orders',
+            vnnSideCount($pdo, 'orders')
+        );
+
+        vnnSideLink(
+            $root.'admin/reviews/',
+            'fa-star',
+            'Đánh Giá Từ Khách',
+            $current_page === 'reviews'
+        );
+
+        vnnSideLink(
+            $root.'admin/contacts/',
+            'fa-envelope',
+            'Tin Nhắn Liên Hệ',
+            $current_page === 'contacts'
+        );
+        ?>
+
+        <?php if ($role === 'manager'): ?>
+
+            <div class="vnn-side-title">
+                NỘI DUNG & KHO
             </div>
 
             <?php
-            vnnAdminLink(
-                'chat',
-                $adminBase . 'chat/',
-                'fa-comments',
-                'Chat Trực Tuyến'
+            vnnSideLink(
+                $root.'admin/tours/',
+                'fa-person-hiking',
+                'Quản Lý Tour',
+                $current_page === 'tours'
             );
 
-            vnnAdminLink(
-                'bookings',
-                $adminBase . 'bookings/',
-                'fa-ticket',
-                'Duyệt Tour',
-                $pendingTours
+            vnnSideLink(
+                $root.'admin/leaders/',
+                'fa-person-hiking',
+                'Đội Ngũ Leader',
+                $current_page === 'leaders'
             );
 
-            vnnAdminLink(
-                'orders',
-                $adminBase . 'orders/',
-                'fa-box',
-                'Duyệt Đơn Hàng',
-                $pendingOrders
+            vnnSideLink(
+                $root.'admin/products/',
+                'fa-warehouse',
+                'Dụng Cụ, Kho & Danh Mục',
+                $current_page === 'products'
             );
 
-            vnnAdminLink(
-                'reviews',
-                $adminBase . 'reviews/',
-                'fa-star',
-                'Đánh Giá Từ Khách'
+            vnnSideLink(
+                $root.'admin/locations/',
+                'fa-map-location-dot',
+                'Điểm Đến Trekking',
+                $current_page === 'locations'
             );
 
-            vnnAdminLink(
-                'contacts',
-                $adminBase . 'contacts/',
-                'fa-envelope',
-                'Tin Nhắn Liên Hệ'
+            vnnSideLink(
+                $root.'admin/posts/',
+                'fa-newspaper',
+                'Bài Viết & Cẩm Nang',
+                $current_page === 'posts'
+            );
+
+            vnnSideLink(
+                $root.'admin/revenue.php',
+                'fa-chart-line',
+                'Doanh Thu & Báo Cáo',
+                $current_page === 'revenue'
             );
             ?>
 
-            <?php if ($role === 'manager'): ?>
-
-                <div class="vnn-section-title">
-                    <i class="fa-solid fa-boxes-stacked"></i>
-                    NỘI DUNG & KHO
-                </div>
-
-                <?php
-                vnnAdminLink(
-                    'tours',
-                    $adminBase . 'tours/',
-                    'fa-person-hiking',
-                    'Quản Lý Tour'
-                );
-
-                vnnAdminLink(
-                    'leaders',
-                    $adminBase . 'leaders/',
-                    'fa-person-hiking',
-                    'Đội Ngũ Leader'
-                );
-
-                vnnAdminLink(
-                    'products',
-                    $adminBase . 'products/',
-                    'fa-warehouse',
-                    'Dụng Cụ, Kho & Danh Mục'
-                );
-
-                vnnAdminLink(
-                    'locations',
-                    $adminBase . 'locations/',
-                    'fa-map-location-dot',
-                    'Điểm Đến Trekking'
-                );
-
-                vnnAdminLink(
-                    'posts',
-                    $adminBase . 'posts/',
-                    'fa-newspaper',
-                    'Bài Viết & Cẩm Nang'
-                );
-
-                vnnAdminLink(
-                    'revenue',
-                    $adminBase . 'revenue.php',
-                    'fa-chart-line',
-                    'Doanh Thu & Báo Cáo'
-                );
-                ?>
-
-            <?php endif; ?>
-
         <?php endif; ?>
-
-    </ul>
-
-    <?php if ($role === 'admin'): ?>
-
-        <div class="vnn-sidebar-note">
-            <i class="fa-solid fa-shield-halved"></i>
-            Khu vực quản trị hệ thống và tài khoản.
-        </div>
 
     <?php endif; ?>
 
 </aside>
+
+<script>
+(function() {
+    const trigger = document.getElementById('vnnHistoryToggle');
+    const menu = document.getElementById('vnnHistoryItems');
+
+    if (!trigger || !menu) return;
+
+    trigger.addEventListener('click', function() {
+        menu.hidden = !menu.hidden;
+
+        trigger.setAttribute(
+            'aria-expanded',
+            String(!menu.hidden)
+        );
+    });
+})();
+</script>
