@@ -9,34 +9,34 @@ requireManager();
 $current_page = 'revenue';
 $page_title = 'Doanh Thu & Báo Cáo - VNN Travel';
 
-if (!function_exists('revH')) {
-    function revH($value) {
-        return htmlspecialchars((string)($value ?? ''), ENT_QUOTES, 'UTF-8');
+if (!function_exists('rvH')) {
+    function rvH($v) {
+        return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
     }
 }
 
-if (!function_exists('revMoney')) {
-    function revMoney($number) {
-        return number_format((float)$number, 0, ',', '.') . ' đ';
+if (!function_exists('rvMoney')) {
+    function rvMoney($v) {
+        return number_format((float)$v, 0, ',', '.') . ' đ';
     }
 }
 
-if (!function_exists('revRows')) {
-    function revRows(PDO $pdo, string $sql, array $params = []) {
+if (!function_exists('rvRows')) {
+    function rvRows(PDO $pdo, string $sql, array $params = []) {
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }
 
-if (!function_exists('revColumns')) {
-    function revColumns(PDO $pdo, string $table) {
-        $allowed = [
+if (!function_exists('rvColumns')) {
+    function rvColumns(PDO $pdo, string $table) {
+        if (!in_array($table, [
             'orders', 'order_details', 'products',
             'tour_bookings', 'tours'
-        ];
-
-        if (!in_array($table, $allowed, true)) return [];
+        ], true)) {
+            return [];
+        }
 
         try {
             return array_column(
@@ -50,109 +50,131 @@ if (!function_exists('revColumns')) {
     }
 }
 
-if (!function_exists('revColumn')) {
-    function revColumn(array $columns, array $candidates) {
-        foreach ($candidates as $candidate) {
-            if (in_array($candidate, $columns, true)) {
-                return $candidate;
+if (!function_exists('rvFindColumn')) {
+    function rvFindColumn(array $columns, array $names) {
+        foreach ($names as $name) {
+            if (in_array($name, $columns, true)) {
+                return $name;
             }
         }
         return null;
     }
 }
 
-if (!function_exists('revDate')) {
-    function revDate($date) {
+if (!function_exists('rvDate')) {
+    function rvDate($date) {
         $time = strtotime((string)$date);
         return $time ? date('d/m/Y H:i', $time) : '—';
     }
 }
 
-// =======================================
+// =========================================
 // BO LOC
-// =======================================
+// =========================================
 
 $year = filter_input(INPUT_GET, 'year', FILTER_VALIDATE_INT);
+
 if (!$year || $year < 2020 || $year > 2100) {
     $year = (int)date('Y');
 }
 
 $month = filter_input(INPUT_GET, 'month', FILTER_VALIDATE_INT);
+
 if (!$month || $month < 1 || $month > 12) {
     $month = 0;
 }
 
 $source = (string)($_GET['source'] ?? 'all');
+
 if (!in_array($source, ['all', 'tour', 'shop'], true)) {
     $source = 'all';
 }
 
 $chartSource = (string)($_GET['chart'] ?? 'all');
+
 if (!in_array($chartSource, ['all', 'tour', 'shop'], true)) {
     $chartSource = 'all';
 }
 
-$filterTour = filter_input(INPUT_GET, 'tour_id', FILTER_VALIDATE_INT);
-$filterTour = $filterTour && $filterTour > 0 ? $filterTour : 0;
+$filterTour = filter_input(
+    INPUT_GET,
+    'tour_id',
+    FILTER_VALIDATE_INT
+);
+
+$filterTour = $filterTour > 0 ? $filterTour : 0;
 
 $startDate = sprintf('%04d-01-01 00:00:00', $year);
 $endDate = sprintf('%04d-01-01 00:00:00', $year + 1);
 
 if ($month) {
-    $startDate = sprintf('%04d-%02d-01 00:00:00', $year, $month);
+    $startDate = sprintf(
+        '%04d-%02d-01 00:00:00',
+        $year,
+        $month
+    );
 
-    $next = new DateTimeImmutable($startDate);
-    $endDate = $next->modify('+1 month')->format('Y-m-d H:i:s');
+    $endDate = (new DateTimeImmutable($startDate))
+        ->modify('+1 month')
+        ->format('Y-m-d H:i:s');
 }
 
-// =======================================
-// DOC CAU TRUC DATABASE
-// =======================================
+// =========================================
+// CAU TRUC DATABASE
+// =========================================
 
-$orderCols = revColumns($pdo, 'orders');
-$detailCols = revColumns($pdo, 'order_details');
-$productCols = revColumns($pdo, 'products');
-$bookingCols = revColumns($pdo, 'tour_bookings');
+$orderCols = rvColumns($pdo, 'orders');
+$detailCols = rvColumns($pdo, 'order_details');
+$productCols = rvColumns($pdo, 'products');
+$bookingCols = rvColumns($pdo, 'tour_bookings');
 
-$detailQuantity = revColumn(
+$quantityColumn = rvFindColumn(
     $detailCols,
-    ['quantity', 'qty', 'number', 'amount']
+    ['quantity', 'qty', 'number']
 );
 
-$productName = revColumn(
+$productNameColumn = rvFindColumn(
     $productCols,
     ['name', 'product_name', 'title']
 );
 
-$detailName = revColumn(
+$detailNameColumn = rvFindColumn(
     $detailCols,
     ['product_name', 'name', 'title']
 );
 
-$bookingPeople = revColumn(
-    $bookingCols,
-    ['number_people', 'number_of_people', 'num_people',
-     'total_people', 'people_count', 'quantity']
-);
-
-$bookingTotal = revColumn(
-    $bookingCols,
-    ['total_price', 'total_amount', 'amount']
-);
-
-$orderTotal = revColumn(
+$orderTotalColumn = rvFindColumn(
     $orderCols,
     ['total_amount', 'total_price', 'amount']
 );
 
-// =======================================
-// DU LIEU MAC DINH
-// =======================================
+$bookingTotalColumn = rvFindColumn(
+    $bookingCols,
+    ['total_price', 'total_amount', 'amount']
+);
+
+$bookingPeopleColumn = rvFindColumn(
+    $bookingCols,
+    [
+        'number_people',
+        'number_of_people',
+        'num_people',
+        'total_people',
+        'people_count',
+        'quantity'
+    ]
+);
+
+// =========================================
+// BIEN DU LIEU
+// =========================================
 
 $tours = [];
 $tourBookings = [];
 $orders = [];
 $orderProducts = [];
+$tourReport = [];
+$errors = [];
 
 $tourRevenue = 0;
 $shopRevenue = 0;
@@ -161,11 +183,6 @@ $processingValue = 0;
 $chartTour = array_fill(1, 12, 0);
 $chartShop = array_fill(1, 12, 0);
 
-$tourReport = [];
-$errors = [];
-
-// Trang thai da hoan tat.
-// Doanh thu khong bao gom don dang cho xu ly.
 $paidTourStatuses = [
     'Đã thanh toán',
     'Đã hoàn thành'
@@ -179,12 +196,12 @@ $completedOrderStatuses = [
     'delivered'
 ];
 
-// =======================================
-// LAY DANH SACH TOUR
-// =======================================
+// =========================================
+// TOUR
+// =========================================
 
 try {
-    $tours = revRows(
+    $tours = rvRows(
         $pdo,
         "SELECT id, title FROM tours ORDER BY title"
     );
@@ -192,15 +209,13 @@ try {
     error_log('Revenue tours: ' . $e->getMessage());
 }
 
-// =======================================
+// =========================================
 // DOANH THU TOUR
-// =======================================
+// =========================================
 
 try {
     $sql = "
-        SELECT
-            b.*,
-            t.title AS report_tour_name
+        SELECT b.*, t.title AS report_tour_name
         FROM tour_bookings b
         LEFT JOIN tours t ON t.id = b.tour_id
         WHERE b.created_at >= ?
@@ -216,17 +231,16 @@ try {
 
     $sql .= " ORDER BY b.created_at DESC ";
 
-    $tourBookings = revRows($pdo, $sql, $params);
+    $tourBookings = rvRows($pdo, $sql, $params);
 
     foreach ($tourBookings as $booking) {
         $status = (string)($booking['status'] ?? '');
-        $amount = $bookingTotal
-            ? (float)($booking[$bookingTotal] ?? 0)
+
+        $amount = $bookingTotalColumn
+            ? (float)($booking[$bookingTotalColumn] ?? 0)
             : 0;
 
-        $isPaid = in_array($status, $paidTourStatuses, true);
-
-        if ($isPaid) {
+        if (in_array($status, $paidTourStatuses, true)) {
             $tourRevenue += $amount;
 
             $m = (int)date(
@@ -238,25 +252,26 @@ try {
                 $chartTour[$m] += $amount;
             }
 
-            $tourId = (int)$booking['tour_id'];
+            $id = (int)$booking['tour_id'];
 
-            if (!isset($tourReport[$tourId])) {
-                $tourReport[$tourId] = [
-                    'name' => $booking['report_tour_name'] ?: 'Tour #' . $tourId,
+            if (!isset($tourReport[$id])) {
+                $tourReport[$id] = [
+                    'name' => $booking['report_tour_name']
+                        ?: 'Tour #' . $id,
                     'bookings' => 0,
                     'people' => 0,
                     'revenue' => 0
                 ];
             }
 
-            $tourReport[$tourId]['bookings']++;
+            $tourReport[$id]['bookings']++;
 
-            if ($bookingPeople) {
-                $tourReport[$tourId]['people'] +=
-                    (int)($booking[$bookingPeople] ?? 0);
+            if ($bookingPeopleColumn) {
+                $tourReport[$id]['people'] +=
+                    (int)($booking[$bookingPeopleColumn] ?? 0);
             }
 
-            $tourReport[$tourId]['revenue'] += $amount;
+            $tourReport[$id]['revenue'] += $amount;
 
         } elseif ($status !== 'Đã hủy') {
             $processingValue += $amount;
@@ -268,12 +283,12 @@ try {
     $errors[] = 'Không thể tải dữ liệu doanh thu tour.';
 }
 
-// =======================================
+// =========================================
 // DOANH THU DON HANG
-// =======================================
+// =========================================
 
 try {
-    $orders = revRows(
+    $orders = rvRows(
         $pdo,
         "
         SELECT *
@@ -286,12 +301,14 @@ try {
     );
 
     foreach ($orders as $order) {
-        $amount = $orderTotal
-            ? (float)($order[$orderTotal] ?? 0)
+        $amount = $orderTotalColumn
+            ? (float)($order[$orderTotalColumn] ?? 0)
             : 0;
 
+        $status = (string)($order['status'] ?? '');
+
         if (in_array(
-            (string)$order['status'],
+            $status,
             $completedOrderStatuses,
             true
         )) {
@@ -306,7 +323,7 @@ try {
                 $chartShop[$m] += $amount;
             }
 
-        } elseif (($order['status'] ?? '') !== 'Đã hủy') {
+        } elseif ($status !== 'Đã hủy') {
             $processingValue += $amount;
         }
     }
@@ -316,61 +333,53 @@ try {
     $errors[] = 'Không thể tải dữ liệu đơn hàng.';
 }
 
-// =======================================
-// LAY TEN SAN PHAM THEO TUNG DON
-// =======================================
+// =========================================
+// TEN SAN PHAM + SO LUONG
+// =========================================
 
-// Quan trong:
-// Mot don co nhieu san pham.
-// Truy van tat ca chi tiet mot lan,
-// sau do gom theo order_id.
-// Khong JOIN truc tiep vao truy van tinh doanh thu,
-// tranh nhan doi tong tien don hang.
+// Lay cac dong chi tiet don hang.
+// Khong nhan ban ghi order khi tinh doanh thu.
 
 try {
-    if (
-        $detailCols &&
-        in_array('order_id', $detailCols, true)
-    ) {
-        $selectName = "'Sản phẩm không còn trong danh mục'";
-
-        $joinProduct = '';
+    if (in_array('order_id', $detailCols, true)) {
+        $productJoin = '';
+        $nameParts = [];
 
         if (
             in_array('product_id', $detailCols, true) &&
-            $productName
+            $productNameColumn
         ) {
-            $joinProduct = "
+            $productJoin = "
                 LEFT JOIN products p
                     ON p.id = d.product_id
             ";
 
-            $selectName = "p.`$productName`";
+            $nameParts[] = "NULLIF(p.`$productNameColumn`, '')";
         }
 
-        $fallbackName = $detailName
-            ? "d.`$detailName`"
-            : "'Sản phẩm không còn trong danh mục'";
+        if ($detailNameColumn) {
+            $nameParts[] = "NULLIF(d.`$detailNameColumn`, '')";
+        }
 
-        $quantitySql = $detailQuantity
-            ? "d.`$detailQuantity`"
-            : "1";
+        $nameParts[] = "'Sản phẩm không còn trong danh mục'";
 
-        $productRows = revRows(
+        $nameExpression = 'COALESCE(' .
+            implode(', ', $nameParts) . ')';
+
+        $quantityExpression = $quantityColumn
+            ? "d.`$quantityColumn`"
+            : "NULL";
+
+        $items = rvRows(
             $pdo,
             "
             SELECT
                 d.order_id,
-                COALESCE(
-                    NULLIF($selectName, ''),
-                    NULLIF($fallbackName, ''),
-                    'Sản phẩm không còn trong danh mục'
-                ) AS display_product_name,
-                $quantitySql AS display_quantity
+                $nameExpression AS item_name,
+                $quantityExpression AS item_quantity
             FROM order_details d
-            $joinProduct
-            INNER JOIN orders o
-                ON o.id = d.order_id
+            $productJoin
+            INNER JOIN orders o ON o.id = d.order_id
             WHERE o.created_at >= ?
               AND o.created_at < ?
             ORDER BY d.order_id, d.id
@@ -378,31 +387,32 @@ try {
             [$startDate, $endDate]
         );
 
-        foreach ($productRows as $row) {
-            $orderId = (int)$row['order_id'];
+        foreach ($items as $item) {
+            $orderId = (int)$item['order_id'];
 
             if (!isset($orderProducts[$orderId])) {
                 $orderProducts[$orderId] = [];
             }
 
             $orderProducts[$orderId][] = [
-                'name' => $row['display_product_name'],
-                'quantity' => (int)$row['display_quantity']
+                'name' => $item['item_name'],
+                'quantity' => $item['item_quantity'] === null
+                    ? null
+                    : (int)$item['item_quantity']
             ];
         }
     }
 
 } catch (Throwable $e) {
-    error_log('Revenue product names: ' . $e->getMessage());
-    $errors[] = 'Chưa tải được tên sản phẩm trong đơn hàng.';
+    error_log('Revenue products: ' . $e->getMessage());
+    $errors[] = 'Không thể tải chi tiết sản phẩm trong đơn hàng.';
 }
 
 $totalRevenue = $tourRevenue + $shopRevenue;
 
-// =======================================
-// BIEU DO
-// "TAT CA" = MOT COT TONG / THANG
-// =======================================
+// =========================================
+// BIEU DO MOT COT TONG
+// =========================================
 
 $chartLabels = [];
 $chartValues = [];
@@ -418,16 +428,13 @@ for ($i = 1; $i <= 12; $i++) {
         $chartValues[] = $chartTour[$i] + $chartShop[$i];
     }
 }
-
-$baseUrl = rtrim(BASE_URL, '/') . '/';
-
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= revH($page_title) ?></title>
+<title><?= rvH($page_title) ?></title>
 
 <link rel="stylesheet" href="../assets/css/style.css">
 <link rel="stylesheet" href="../assets/css/admin.css">
@@ -449,30 +456,30 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 }
 
 .rv-head {
-    padding: 23px 28px;
-    background: #fff;
+    padding: 22px 27px;
+    background: white;
     border-bottom: 1px solid #e2e8f0;
 }
 
 .rv-head h1 {
     margin: 0;
-    font-size: 20px;
-    font-weight: 900;
     color: #102d50;
+    font-size: 20px;
+    font-weight: 800;
 }
 
 .rv-body {
-    padding: 24px;
     max-width: 1800px;
     margin: auto;
+    padding: 24px;
 }
 
 .rv-panel {
     padding: 23px;
     margin-bottom: 22px;
-    background: white;
     border: 1px solid #dfe7f1;
     border-radius: 17px;
+    background: white;
 }
 
 .rv-panel h2 {
@@ -484,9 +491,9 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
 .rv-filters {
     display: flex;
-    gap: 13px;
-    align-items: end;
     flex-wrap: wrap;
+    align-items: end;
+    gap: 13px;
 }
 
 .rv-field {
@@ -497,9 +504,9 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 .rv-field label {
     display: block;
     margin-bottom: 7px;
+    color: #475569;
     font-size: 12px;
     font-weight: 800;
-    color: #475569;
 }
 
 .rv-field select {
@@ -520,6 +527,7 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
     border-radius: 9px;
     background: #166534;
     color: white;
+    font-size: 13px;
     font-weight: 800;
     cursor: pointer;
 }
@@ -532,6 +540,7 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 }
 
 .rv-stat {
+    min-width: 0;
     padding: 23px;
     border: 1px solid #dfe7f1;
     border-radius: 16px;
@@ -539,17 +548,17 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 }
 
 .rv-stat-title {
+    color: #64748b;
     font-size: 12px;
     font-weight: 800;
-    color: #64748b;
     text-transform: uppercase;
 }
 
 .rv-stat-value {
     margin-top: 15px;
+    color: #ea580c;
     font-size: clamp(21px,2vw,29px);
     font-weight: 900;
-    color: #ea580c;
     overflow-wrap: anywhere;
 }
 
@@ -561,14 +570,55 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
     color: #0284c7;
 }
 
+.rv-muted {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.rv-chart-head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.rv-chart-head h2 {
+    margin-bottom: 0;
+}
+
+.rv-chart-controls label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.rv-chart-controls select {
+    min-width: 190px;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: white;
+}
+
+.rv-chart-box {
+    position: relative;
+    width: 100%;
+    height: 355px;
+}
+
 .rv-table-wrap {
+    width: 100%;
     overflow-x: auto;
 }
 
 .rv-table {
     width: 100%;
+    min-width: 1000px;
     border-collapse: collapse;
-    min-width: 760px;
 }
 
 .rv-table th,
@@ -576,7 +626,7 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
     padding: 14px 13px;
     border-bottom: 1px solid #e2e8f0;
     text-align: left;
-    vertical-align: middle;
+    vertical-align: top;
     font-size: 13px;
 }
 
@@ -597,76 +647,51 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
     white-space: nowrap;
 }
 
-.rv-product {
-    margin: 0 0 7px;
-    padding-left: 12px;
-    position: relative;
+/* ==================================
+   TEN SAN PHAM - KHONG DAU CHAM
+   ================================== */
+
+.rv-product-line {
+    display: block;
+    padding: 4px 0;
     color: #153358;
     font-size: 13px;
-    line-height: 1.55;
+    line-height: 1.5;
 }
 
-.rv-product:last-child {
-    margin-bottom: 0;
+.rv-product-line + .rv-product-line {
+    border-top: 1px solid #edf2f7;
 }
 
-.rv-product:before {
-    content: "•";
-    position: absolute;
-    left: 0;
-    color: #166534;
-}
+/* ==================================
+   SO LUONG LA COT RIENG
+   ================================== */
 
-.rv-qty {
-    font-weight: 800;
-    color: #166534;
-    white-space: nowrap;
-}
-
-.rv-muted {
-    color: #64748b;
-    font-size: 12px;
-}
-
-.rv-chart-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    flex-wrap: wrap;
-    gap: 15px;
-    margin-bottom: 20px;
-}
-
-.rv-chart-head h2 {
-    margin-bottom: 0;
-}
-
-.rv-chart-box {
-    position: relative;
-    width: 100%;
-    height: 355px;
-}
-
-.rv-chart-controls label {
+.rv-quantity-line {
     display: block;
-    margin-bottom: 6px;
-    font-size: 12px;
+    padding: 4px 0;
+    color: #166534;
+    font-size: 13px;
     font-weight: 800;
+    line-height: 1.5;
 }
 
-.rv-chart-controls select {
-    min-width: 190px;
-    height: 42px;
-    padding: 0 12px;
-    border-radius: 9px;
-    border: 1px solid #cbd5e1;
-    background: white;
+.rv-quantity-line + .rv-quantity-line {
+    border-top: 1px solid #edf2f7;
+}
+
+.rv-quantity-cell {
+    text-align: center !important;
+}
+
+.rv-quantity-head {
+    text-align: center !important;
 }
 
 .rv-empty {
-    padding: 30px;
+    padding: 30px !important;
     color: #64748b;
-    text-align: center;
+    text-align: center !important;
     font-size: 13px;
 }
 
@@ -681,7 +706,7 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
 @media(max-width:1250px) {
     .rv-stats {
-        grid-template-columns: repeat(2,minmax(0,1fr));
+        grid-template-columns: repeat(2, minmax(0,1fr));
     }
 }
 
@@ -690,12 +715,12 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
         padding: 12px;
     }
 
-    .rv-stats {
-        grid-template-columns: 1fr;
-    }
-
     .rv-panel {
         padding: 15px;
+    }
+
+    .rv-stats {
+        grid-template-columns: 1fr;
     }
 }
 </style>
@@ -707,194 +732,204 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
 <main class="admin-main rv-main">
 
-    <header class="rv-head">
-        <h1>
-            <i class="fa-solid fa-chart-line"></i>
-            DOANH THU & BÁO CÁO
-        </h1>
-    </header>
+<header class="rv-head">
+    <h1>
+        <i class="fa-solid fa-chart-line"></i>
+        DOANH THU & BÁO CÁO
+    </h1>
+</header>
 
-    <div class="rv-body">
+<div class="rv-body">
 
-        <?php foreach ($errors as $error): ?>
-            <div class="rv-warning">
-                <?= revH($error) ?>
-            </div>
-        <?php endforeach; ?>
+    <?php foreach ($errors as $error): ?>
+        <div class="rv-warning">
+            <?= rvH($error) ?>
+        </div>
+    <?php endforeach; ?>
 
-        <!-- BO LOC -->
+    <!-- BO LOC -->
 
-        <section class="rv-panel">
-            <form method="GET" class="rv-filters">
+    <section class="rv-panel">
 
-                <div class="rv-field">
-                    <label>Năm</label>
+        <form method="GET" class="rv-filters">
 
-                    <select name="year">
-                        <?php for ($y = 2025; $y <= max(2030, (int)date('Y') + 2); $y++): ?>
-                            <option value="<?= $y ?>"
-                                <?= $year === $y ? 'selected' : '' ?>>
-                                <?= $y ?>
-                            </option>
-                        <?php endfor; ?>
-                    </select>
-                </div>
+            <div class="rv-field">
+                <label>Năm</label>
 
-                <div class="rv-field">
-                    <label>Tháng</label>
-
-                    <select name="month">
-                        <option value="0">Cả năm</option>
-
-                        <?php for ($m = 1; $m <= 12; $m++): ?>
-                            <option value="<?= $m ?>"
-                                <?= $month === $m ? 'selected' : '' ?>>
-                                Tháng <?= $m ?>
-                            </option>
-                        <?php endfor; ?>
-                    </select>
-                </div>
-
-                <div class="rv-field">
-                    <label>Nguồn doanh thu</label>
-
-                    <select name="source">
-                        <option value="all"
-                            <?= $source === 'all' ? 'selected' : '' ?>>
-                            Tất cả
+                <select name="year">
+                    <?php for (
+                        $y = 2025;
+                        $y <= max(2030, (int)date('Y') + 2);
+                        $y++
+                    ): ?>
+                        <option
+                            value="<?= $y ?>"
+                            <?= $year === $y ? 'selected' : '' ?>
+                        >
+                            <?= $y ?>
                         </option>
+                    <?php endfor; ?>
+                </select>
+            </div>
 
-                        <option value="tour"
-                            <?= $source === 'tour' ? 'selected' : '' ?>>
-                            Tour trekking
+            <div class="rv-field">
+                <label>Tháng</label>
+
+                <select name="month">
+                    <option value="0">Cả năm</option>
+
+                    <?php for ($m = 1; $m <= 12; $m++): ?>
+                        <option
+                            value="<?= $m ?>"
+                            <?= $month === $m ? 'selected' : '' ?>
+                        >
+                            Tháng <?= $m ?>
                         </option>
+                    <?php endfor; ?>
+                </select>
+            </div>
 
-                        <option value="shop"
-                            <?= $source === 'shop' ? 'selected' : '' ?>>
-                            Bán dụng cụ
+            <div class="rv-field">
+                <label>Nguồn doanh thu</label>
+
+                <select name="source">
+                    <option value="all"
+                        <?= $source === 'all' ? 'selected' : '' ?>>
+                        Tất cả
+                    </option>
+
+                    <option value="tour"
+                        <?= $source === 'tour' ? 'selected' : '' ?>>
+                        Tour trekking
+                    </option>
+
+                    <option value="shop"
+                        <?= $source === 'shop' ? 'selected' : '' ?>>
+                        Bán dụng cụ
+                    </option>
+                </select>
+            </div>
+
+            <div class="rv-field">
+                <label>Tour</label>
+
+                <select name="tour_id">
+                    <option value="0">Tất cả tour</option>
+
+                    <?php foreach ($tours as $tour): ?>
+                        <option
+                            value="<?= (int)$tour['id'] ?>"
+                            <?= $filterTour === (int)$tour['id']
+                                ? 'selected' : '' ?>
+                        >
+                            <?= rvH($tour['title']) ?>
                         </option>
-                    </select>
-                </div>
-
-                <div class="rv-field">
-                    <label>Tour</label>
-
-                    <select name="tour_id">
-                        <option value="0">Tất cả tour</option>
-
-                        <?php foreach ($tours as $tour): ?>
-                            <option value="<?= (int)$tour['id'] ?>"
-                                <?= $filterTour === (int)$tour['id']
-                                    ? 'selected' : '' ?>>
-                                <?= revH($tour['title']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-
-                <input type="hidden" name="chart"
-                       value="<?= revH($chartSource) ?>">
-
-                <button class="rv-submit" type="submit">
-                    <i class="fa-solid fa-filter"></i>
-                    Lọc dữ liệu
-                </button>
-            </form>
-        </section>
-
-        <!-- TONG QUAN -->
-
-        <section class="rv-stats">
-
-            <div class="rv-stat">
-                <div class="rv-stat-title">
-                    Tổng doanh thu hoàn thành
-                </div>
-
-                <div class="rv-stat-value">
-                    <?= revH(revMoney($totalRevenue)) ?>
-                </div>
+                    <?php endforeach; ?>
+                </select>
             </div>
 
-            <div class="rv-stat">
-                <div class="rv-stat-title">
-                    Doanh thu tour
-                </div>
+            <input type="hidden" name="chart"
+                   value="<?= rvH($chartSource) ?>">
 
-                <div class="rv-stat-value green">
-                    <?= revH(revMoney($tourRevenue)) ?>
-                </div>
+            <button class="rv-submit" type="submit">
+                <i class="fa-solid fa-filter"></i>
+                Lọc dữ liệu
+            </button>
+
+        </form>
+    </section>
+
+    <!-- THONG KE -->
+
+    <section class="rv-stats">
+
+        <div class="rv-stat">
+            <div class="rv-stat-title">
+                Tổng doanh thu hoàn thành
             </div>
 
-            <div class="rv-stat">
-                <div class="rv-stat-title">
-                    Doanh thu bán hàng
-                </div>
+            <div class="rv-stat-value">
+                <?= rvH(rvMoney($totalRevenue)) ?>
+            </div>
+        </div>
 
-                <div class="rv-stat-value blue">
-                    <?= revH(revMoney($shopRevenue)) ?>
-                </div>
+        <div class="rv-stat">
+            <div class="rv-stat-title">
+                Doanh thu tour
             </div>
 
-            <div class="rv-stat">
-                <div class="rv-stat-title">
-                    Giá trị đơn đang xử lý
-                </div>
+            <div class="rv-stat-value green">
+                <?= rvH(rvMoney($tourRevenue)) ?>
+            </div>
+        </div>
 
-                <div class="rv-stat-value">
-                    <?= revH(revMoney($processingValue)) ?>
-                </div>
-
-                <div class="rv-muted">
-                    Không tính vào doanh thu hoàn thành.
-                </div>
+        <div class="rv-stat">
+            <div class="rv-stat-title">
+                Doanh thu bán hàng
             </div>
 
-        </section>
+            <div class="rv-stat-value blue">
+                <?= rvH(rvMoney($shopRevenue)) ?>
+            </div>
+        </div>
 
-        <!-- BIEU DO -->
-
-        <section class="rv-panel">
-
-            <div class="rv-chart-head">
-
-                <h2>
-                    <i class="fa-solid fa-chart-column"></i>
-                    Biểu đồ doanh thu năm <?= $year ?>
-                </h2>
-
-                <div class="rv-chart-controls">
-                    <label>Hiển thị biểu đồ</label>
-
-                    <select id="rvChartSource">
-                        <option value="all"
-                            <?= $chartSource === 'all' ? 'selected' : '' ?>>
-                            Tất cả
-                        </option>
-
-                        <option value="tour"
-                            <?= $chartSource === 'tour' ? 'selected' : '' ?>>
-                            Doanh thu Tour
-                        </option>
-
-                        <option value="shop"
-                            <?= $chartSource === 'shop' ? 'selected' : '' ?>>
-                            Doanh thu Bán Hàng
-                        </option>
-                    </select>
-                </div>
-
+        <div class="rv-stat">
+            <div class="rv-stat-title">
+                Giá trị đơn đang xử lý
             </div>
 
-            <div class="rv-chart-box">
-                <canvas id="rvRevenueChart"></canvas>
+            <div class="rv-stat-value">
+                <?= rvH(rvMoney($processingValue)) ?>
             </div>
 
-        </section>
+            <div class="rv-muted">
+                Không tính vào doanh thu hoàn thành.
+            </div>
+        </div>
 
-        <!-- DOANH THU TOUR -->
+    </section>
 
-        <?php if ($source !== 'shop'): ?>
+    <!-- BIEU DO -->
+
+    <section class="rv-panel">
+
+        <div class="rv-chart-head">
+            <h2>
+                <i class="fa-solid fa-chart-column"></i>
+                Biểu đồ doanh thu năm <?= $year ?>
+            </h2>
+
+            <div class="rv-chart-controls">
+                <label>Hiển thị biểu đồ</label>
+
+                <select id="rvChartSource">
+                    <option value="all"
+                        <?= $chartSource === 'all' ? 'selected' : '' ?>>
+                        Tất cả
+                    </option>
+
+                    <option value="tour"
+                        <?= $chartSource === 'tour' ? 'selected' : '' ?>>
+                        Doanh thu Tour
+                    </option>
+
+                    <option value="shop"
+                        <?= $chartSource === 'shop' ? 'selected' : '' ?>>
+                        Doanh thu Bán Hàng
+                    </option>
+                </select>
+            </div>
+        </div>
+
+        <div class="rv-chart-box">
+            <canvas id="rvRevenueChart"></canvas>
+        </div>
+
+    </section>
+
+    <!-- DOANH THU TOUR -->
+
+    <?php if ($source !== 'shop'): ?>
 
         <section class="rv-panel">
 
@@ -904,8 +939,8 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
             </h2>
 
             <div class="rv-table-wrap">
+                <table class="rv-table" style="min-width:760px">
 
-                <table class="rv-table">
                     <thead>
                         <tr>
                             <th>Tên Tour</th>
@@ -916,15 +951,20 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
                     </thead>
 
                     <tbody>
-
                     <?php foreach ($tourReport as $tour): ?>
                         <tr>
-                            <td><?= revH($tour['name']) ?></td>
-                            <td><?= (int)$tour['bookings'] ?></td>
-                            <td><?= (int)$tour['people'] ?></td>
+                            <td><?= rvH($tour['name']) ?></td>
+
+                            <td>
+                                <?= (int)$tour['bookings'] ?>
+                            </td>
+
+                            <td>
+                                <?= (int)$tour['people'] ?>
+                            </td>
 
                             <td class="rv-money">
-                                <?= revH(revMoney($tour['revenue'])) ?>
+                                <?= rvH(rvMoney($tour['revenue'])) ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -932,23 +972,22 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
                     <?php if (!$tourReport): ?>
                         <tr>
                             <td colspan="4" class="rv-empty">
-                                Chưa có doanh thu tour hoàn thành
-                                trong khoảng thời gian này.
+                                Chưa có doanh thu tour hoàn thành.
                             </td>
                         </tr>
                     <?php endif; ?>
-
                     </tbody>
-                </table>
 
+                </table>
             </div>
+
         </section>
 
-        <?php endif; ?>
+    <?php endif; ?>
 
-        <!-- DOANH THU DON HANG -->
+    <!-- DOANH THU DON HANG -->
 
-        <?php if ($source !== 'tour'): ?>
+    <?php if ($source !== 'tour'): ?>
 
         <section class="rv-panel">
 
@@ -961,18 +1000,27 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
                 <table class="rv-table">
 
+                    <!-- CHIA LAI 6 COT -->
+
+                    <colgroup>
+                        <col style="width:16%">
+                        <col style="width:30%">
+                        <col style="width:9%">
+                        <col style="width:19%">
+                        <col style="width:13%">
+                        <col style="width:13%">
+                    </colgroup>
+
                     <thead>
                         <tr>
-                            <th style="width:17%">Mã đơn</th>
-
-                            <!-- COT MOI -->
-                            <th style="width:32%">
-                                Sản phẩm đã mua
+                            <th>Mã đơn</th>
+                            <th>Tên sản phẩm</th>
+                            <th class="rv-quantity-head">
+                                Số lượng
                             </th>
-
-                            <th style="width:22%">Khách hàng</th>
-                            <th style="width:15%">Doanh thu</th>
-                            <th style="width:14%">Ngày tạo</th>
+                            <th>Khách hàng</th>
+                            <th>Doanh thu</th>
+                            <th>Ngày tạo</th>
                         </tr>
                     </thead>
 
@@ -1000,14 +1048,18 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
                         <tr>
 
+                            <!-- MA DON -->
+
                             <td>
-                                <?= revH(
+                                <?= rvH(
                                     $order['order_code'] ??
                                     'Đơn #' . $orderId
                                 ) ?>
                             </td>
 
-                            <!-- TEN SAN PHAM THAT THEO DON -->
+                            <!-- TEN SAN PHAM
+                                 KHONG DAU CHAM
+                                 KHONG NHAN SO LUONG -->
 
                             <td>
 
@@ -1015,14 +1067,8 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
                                     <?php foreach ($products as $item): ?>
 
-                                        <div class="rv-product">
-
-                                            <?= revH($item['name']) ?>
-
-                                            <span class="rv-qty">
-                                                × <?= (int)$item['quantity'] ?>
-                                            </span>
-
+                                        <div class="rv-product-line">
+                                            <?= rvH($item['name']) ?>
                                         </div>
 
                                     <?php endforeach; ?>
@@ -1037,27 +1083,59 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
                             </td>
 
+                            <!-- COT SO LUONG RIENG -->
+
+                            <td class="rv-quantity-cell">
+
+                                <?php if ($products): ?>
+
+                                    <?php foreach ($products as $item): ?>
+
+                                        <div class="rv-quantity-line">
+                                            <?= $item['quantity'] === null
+                                                ? '—'
+                                                : (int)$item['quantity'] ?>
+                                        </div>
+
+                                    <?php endforeach; ?>
+
+                                <?php else: ?>
+
+                                    <span class="rv-muted">—</span>
+
+                                <?php endif; ?>
+
+                            </td>
+
+                            <!-- KHACH HANG -->
+
                             <td>
-                                <?= revH(
+                                <?= rvH(
                                     $order['fullname'] ??
                                     $order['customer_name'] ??
                                     'Khách hàng'
                                 ) ?>
                             </td>
 
+                            <!-- DOANH THU -->
+
                             <td class="rv-money">
-                                <?= revH(
-                                    revMoney(
-                                        $orderTotal
-                                            ? ($order[$orderTotal] ?? 0)
+                                <?= rvH(
+                                    rvMoney(
+                                        $orderTotalColumn
+                                            ? ($order[$orderTotalColumn] ?? 0)
                                             : 0
                                     )
                                 ) ?>
                             </td>
 
+                            <!-- NGAY TAO -->
+
                             <td>
-                                <?= revH(
-                                    revDate($order['created_at'] ?? '')
+                                <?= rvH(
+                                    rvDate(
+                                        $order['created_at'] ?? ''
+                                    )
                                 ) ?>
                             </td>
 
@@ -1067,7 +1145,7 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
                     <?php if (!$hasCompletedOrders): ?>
                         <tr>
-                            <td colspan="5" class="rv-empty">
+                            <td colspan="6" class="rv-empty">
                                 Chưa có đơn hàng hoàn thành
                                 trong khoảng thời gian này.
                             </td>
@@ -1082,15 +1160,17 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
         </section>
 
-        <?php endif; ?>
+    <?php endif; ?>
 
-    </div>
+</div>
 </main>
 
 <script>
 (function() {
 
-    const select = document.getElementById('rvChartSource');
+    const select = document.getElementById(
+        'rvChartSource'
+    );
 
     const chartTour = <?= json_encode(
         array_values($chartTour),
@@ -1107,34 +1187,53 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
         JSON_UNESCAPED_UNICODE
     ) ?>;
 
-    function dataFor(source) {
-        if (source === 'tour') return chartTour;
-        if (source === 'shop') return chartShop;
+    function getData(source) {
+        if (source === 'tour') {
+            return chartTour;
+        }
+
+        if (source === 'shop') {
+            return chartShop;
+        }
 
         return chartTour.map(function(value, index) {
             return value + chartShop[index];
         });
     }
 
-    function labelFor(source) {
-        if (source === 'tour') return 'Doanh thu Tour';
-        if (source === 'shop') return 'Doanh thu Bán Hàng';
+    function getLabel(source) {
+        if (source === 'tour') {
+            return 'Doanh thu Tour';
+        }
+
+        if (source === 'shop') {
+            return 'Doanh thu Bán Hàng';
+        }
+
         return 'Tổng doanh thu';
     }
 
-    const ctx = document.getElementById('rvRevenueChart');
+    const canvas = document.getElementById(
+        'rvRevenueChart'
+    );
 
-    if (!ctx || typeof Chart === 'undefined') return;
+    if (
+        !canvas ||
+        !select ||
+        typeof Chart === 'undefined'
+    ) {
+        return;
+    }
 
-    const chart = new Chart(ctx, {
+    const chart = new Chart(canvas, {
         type: 'bar',
 
         data: {
             labels: labels,
 
             datasets: [{
-                label: labelFor(select.value),
-                data: dataFor(select.value),
+                label: getLabel(select.value),
+                data: getData(select.value),
                 backgroundColor: '#ea580c',
                 borderRadius: 5,
                 maxBarThickness: 50
@@ -1154,9 +1253,13 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            return context.dataset.label + ': ' +
+                            return (
+                                context.dataset.label +
+                                ': ' +
                                 new Intl.NumberFormat('vi-VN')
-                                    .format(context.parsed.y) + ' đ';
+                                    .format(context.parsed.y) +
+                                ' đ'
+                            );
                         }
                     }
                 }
@@ -1168,8 +1271,9 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 
                     ticks: {
                         callback: function(value) {
-                            return new Intl.NumberFormat('vi-VN')
-                                .format(value);
+                            return new Intl.NumberFormat(
+                                'vi-VN'
+                            ).format(value);
                         }
                     }
                 }
@@ -1180,13 +1284,18 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
     select.addEventListener('change', function() {
         const source = select.value;
 
-        chart.data.datasets[0].label = labelFor(source);
-        chart.data.datasets[0].data = dataFor(source);
+        chart.data.datasets[0].label =
+            getLabel(source);
+
+        chart.data.datasets[0].data =
+            getData(source);
 
         chart.data.datasets[0].backgroundColor =
-            source === 'tour' ? '#166534' :
-            source === 'shop' ? '#0284c7' :
-            '#ea580c';
+            source === 'tour'
+                ? '#166534'
+                : source === 'shop'
+                    ? '#0284c7'
+                    : '#ea580c';
 
         chart.update();
     });
