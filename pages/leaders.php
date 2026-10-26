@@ -1,4 +1,8 @@
 <?php
+// ============================================
+// VNN TRAVEL - DANH SACH HUONG DAN VIEN
+// ============================================
+
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 
@@ -6,11 +10,14 @@ $page_title = 'Đội Ngũ Hướng Dẫn Viên - VNN Travel';
 $active_menu = 'leaders';
 
 function guideH($value) {
-    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars(
+        (string)$value,
+        ENT_QUOTES,
+        'UTF-8'
+    );
 }
 
-$base = rtrim(BASE_URL, '/') . '/';
-
+// Lay danh sach Leader tu database
 $leaders = $pdo->query("
     SELECT
         id,
@@ -19,235 +26,489 @@ $leaders = $pdo->query("
         image,
         hometown,
         experience_years,
-        biography
+        biography,
+        mountains,
+        skills
     FROM trekking_leaders
     WHERE status = 1
     ORDER BY experience_years DESC, id DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+$baseUrl = rtrim(BASE_URL, '/') . '/';
+
+// Tao avatar minh hoa rieng cho tung Leader
+function leaderPhoto($leader) {
+
+    // Uu tien anh da nhap trong trang quan ly
+    if (!empty($leader['image'])) {
+        return $leader['image'];
+    }
+
+    // Moi Leader co mot avatar khac nhau
+    $seed = 'VNN-Trekking-Leader-' . (int)$leader['id'];
+
+    return 'https://api.dicebear.com/9.x/adventurer/svg?seed='
+        . rawurlencode($seed)
+        . '&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc';
+}
+
+// Rut gon tieu su
+function leaderSummary($text, $length = 145) {
+    $text = trim((string)$text);
+
+    if ($text === '') {
+        return 'Hướng dẫn viên trekking đồng hành cùng bạn trong những hành trình khám phá và chinh phục núi rừng.';
+    }
+
+    return mb_strimwidth(
+        $text,
+        0,
+        $length,
+        '...',
+        'UTF-8'
+    );
+}
+
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-.guide-page {
-    padding: 60px 20px 90px;
+
+/* ==========================================
+   TRANG DANH SACH LEADER
+   ========================================== */
+
+.leaders-page {
     background: #f8fafc;
-    min-height: 70vh;
+    min-height: 80vh;
+    padding: 65px 20px 95px;
 }
 
-.guide-container {
-    max-width: 1200px;
-    margin: auto;
+.leaders-container {
+    max-width: 1250px;
+    margin: 0 auto;
 }
 
-.guide-intro {
+/* ==========================================
+   TIEU DE
+   ========================================== */
+
+.leaders-heading {
     text-align: center;
-    max-width: 720px;
-    margin: 0 auto 45px;
+    margin: 0 auto 48px;
+    max-width: 800px;
 }
 
-.guide-intro small {
+.leaders-heading .subtitle {
+    display: inline-block;
     color: #ea580c;
     font-size: 12px;
+    font-weight: 800;
     letter-spacing: 2px;
-    font-weight: 900;
+    text-transform: uppercase;
+    margin-bottom: 13px;
 }
 
-.guide-intro h1 {
-    font-size: clamp(27px,4vw,42px);
+.leaders-heading h1 {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 800;
     color: #0f172a;
-    margin: 14px 0;
+    line-height: 1.3;
+    margin: 0 0 16px;
 }
 
-.guide-intro p {
-    color: #64748b;
+.leaders-heading h1 span {
+    color: #166534;
+}
+
+.leaders-heading p {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 15px;
     line-height: 1.9;
+    color: #64748b;
+    margin: 0 auto;
 }
 
-.guide-grid {
+/* ==========================================
+   LUOI THE HUONG DAN VIEN
+   ========================================== */
+
+.leaders-grid {
     display: grid;
-    grid-template-columns: repeat(4,minmax(0,1fr));
-    gap: 24px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 25px;
 }
 
-.guide-card {
-    display: block;
+/* ==========================================
+   THE LEADER
+   ========================================== */
+
+.leader-card {
+    display: flex;
+    flex-direction: column;
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
     overflow: hidden;
-    text-decoration: none;
     color: inherit;
-    box-shadow: 0 6px 20px rgba(15,23,42,.06);
-    transition: transform .2s, box-shadow .2s;
+    text-decoration: none;
+    box-shadow: 0 5px 20px rgba(15, 23, 42, 0.05);
+    transition:
+        transform 0.25s ease,
+        box-shadow 0.25s ease;
 }
 
-.guide-card:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 14px 30px rgba(15,23,42,.13);
+.leader-card:hover {
+    transform: translateY(-7px);
+    box-shadow: 0 15px 30px rgba(15, 23, 42, 0.13);
 }
 
-.guide-photo {
+/* ==========================================
+   HINH ANH
+   ========================================== */
+
+.leader-image-box {
+    position: relative;
     width: 100%;
-    height: 300px;
-    background: #e2e8f0;
-    display: grid;
-    place-items: center;
-    color: #64748b;
-    font-size: 50px;
+    height: 305px;
+    overflow: hidden;
+    background: linear-gradient(
+        145deg,
+        #dbeafe,
+        #dcfce7
+    );
 }
 
-.guide-photo img {
+.leader-image-box img {
+    display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transition: transform 0.35s ease;
 }
 
-.guide-content {
-    padding: 20px;
+.leader-card:hover .leader-image-box img {
+    transform: scale(1.06);
 }
 
-.guide-content h2 {
-    font-size: 19px;
+.leader-experience {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 2;
+    padding: 9px 13px;
+    border-radius: 25px;
+    background: rgba(22, 101, 52, 0.95);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+}
+
+.leader-experience i {
+    margin-right: 4px;
+}
+
+/* ==========================================
+   NOI DUNG THE
+   ========================================== */
+
+.leader-card-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    padding: 22px;
+}
+
+.leader-card-name {
+    font-family: Arial, Helvetica, sans-serif;
     color: #0f172a;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.4;
     margin: 0 0 8px;
 }
 
-.guide-role {
+.leader-card-role {
     color: #ea580c;
     font-size: 13px;
     font-weight: 800;
+    margin-bottom: 15px;
 }
 
-.guide-description {
-    font-size: 13px;
+.leader-card-description {
     color: #64748b;
-    line-height: 1.8;
-    margin-top: 12px;
-    min-height: 90px;
-}
-
-.guide-meta {
     font-size: 13px;
-    color: #166534;
-    font-weight: 800;
-    border-top: 1px solid #e2e8f0;
+    line-height: 1.85;
+    margin: 0 0 18px;
+    flex: 1;
+}
+
+.leader-card-location {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #475569;
+    margin-bottom: 17px;
+}
+
+.leader-card-location i {
+    color: #ea580c;
+}
+
+.leader-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding-top: 15px;
-    margin-top: 15px;
+    border-top: 1px solid #e2e8f0;
+    color: #166534;
+    font-size: 12px;
+    font-weight: 800;
 }
 
-@media(max-width:1000px) {
-    .guide-grid {
-        grid-template-columns: repeat(3,1fr);
+.leader-card-footer i {
+    transition: transform 0.2s;
+}
+
+.leader-card:hover .leader-card-footer .arrow {
+    transform: translateX(4px);
+}
+
+/* ==========================================
+   KHI CHUA CO LEADER
+   ========================================== */
+
+.leaders-empty {
+    text-align: center;
+    padding: 80px 20px;
+    background: white;
+    border-radius: 16px;
+    color: #64748b;
+}
+
+.leaders-empty i {
+    display: block;
+    color: #166534;
+    font-size: 50px;
+    margin-bottom: 20px;
+}
+
+.leaders-empty h2 {
+    color: #0f172a;
+    margin-bottom: 10px;
+}
+
+/* ==========================================
+   RESPONSIVE
+   ========================================== */
+
+@media (max-width: 1100px) {
+    .leaders-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
-@media(max-width:750px) {
-    .guide-grid {
-        grid-template-columns: repeat(2,1fr);
+@media (max-width: 800px) {
+    .leaders-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+    }
+
+    .leader-image-box {
+        height: 270px;
     }
 }
 
-@media(max-width:500px) {
-    .guide-grid {
+@media (max-width: 550px) {
+    .leaders-page {
+        padding: 40px 15px 65px;
+    }
+
+    .leaders-grid {
         grid-template-columns: 1fr;
     }
+
+    .leader-image-box {
+        height: 340px;
+    }
+
+    .leader-card-body {
+        padding: 20px;
+    }
 }
+
 </style>
 
-<main class="guide-page">
+<main class="leaders-page">
 
-    <div class="guide-container">
+    <div class="leaders-container">
 
-        <section class="guide-intro">
-            <small>VNN TRAVEL TEAM</small>
+        <!-- TIEU DE TRANG -->
+
+        <section class="leaders-heading">
+
+            <span class="subtitle">
+                VNN TRAVEL TEAM
+            </span>
 
             <h1>
-                Đội Ngũ Hướng Dẫn Viên Trekking
+                Đội Ngũ <span>Hướng Dẫn Viên</span>
+                Trekking
             </h1>
 
             <p>
-                Những người dẫn đường đồng hành cùng bạn
-                trên từng hành trình. Khám phá kinh nghiệm,
-                các cung đường và câu chuyện của đội ngũ
-                Leader tại VNN Travel.
+                Đằng sau mỗi hành trình chinh phục là những
+                người dẫn đường tận tâm và giàu kinh nghiệm.
+
+                Cùng gặp gỡ đội ngũ Leader Trekking,
+                khám phá câu chuyện, những đỉnh núi từng
+                chinh phục và các hành trình họ đang phụ trách.
             </p>
+
         </section>
 
-        <section class="guide-grid">
+        <!-- DANH SACH THE LEADER -->
 
-            <?php foreach ($leaders as $leader): ?>
+        <?php if (!empty($leaders)): ?>
 
-                <?php
-                $description = mb_strimwidth(
-                    (string)($leader['biography'] ?? ''),
-                    0,
-                    145,
-                    '...',
-                    'UTF-8'
-                );
-                ?>
+            <section class="leaders-grid">
 
-                <a
-                    class="guide-card"
-                    href="<?= guideH($base) ?>pages/leader-detail.php?id=<?= (int)$leader['id'] ?>"
-                >
-                    <div class="guide-photo">
+                <?php foreach ($leaders as $leader): ?>
 
-                        <?php if ($leader['image']): ?>
+                    <?php
+                    $leaderId = (int)$leader['id'];
+
+                    $leaderName = $leader['fullname'];
+
+                    $leaderNickname =
+                        !empty($leader['nickname'])
+                        ? $leader['nickname']
+                        : 'Leader Trekking';
+
+                    $leaderImage = leaderPhoto($leader);
+
+                    $leaderDescription = leaderSummary(
+                        $leader['biography']
+                    );
+
+                    $leaderHometown =
+                        !empty($leader['hometown'])
+                        ? $leader['hometown']
+                        : 'Việt Nam';
+
+                    $leaderExperience =
+                        (int)$leader['experience_years'];
+
+                    $detailUrl =
+                        $baseUrl
+                        . 'pages/leader-detail.php?id='
+                        . $leaderId;
+                    ?>
+
+                    <a
+                        href="<?= guideH($detailUrl) ?>"
+                        class="leader-card"
+                    >
+
+                        <!-- HINH ANH -->
+
+                        <div class="leader-image-box">
+
                             <img
-                                src="<?= guideH($leader['image']) ?>"
-                                alt="<?= guideH($leader['fullname']) ?>"
+                                src="<?= guideH($leaderImage) ?>"
+                                alt="Hình minh họa <?= guideH($leaderName) ?>"
                                 loading="lazy"
+                                referrerpolicy="no-referrer"
+                                onerror="this.onerror=null;this.src='https://api.dicebear.com/9.x/shapes/svg?seed=VNNTravel';"
                             >
-                        <?php else: ?>
-                            <i class="fa-solid fa-person-hiking"></i>
-                        <?php endif; ?>
 
-                    </div>
+                            <span class="leader-experience">
 
-                    <div class="guide-content">
+                                <i class="fa-solid fa-mountain"></i>
 
-                        <h2>
-                            <?= guideH($leader['fullname']) ?>
-                        </h2>
+                                <?= $leaderExperience ?> năm
 
-                        <div class="guide-role">
-                            <?= guideH(
-                                $leader['nickname']
-                                ?: 'Leader Trekking'
-                            ) ?>
+                            </span>
+
                         </div>
 
-                        <p class="guide-description">
-                            <?= guideH($description) ?>
-                        </p>
+                        <!-- NOI DUNG -->
 
-                        <div class="guide-meta">
-                            <i class="fa-solid fa-mountain"></i>
-                            <?= (int)$leader['experience_years'] ?>
-                            năm kinh nghiệm
+                        <div class="leader-card-body">
 
-                            <div style="margin-top:8px">
-                                Xem hồ sơ chi tiết →
+                            <h2 class="leader-card-name">
+                                <?= guideH($leaderName) ?>
+                            </h2>
+
+                            <div class="leader-card-role">
+
+                                <i class="fa-solid fa-person-hiking"></i>
+
+                                <?= guideH($leaderNickname) ?>
+
                             </div>
+
+                            <p class="leader-card-description">
+                                <?= guideH($leaderDescription) ?>
+                            </p>
+
+                            <div class="leader-card-location">
+
+                                <i class="fa-solid fa-location-dot"></i>
+
+                                <?= guideH($leaderHometown) ?>
+
+                            </div>
+
+                            <div class="leader-card-footer">
+
+                                <span>
+                                    <i class="fa-solid fa-compass"></i>
+                                    Hướng dẫn viên
+                                </span>
+
+                                <span>
+                                    Xem hồ sơ
+                                    <i class="fa-solid fa-arrow-right arrow"></i>
+                                </span>
+
+                            </div>
+
                         </div>
 
-                    </div>
-                </a>
+                    </a>
 
-            <?php endforeach; ?>
+                <?php endforeach; ?>
 
-        </section>
+            </section>
 
-        <?php if (!$leaders): ?>
-            <p style="text-align:center;padding:40px;color:#64748b">
-                Đội ngũ hướng dẫn viên đang được cập nhật.
-            </p>
+        <?php else: ?>
+
+            <div class="leaders-empty">
+
+                <i class="fa-solid fa-person-hiking"></i>
+
+                <h2>
+                    Đội ngũ đang được cập nhật
+                </h2>
+
+                <p>
+                    Thông tin hướng dẫn viên Trekking
+                    sẽ sớm được bổ sung.
+                </p>
+
+            </div>
+
         <?php endif; ?>
 
     </div>
 
 </main>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+require_once __DIR__ . '/../includes/footer.php';
+?>
