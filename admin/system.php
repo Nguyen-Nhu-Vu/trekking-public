@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -6,109 +7,111 @@ require_once __DIR__ . '/../includes/functions.php';
 
 requireAdmin();
 
-function sysH($value) {
-    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+if (!function_exists('vnnSysEsc')) {
+    function vnnSysEsc($v) {
+        return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+    }
 }
 
-function sysRows(PDO $pdo, $sql, $params = []) {
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+if (!function_exists('vnnSysRows')) {
+    function vnnSysRows(
+        PDO $pdo,
+        string $sql,
+        array $params = []
+    ) {
+        $st = $pdo->prepare($sql);
+        $st->execute($params);
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 
-function sysCount(PDO $pdo, $sql, $params = []) {
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (int)$stmt->fetchColumn();
+// Khong dat ten ham la sysLog()
+// vi trung voi syslog() co san trong PHP.
+if (!function_exists('vnnSysAuditWrite')) {
+    function vnnSysAuditWrite(
+        PDO $pdo,
+        string $action,
+        int $targetId,
+        string $old,
+        string $new
+    ) {
+        $actorId = (int)($_SESSION['user_id'] ?? 0);
+
+        $nameSt = $pdo->prepare(
+            'SELECT fullname FROM users WHERE id=?'
+        );
+
+        $nameSt->execute([$actorId]);
+
+        $actor = (string)(
+            $nameSt->fetchColumn() ?: 'Admin'
+        );
+
+        $st = $pdo->prepare("
+            INSERT INTO admin_audit_logs
+            (
+                actor_id,
+                actor_name,
+                category,
+                action,
+                target_type,
+                target_id,
+                old_value,
+                new_value
+            )
+            VALUES (?, ?, 'accounts', ?, 'users', ?, ?, ?)
+        ");
+
+        $st->execute([
+            $actorId,
+            $actor,
+            $action,
+            (string)$targetId,
+            $old,
+            $new
+        ]);
+    }
 }
 
-function sysLog(
-    PDO $pdo,
-    $category,
-    $action,
-    $targetType,
-    $targetId,
-    $oldValue,
-    $newValue
-) {
-    $stmt = $pdo->prepare("
-        INSERT INTO admin_audit_logs
-        (
-            actor_id, actor_name, category,
-            action, target_type, target_id,
-            old_value, new_value
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ");
+$tab = (string)($_GET['tab'] ?? 'users');
 
-    $actorId = (int)($_SESSION['user_id'] ?? 0);
-
-    $actor = $pdo->prepare(
-        "SELECT fullname FROM users WHERE id = ?"
-    );
-    $actor->execute([$actorId]);
-
-    $actorName = $actor->fetchColumn() ?: 'Admin';
-
-    $stmt->execute([
-        $actorId,
-        $actorName,
-        $category,
-        $action,
-        $targetType,
-        (string)$targetId,
-        $oldValue,
-        $newValue
-    ]);
+if (!in_array($tab, ['users', 'history'], true)) {
+    $tab = 'users';
 }
 
-$allowedTabs = ['overview', 'users', 'content', 'history'];
-$tab = (string)($_GET['tab'] ?? 'overview');
+$groups = [
+    'accounts' => 'Tài khoản',
+    'content' => 'Nội dung website',
+    'transactions' => 'Giao dịch',
+    'security' => 'Bảo mật'
+];
 
-if (!in_array($tab, $allowedTabs, true)) {
-    $tab = 'overview';
+$category = (string)($_GET['category'] ?? 'accounts');
+
+if (!isset($groups[$category])) {
+    $category = 'accounts';
 }
 
 $current_page = 'system-' . $tab;
 
-$tabTitles = [
-    'overview' => 'Tổng Quan Hệ Thống',
-    'users' => 'Quản Lý Tài Khoản',
-    'content' => 'Nội Dung Website',
-    'history' => 'Lịch Sử Hoạt Động'
-];
+$page_title = (
+    $tab === 'users'
+        ? 'Quản lý & Cấp quyền tài khoản'
+        : 'Lịch sử hoạt động'
+) . ' - VNN Travel';
 
-$page_title = $tabTitles[$tab] . ' - VNN Travel';
-
-$root = rtrim(BASE_URL, '/') . '/admin/';
-$selfUrl = $root . 'system.php';
-
-if (empty($_SESSION['system_csrf'])) {
-    $_SESSION['system_csrf'] = bin2hex(random_bytes(32));
+if (empty($_SESSION['admin_system_csrf'])) {
+    $_SESSION['admin_system_csrf'] = bin2hex(random_bytes(32));
 }
 
-$csrf = $_SESSION['system_csrf'];
+$csrf = $_SESSION['admin_system_csrf'];
 
-$error = '';
-$popup = $_SESSION['system_popup'] ?? null;
-unset($_SESSION['system_popup']);
+$popup = $_SESSION['admin_system_popup'] ?? null;
+unset($_SESSION['admin_system_popup']);
 
-// ======================================
-// CAC TRUONG CAU HINH NOI DUNG
-// ======================================
-
-$settingLabels = [
-    'home_heading' => 'Tiêu đề lớn trang chủ',
-    'home_description' => 'Lời giới thiệu trang chủ',
-    'home_banner' => 'URL ảnh banner trang chủ',
-    'site_logo' => 'URL logo website',
-    'footer_description' => 'Giới thiệu ở chân trang'
-];
-
-// ======================================
-// XU LY TAO TAI KHOAN, KHOA/MO,
-// LUU CAU HINH NOI DUNG
-// ======================================
+// =========================================
+// XU LY TAI KHOAN
+// =========================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -122,23 +125,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $action = (string)($_POST['action'] ?? '');
-        $nextTab = 'users';
 
         if ($action === 'add_user') {
-            $fullname = trim((string)($_POST['fullname'] ?? ''));
-            $email = strtolower(trim(
-                (string)($_POST['email'] ?? '')
-            ));
+            $name = trim((string)($_POST['fullname'] ?? ''));
+            $email = strtolower(
+                trim((string)($_POST['email'] ?? ''))
+            );
             $phone = trim((string)($_POST['phone'] ?? ''));
             $password = (string)($_POST['password'] ?? '');
             $role = (string)($_POST['role'] ?? 'staff');
 
             if (
-                $fullname === '' ||
+                $name === '' ||
+                mb_strlen($name) > 255 ||
                 !filter_var($email, FILTER_VALIDATE_EMAIL)
             ) {
                 throw new RuntimeException(
-                    'Họ tên hoặc email không hợp lệ.'
+                    'Tên hoặc email không hợp lệ.'
                 );
             }
 
@@ -150,72 +153,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!in_array(
                 $role,
-                ['staff', 'customer', 'manager', 'admin'],
+                ['staff', 'customer'],
                 true
             )) {
-                throw new RuntimeException('Vai trò không hợp lệ.');
+                throw new RuntimeException(
+                    'Chỉ được tạo tài khoản Nhân viên hoặc Khách hàng tại đây.'
+                );
             }
 
             $pdo->beginTransaction();
 
-            if (in_array($role, ['admin', 'manager'], true)) {
-                $lock = $pdo->query("
-                    SELECT id
-                    FROM users
-                    WHERE role IN ('admin', 'manager')
-                    FOR UPDATE
-                ");
+            $check = $pdo->prepare(
+                'SELECT id FROM users WHERE email=? LIMIT 1'
+            );
 
-                $lock->fetchAll();
+            $check->execute([$email]);
 
-                $existing = sysCount(
-                    $pdo,
-                    "SELECT COUNT(*) FROM users WHERE role = ?",
-                    [$role]
-                );
-
-                if ($existing > 0) {
-                    throw new RuntimeException(
-                        'Hệ thống chỉ cho phép một tài khoản ' .
-                        strtoupper($role) . '.'
-                    );
-                }
-            }
-
-            if (sysCount(
-                $pdo,
-                "SELECT COUNT(*) FROM users WHERE email = ?",
-                [$email]
-            ) > 0) {
+            if ($check->fetchColumn()) {
                 throw new RuntimeException(
-                    'Email này đã được đăng ký.'
+                    'Email đã tồn tại.'
                 );
             }
 
-            $stmt = $pdo->prepare("
+            $insert = $pdo->prepare("
                 INSERT INTO users
                     (fullname, email, password, phone, role, status)
                 VALUES (?, ?, ?, ?, ?, 1)
             ");
 
-            $stmt->execute([
-                $fullname,
+            $insert->execute([
+                $name,
                 $email,
                 password_hash($password, PASSWORD_DEFAULT),
                 $phone,
                 $role
             ]);
 
-            $newId = (int)$pdo->lastInsertId();
+            $id = (int)$pdo->lastInsertId();
 
-            sysLog(
+            vnnSysAuditWrite(
                 $pdo,
-                'accounts',
                 'Tạo tài khoản',
-                'users',
-                $newId,
+                $id,
                 '',
-                $fullname . ' - ' . $role
+                $name . ' (' . $role . ')'
             );
 
             $pdo->commit();
@@ -223,23 +204,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'toggle_user') {
             $id = (int)($_POST['user_id'] ?? 0);
 
-            if ($id <= 0 || $id === (int)$_SESSION['user_id']) {
+            if (
+                $id <= 0 ||
+                $id === (int)($_SESSION['user_id'] ?? 0)
+            ) {
                 throw new RuntimeException(
-                    'Không thể thay đổi tài khoản này.'
+                    'Không thể khóa tài khoản hiện tại.'
                 );
             }
 
             $pdo->beginTransaction();
 
-            $stmt = $pdo->prepare("
+            $st = $pdo->prepare("
                 SELECT id, fullname, role, status
                 FROM users
-                WHERE id = ?
+                WHERE id=?
                 FOR UPDATE
             ");
 
-            $stmt->execute([$id]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            $st->execute([$id]);
+            $user = $st->fetch(PDO::FETCH_ASSOC);
 
             if (!$user) {
                 throw new RuntimeException(
@@ -249,116 +233,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($user['role'] === 'admin') {
                 throw new RuntimeException(
-                    'Không được khóa tài khoản Admin.'
+                    'Không thể khóa tài khoản Admin.'
                 );
             }
 
-            $newStatus = (int)$user['status'] === 1 ? 0 : 1;
+            $old = (int)$user['status'];
+            $new = $old === 1 ? 0 : 1;
 
-            $stmt = $pdo->prepare(
-                "UPDATE users SET status = ? WHERE id = ?"
+            $update = $pdo->prepare(
+                'UPDATE users SET status=? WHERE id=?'
             );
 
-            $stmt->execute([$newStatus, $id]);
+            $update->execute([$new, $id]);
 
-            sysLog(
+            vnnSysAuditWrite(
                 $pdo,
-                'accounts',
-                $newStatus ? 'Mở khóa tài khoản' : 'Khóa tài khoản',
-                'users',
+                $new === 1
+                    ? 'Mở khóa tài khoản'
+                    : 'Khóa tài khoản',
                 $id,
-                (string)$user['status'],
-                (string)$newStatus
+                (string)$old,
+                (string)$new
             );
-
-            $pdo->commit();
-
-        } elseif ($action === 'save_content') {
-            $nextTab = 'content';
-
-            $pdo->beginTransaction();
-
-            foreach ($settingLabels as $key => $label) {
-                $value = trim((string)($_POST[$key] ?? ''));
-
-                if (mb_strlen($value, 'UTF-8') > 10000) {
-                    throw new RuntimeException(
-                        'Nội dung quá dài: ' . $label
-                    );
-                }
-
-                if (
-                    in_array($key, ['home_banner', 'site_logo'], true)
-                    && $value !== ''
-                    && (
-                        !filter_var($value, FILTER_VALIDATE_URL)
-                        || !in_array(
-                            parse_url($value, PHP_URL_SCHEME),
-                            ['https'],
-                            true
-                        )
-                    )
-                ) {
-                    throw new RuntimeException(
-                        'Ảnh phải dùng URL HTTPS hợp lệ.'
-                    );
-                }
-
-                $stmt = $pdo->prepare("
-                    SELECT setting_value
-                    FROM site_settings
-                    WHERE setting_key = ?
-                    FOR UPDATE
-                ");
-                $stmt->execute([$key]);
-
-                $old = $stmt->fetchColumn();
-                $oldValue = $old === false ? '' : (string)$old;
-
-                if ($oldValue === $value) {
-                    continue;
-                }
-
-                $stmt = $pdo->prepare("
-                    INSERT INTO site_settings
-                        (setting_key, setting_value, updated_by)
-                    VALUES (?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                        setting_value = VALUES(setting_value),
-                        updated_by = VALUES(updated_by)
-                ");
-
-                $stmt->execute([
-                    $key,
-                    $value,
-                    (int)$_SESSION['user_id']
-                ]);
-
-                sysLog(
-                    $pdo,
-                    'content',
-                    'Chỉnh sửa: ' . $label,
-                    'site_settings',
-                    $key,
-                    $oldValue,
-                    $value
-                );
-            }
 
             $pdo->commit();
 
         } else {
-            throw new RuntimeException('Thao tác không hợp lệ.');
+            throw new RuntimeException(
+                'Thao tác không được hỗ trợ.'
+            );
         }
 
-        $_SESSION['system_popup'] = [
+        $_SESSION['admin_system_popup'] = [
             'type' => 'success',
             'title' => 'Đã lưu thay đổi',
-            'message' => 'Thông tin đã được cập nhật thành công.'
+            'message' => 'Thao tác đã hoàn tất thành công.'
         ];
 
         header(
-            'Location: system.php?tab=' . $nextTab,
+            'Location: system.php?tab=users',
             true,
             303
         );
@@ -369,255 +282,256 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->rollBack();
         }
 
-        error_log('System admin: ' . $e->getMessage());
+        error_log(
+            'Admin system: ' . $e->getMessage()
+        );
 
         $popup = [
             'type' => 'error',
             'title' => 'Không thể lưu thay đổi',
             'message' => $e instanceof RuntimeException
                 ? $e->getMessage()
-                : 'Có lỗi xảy ra. Vui lòng thử lại.'
+                : 'Có lỗi xảy ra.'
         ];
     }
 }
 
-// ======================================
-// THONG KE
-// ======================================
+// =========================================
+// LAY DANH SACH TAI KHOAN
+// =========================================
 
-$totalUsers = sysCount($pdo, "SELECT COUNT(*) FROM users");
-$staffCount = sysCount(
-    $pdo,
-    "SELECT COUNT(*) FROM users WHERE role = 'staff'"
-);
-$customerCount = sysCount(
-    $pdo,
-    "SELECT COUNT(*) FROM users WHERE role = 'customer'"
-);
-$lockedCount = sysCount(
-    $pdo,
-    "SELECT COUNT(*) FROM users WHERE status = 0"
-);
-$activeCount = sysCount(
-    $pdo,
-    "SELECT COUNT(*) FROM users WHERE status = 1"
-);
-
-$adminCount = sysCount(
-    $pdo,
-    "SELECT COUNT(*) FROM users WHERE role = 'admin'"
-);
-$managerCount = sysCount(
-    $pdo,
-    "SELECT COUNT(*) FROM users WHERE role = 'manager'"
-);
-
-$users = sysRows($pdo, "
+$users = vnnSysRows($pdo, "
     SELECT id, fullname, email, phone, role, status
     FROM users
-    ORDER BY FIELD(role, 'admin', 'manager', 'staff', 'customer'), id
+    ORDER BY FIELD(
+        role,
+        'admin',
+        'manager',
+        'staff',
+        'customer'
+    ), id
 ");
 
-$settingRows = sysRows(
-    $pdo,
-    "SELECT setting_key, setting_value FROM site_settings"
-);
+$roleCounts = [
+    'admin' => 0,
+    'manager' => 0,
+    'staff' => 0,
+    'customer' => 0
+];
 
-$settings = array_fill_keys(array_keys($settingLabels), '');
+$locked = 0;
 
-foreach ($settingRows as $row) {
-    if (array_key_exists($row['setting_key'], $settings)) {
-        $settings[$row['setting_key']] = $row['setting_value'];
+foreach ($users as $u) {
+    if (isset($roleCounts[$u['role']])) {
+        $roleCounts[$u['role']]++;
+    }
+
+    if ((int)$u['status'] === 0) {
+        $locked++;
     }
 }
 
-$logs = sysRows($pdo, "
-    SELECT *
-    FROM admin_audit_logs
-    ORDER BY id DESC
-    LIMIT 300
-");
+// =========================================
+// LAY LICH SU
+// =========================================
 
-$historyGroups = [
-    'accounts' => 'Tài khoản',
-    'content' => 'Nội dung',
-    'transactions' => 'Giao dịch',
-    'security' => 'Bảo mật'
-];
+$logs = [];
+$logError = '';
 
+if ($tab === 'history') {
+    try {
+        $logs = vnnSysRows($pdo, "
+            SELECT
+                id,
+                actor_name,
+                category,
+                action,
+                target_type,
+                target_id,
+                old_value,
+                new_value,
+                created_at
+            FROM admin_audit_logs
+            WHERE category = ?
+            ORDER BY id DESC
+            LIMIT 300
+        ", [$category]);
+
+    } catch (Throwable $e) {
+        $logError =
+            'Chưa có bảng nhật ký admin_audit_logs. ' .
+            'Hãy chạy SQL tạo bảng trước.';
+    }
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= sysH($page_title) ?></title>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width,initial-scale=1"
+    >
 
-<link rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link rel="stylesheet" href="../assets/css/style.css">
-<link rel="stylesheet" href="../assets/css/admin.css">
+    <title><?= vnnSysEsc($page_title) ?></title>
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    >
+
+    <link rel="stylesheet" href="../assets/css/style.css">
+    <link rel="stylesheet" href="../assets/css/admin.css">
 
 <style>
-.sys-main {
+.vnn-sys-main {
     flex: 1;
     min-width: 0;
     background: #f1f5f9;
 }
 
-.sys-content {
+.vnn-sys-content {
     padding: 24px;
-    min-width: 0;
 }
 
-.sys-title {
-    color: #0f172a;
-    font-size: 22px;
-    font-weight: 900;
-}
-
-.sys-muted {
-    color: #64748b;
-    line-height: 1.8;
-    font-size: 13px;
-}
-
-.sys-stats {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0,1fr));
-    gap: 17px;
-    margin-bottom: 23px;
-}
-
-.sys-card,
-.sys-panel {
+.vnn-sys-card {
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 14px;
-    padding: 23px;
-    min-width: 0;
+    padding: 22px;
+    margin-bottom: 20px;
 }
 
-.sys-card .number {
-    color: #166534;
-    font-size: 29px;
-    font-weight: 900;
-    margin-top: 10px;
-}
-
-.sys-card .name {
-    color: #64748b;
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.sys-panel {
-    margin-bottom: 22px;
-}
-
-.sys-panel h2 {
+.vnn-sys-card h2 {
+    margin: 0 0 18px;
     color: #0f172a;
     font-size: 19px;
-    margin: 0 0 18px;
 }
 
-.sys-grid {
+.vnn-sys-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.vnn-sys-stat {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+}
+
+.vnn-sys-stat span {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.vnn-sys-stat b {
+    display: block;
+    color: #166534;
+    font-size: 28px;
+    margin-top: 8px;
+}
+
+.vnn-sys-form {
     display: grid;
     grid-template-columns: repeat(2, minmax(0,1fr));
-    gap: 17px;
+    gap: 14px;
 }
 
-.sys-field label {
+.vnn-sys-field label {
     display: block;
+    font-weight: 700;
     font-size: 13px;
-    color: #334155;
-    font-weight: 800;
-    margin-bottom: 8px;
+    margin-bottom: 7px;
 }
 
-.sys-field input,
-.sys-field select,
-.sys-field textarea {
+.vnn-sys-field input,
+.vnn-sys-field select,
+.vnn-sys-filter input,
+.vnn-sys-filter select {
     width: 100%;
     box-sizing: border-box;
-    padding: 11px 13px;
+    padding: 11px 12px;
     border: 1px solid #cbd5e1;
     border-radius: 9px;
-    background: #fff;
+    background: white;
     font: inherit;
     font-size: 13px;
 }
 
-.sys-field textarea {
-    min-height: 110px;
-    resize: vertical;
+.vnn-sys-field.wide {
+    grid-column: 1/-1;
 }
 
-.sys-full {
-    grid-column: 1 / -1;
-}
-
-.sys-btn {
+.vnn-sys-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
+    background: #166534;
     border: 0;
     border-radius: 9px;
-    padding: 11px 17px;
-    background: #166534;
+    padding: 11px 16px;
     color: white;
-    text-decoration: none;
-    font-weight: 800;
     font-size: 13px;
+    font-weight: 800;
     cursor: pointer;
 }
 
-.sys-btn:hover {
-    background: #14532d;
-    color: white;
-}
-
-.sys-btn.red {
+.vnn-sys-button.danger {
     background: #dc2626;
 }
 
-.sys-btn.gray {
-    background: #475569;
-}
-
-.sys-btn.small {
-    padding: 8px 11px;
+.vnn-sys-button.small {
+    padding: 8px 12px;
     font-size: 12px;
 }
 
-.sys-table-wrap {
+.vnn-sys-filter {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.vnn-sys-filter > * {
+    flex: 1;
+    min-width: 155px;
+}
+
+.vnn-sys-table-wrap {
     overflow-x: auto;
 }
 
-.sys-table {
+.vnn-sys-table {
     width: 100%;
-    min-width: 850px;
+    min-width: 800px;
     border-collapse: collapse;
 }
 
-.sys-table th,
-.sys-table td {
-    padding: 13px 12px;
+.vnn-sys-table th,
+.vnn-sys-table td {
+    padding: 13px 11px;
     border-bottom: 1px solid #e2e8f0;
     text-align: left;
     font-size: 13px;
 }
 
-.sys-table th {
+.vnn-sys-table th {
     background: #f8fafc;
     color: #0f172a;
-    font-weight: 800;
 }
 
-.sys-pill {
+.vnn-sys-table tr[hidden] {
+    display: none;
+}
+
+.vnn-sys-pill {
     display: inline-block;
-    border-radius: 18px;
+    border-radius: 15px;
     padding: 6px 10px;
     background: #dcfce7;
     color: #166534;
@@ -625,127 +539,78 @@ $historyGroups = [
     font-weight: 800;
 }
 
-.sys-pill.locked {
+.vnn-sys-pill.off {
     background: #fee2e2;
     color: #991b1b;
 }
 
-.sys-tools {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 20px;
-}
-
-.sys-tools input,
-.sys-tools select {
-    min-width: 160px;
-    flex: 1;
-    padding: 11px;
-    border: 1px solid #cbd5e1;
-    border-radius: 9px;
-    font: inherit;
+.vnn-sys-hint {
     font-size: 13px;
-}
-
-.sys-tabs {
-    display: grid;
-    grid-template-columns: repeat(4,1fr);
-    gap: 10px;
-    margin-bottom: 23px;
-}
-
-.sys-tab {
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 14px 8px;
-    background: #f8fafc;
-    font-weight: 800;
-    font-size: 13px;
-    cursor: pointer;
-}
-
-.sys-tab.active {
-    background: #166534;
-    color: white;
-}
-
-.sys-alert {
-    padding: 15px;
-    margin-bottom: 18px;
-    border-radius: 10px;
-    background: #fff7ed;
-    color: #9a3412;
     line-height: 1.8;
-    font-size: 13px;
-}
-
-.sys-history-value {
-    max-width: 260px;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-    font-size: 12px;
     color: #64748b;
 }
 
-.sys-modal {
+.vnn-sys-details {
+    max-width: 330px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    color: #475569;
+}
+
+.vnn-sys-overlay {
     position: fixed;
     inset: 0;
-    z-index: 999999;
+    background: rgba(15,23,42,.5);
     display: flex;
     align-items: center;
     justify-content: center;
+    z-index: 999999;
     padding: 20px;
-    background: rgba(15,23,42,.5);
 }
 
-.sys-modal[hidden] {
+.vnn-sys-overlay[hidden] {
     display: none !important;
 }
 
-.sys-modal-card {
-    width: 100%;
-    max-width: 370px;
-    box-sizing: border-box;
-    border-radius: 18px;
-    padding: 30px;
+.vnn-sys-popup {
     background: white;
+    border-radius: 17px;
+    padding: 30px;
+    max-width: 380px;
+    width: 100%;
     text-align: center;
 }
 
-.sys-modal-card h2 {
-    font-size: 22px;
-    margin: 10px 0;
-}
-
-.sys-modal-card p {
-    color: #64748b;
-    font-size: 13px;
-    line-height: 1.8;
-}
-
-.sys-modal-icon {
-    font-size: 38px;
+.vnn-sys-popup i {
+    font-size: 34px;
     color: #166534;
 }
 
-@media(max-width:1050px) {
-    .sys-stats {
-        grid-template-columns: repeat(2,1fr);
-    }
+.vnn-sys-popup.error i {
+    color: #dc2626;
 }
 
-@media(max-width:750px) {
-    .sys-content {
+.vnn-sys-popup h2 {
+    font-size: 21px;
+}
+
+.vnn-sys-popup p {
+    font-size: 13px;
+    color: #64748b;
+}
+
+@media(max-width:850px) {
+    .vnn-sys-stats {
+        grid-template-columns: repeat(2,1fr);
+    }
+
+    .vnn-sys-content {
         padding: 12px;
     }
 
-    .sys-grid {
+    .vnn-sys-form {
         grid-template-columns: 1fr;
-    }
-
-    .sys-tabs {
-        grid-template-columns: repeat(2,1fr);
     }
 }
 </style>
@@ -753,580 +618,512 @@ $historyGroups = [
 
 <body class="admin-body">
 
-<?php require __DIR__ . '/includes/sidebar.php'; ?>
+<?php require __DIR__.'/includes/sidebar.php'; ?>
 
-<main class="admin-main sys-main">
+<main class="admin-main vnn-sys-main">
 
     <div class="admin-topbar">
         <strong>
-            <i class="fa-solid fa-shield-halved"></i>
-            <?= sysH(mb_strtoupper($tabTitles[$tab], 'UTF-8')) ?>
+            <i class="fa-solid <?= $tab==='history'
+                ? 'fa-clock-rotate-left'
+                : 'fa-users-gear' ?>"></i>
+
+            <?= $tab === 'history'
+                ? 'LỊCH SỬ HOẠT ĐỘNG'
+                : 'QUẢN LÝ & CẤP QUYỀN TÀI KHOẢN' ?>
         </strong>
     </div>
 
-    <div class="sys-content">
+    <div class="vnn-sys-content">
 
-        <?php if ($tab === 'overview'): ?>
+    <?php if ($tab === 'users'): ?>
 
-            <div class="sys-stats">
+        <!-- THONG KE TAI KHOAN -->
 
-                <?php foreach ([
-                    ['Tổng tài khoản', $totalUsers],
-                    ['Nhân viên', $staffCount],
-                    ['Khách hàng', $customerCount],
-                    ['Tài khoản bị khóa', $lockedCount]
-                ] as $stat): ?>
+        <div class="vnn-sys-stats">
 
-                    <div class="sys-card">
-                        <div class="name"><?= sysH($stat[0]) ?></div>
-                        <div class="number"><?= (int)$stat[1] ?></div>
-                    </div>
+            <?php foreach ([
+                ['Tổng tài khoản', count($users)],
+                ['Nhân viên', $roleCounts['staff']],
+                ['Khách hàng', $roleCounts['customer']],
+                ['Đang khóa', $locked]
+            ] as $stat): ?>
 
-                <?php endforeach; ?>
-
-            </div>
-
-            <section class="sys-panel">
-                <h2>Tổng quan quản trị</h2>
-
-                <p class="sys-muted">
-                    Hệ thống hiện có
-                    <strong><?= $adminCount ?></strong> Admin,
-                    <strong><?= $managerCount ?></strong> Manager,
-                    <strong><?= $staffCount ?></strong> Staff và
-                    <strong><?= $customerCount ?></strong> Customer.
-                </p>
-
-                <p class="sys-muted">
-                    Có <?= $activeCount ?> tài khoản hoạt động
-                    và <?= $lockedCount ?> tài khoản đang khóa.
-                </p>
-            </section>
-
-            <div class="sys-grid">
-
-                <section class="sys-panel">
-                    <h2>Quản lý tài khoản</h2>
-                    <p class="sys-muted">
-                        Tạo tài khoản mới, tìm kiếm, lọc và khóa/mở khóa.
-                    </p>
-                    <a class="sys-btn" href="?tab=users">
-                        Mở quản lý tài khoản
-                    </a>
-                </section>
-
-                <section class="sys-panel">
-                    <h2>Lịch sử hoạt động</h2>
-                    <p class="sys-muted">
-                        Xem các thay đổi được ghi nhận trong nhật ký Admin.
-                    </p>
-                    <a class="sys-btn" href="?tab=history">
-                        Xem lịch sử
-                    </a>
-                </section>
-
-            </div>
-
-        <?php elseif ($tab === 'users'): ?>
-
-            <section class="sys-panel">
-                <h2>Thống kê tài khoản</h2>
-
-                <div class="sys-stats">
-                    <?php foreach ([
-                        ['Tổng tài khoản', $totalUsers],
-                        ['Nhân viên', $staffCount],
-                        ['Khách hàng', $customerCount],
-                        ['Đang khóa', $lockedCount]
-                    ] as $stat): ?>
-
-                        <div class="sys-card">
-                            <div class="name"><?= sysH($stat[0]) ?></div>
-                            <div class="number"><?= (int)$stat[1] ?></div>
-                        </div>
-
-                    <?php endforeach; ?>
+                <div class="vnn-sys-stat">
+                    <span><?= vnnSysEsc($stat[0]) ?></span>
+                    <b><?= (int)$stat[1] ?></b>
                 </div>
-            </section>
 
-            <section class="sys-panel">
+            <?php endforeach; ?>
 
-                <h2>Thêm tài khoản mới</h2>
+        </div>
 
-                <form method="POST">
-                    <input type="hidden" name="csrf"
-                           value="<?= sysH($csrf) ?>">
-                    <input type="hidden" name="action"
-                           value="add_user">
+        <!-- THEM TAI KHOAN -->
 
-                    <div class="sys-grid">
+        <section class="vnn-sys-card">
+            <h2>Thêm tài khoản mới</h2>
 
-                        <div class="sys-field">
-                            <label>Họ và tên</label>
-                            <input name="fullname" required>
-                        </div>
+            <p class="vnn-sys-hint">
+                Admin và Manager được bảo vệ.
+                Không tạo thêm tài khoản cùng vai trò tại đây.
+            </p>
 
-                        <div class="sys-field">
-                            <label>Email</label>
-                            <input name="email" type="email" required>
-                        </div>
+            <form method="POST" class="vnn-sys-form">
 
-                        <div class="sys-field">
-                            <label>Số điện thoại</label>
-                            <input name="phone">
-                        </div>
+                <input
+                    type="hidden"
+                    name="csrf"
+                    value="<?= vnnSysEsc($csrf) ?>"
+                >
 
-                        <div class="sys-field">
-                            <label>Mật khẩu khởi tạo</label>
-                            <input name="password"
-                                   type="password"
-                                   minlength="8"
-                                   autocomplete="new-password"
-                                   required>
-                        </div>
+                <input
+                    type="hidden"
+                    name="action"
+                    value="add_user"
+                >
 
-                        <div class="sys-field">
-                            <label>Vai trò</label>
-                            <select name="role">
-                                <option value="staff">Nhân viên</option>
-                                <option value="customer">Khách hàng</option>
+                <div class="vnn-sys-field">
+                    <label>Họ tên</label>
+                    <input
+                        name="fullname"
+                        required
+                        maxlength="255"
+                    >
+                </div>
 
-                                <?php if ($managerCount === 0): ?>
-                                    <option value="manager">Manager</option>
-                                <?php endif; ?>
+                <div class="vnn-sys-field">
+                    <label>Email</label>
+                    <input
+                        name="email"
+                        type="email"
+                        required
+                    >
+                </div>
 
-                                <?php if ($adminCount === 0): ?>
-                                    <option value="admin">Admin</option>
-                                <?php endif; ?>
-                            </select>
-                        </div>
+                <div class="vnn-sys-field">
+                    <label>Số điện thoại</label>
+                    <input name="phone">
+                </div>
 
-                    </div>
+                <div class="vnn-sys-field">
+                    <label>Mật khẩu khởi tạo (ít nhất 8 ký tự)</label>
+                    <input
+                        name="password"
+                        type="password"
+                        minlength="8"
+                        autocomplete="new-password"
+                        required
+                    >
+                </div>
 
-                    <button class="sys-btn" type="submit"
-                            style="margin-top:18px">
+                <div class="vnn-sys-field">
+                    <label>Vai trò</label>
+
+                    <select name="role">
+                        <option value="staff">
+                            Nhân viên
+                        </option>
+
+                        <option value="customer">
+                            Khách hàng
+                        </option>
+                    </select>
+                </div>
+
+                <div
+                    class="vnn-sys-field"
+                    style="display:flex;align-items:end"
+                >
+                    <button class="vnn-sys-button" type="submit">
                         <i class="fa-solid fa-user-plus"></i>
                         Tạo tài khoản
                     </button>
-                </form>
-            </section>
-
-            <section class="sys-panel">
-                <h2>Danh sách tài khoản</h2>
-
-                <div class="sys-tools">
-                    <input id="sysUserSearch"
-                           placeholder="Tìm tên hoặc email...">
-
-                    <select id="sysRoleFilter">
-                        <option value="">Tất cả vai trò</option>
-                        <option value="admin">Admin</option>
-                        <option value="manager">Manager</option>
-                        <option value="staff">Staff</option>
-                        <option value="customer">Customer</option>
-                    </select>
-
-                    <select id="sysStatusFilter">
-                        <option value="">Tất cả trạng thái</option>
-                        <option value="1">Hoạt động</option>
-                        <option value="0">Đang khóa</option>
-                    </select>
                 </div>
 
-                <div class="sys-table-wrap">
-                    <table class="sys-table">
-                        <thead>
-                            <tr>
-                                <th>Họ tên</th>
-                                <th>Email</th>
-                                <th>Vai trò</th>
-                                <th>Trạng thái</th>
-                                <th>Thao tác</th>
-                            </tr>
-                        </thead>
+            </form>
+        </section>
 
-                        <tbody>
-                            <?php foreach ($users as $user): ?>
+        <!-- DANH SACH TAI KHOAN -->
 
-                                <tr class="sys-user-row"
-                                    data-search="<?= sysH(
-                                        mb_strtolower(
-                                            $user['fullname'] . ' ' . $user['email'],
-                                            'UTF-8'
-                                        )
-                                    ) ?>"
-                                    data-role="<?= sysH($user['role']) ?>"
-                                    data-status="<?= (int)$user['status'] ?>">
+        <section class="vnn-sys-card">
+            <h2>Danh sách tài khoản</h2>
 
-                                    <td>
-                                        <strong>
-                                            <?= sysH($user['fullname']) ?>
-                                        </strong>
-                                    </td>
+            <div class="vnn-sys-filter">
+                <input
+                    id="vnnUserSearch"
+                    placeholder="Tìm tên hoặc email..."
+                >
 
-                                    <td><?= sysH($user['email']) ?></td>
-                                    <td><?= sysH(strtoupper($user['role'])) ?></td>
+                <select id="vnnUserRole">
+                    <option value="">Tất cả vai trò</option>
+                    <option value="admin">Admin</option>
+                    <option value="manager">Manager</option>
+                    <option value="staff">Staff</option>
+                    <option value="customer">Customer</option>
+                </select>
 
-                                    <td>
-                                        <span class="sys-pill <?= (int)$user['status'] === 1 ? '' : 'locked' ?>">
-                                            <?= (int)$user['status'] === 1
-                                                ? 'Hoạt động'
-                                                : 'Đang khóa' ?>
-                                        </span>
-                                    </td>
-
-                                    <td>
-                                        <?php if (
-                                            $user['role'] !== 'admin' &&
-                                            (int)$user['id'] !== (int)$_SESSION['user_id']
-                                        ): ?>
-
-                                            <form method="POST"
-                                                  onsubmit="return confirm('Xác nhận thay đổi trạng thái tài khoản?')">
-
-                                                <input type="hidden" name="csrf"
-                                                       value="<?= sysH($csrf) ?>">
-                                                <input type="hidden" name="action"
-                                                       value="toggle_user">
-                                                <input type="hidden" name="user_id"
-                                                       value="<?= (int)$user['id'] ?>">
-
-                                                <button class="sys-btn small <?= (int)$user['status'] === 1 ? 'red' : '' ?>"
-                                                        type="submit">
-                                                    <?= (int)$user['status'] === 1
-                                                        ? 'Khóa'
-                                                        : 'Mở khóa' ?>
-                                                </button>
-                                            </form>
-
-                                        <?php else: ?>
-                                            <span class="sys-muted">Được bảo vệ</span>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-        <?php elseif ($tab === 'content'): ?>
-
-            <div class="sys-alert">
-                Đây là khu vực <strong>lưu cấu hình nội dung website</strong>.
-                Các trường đã được lưu vào database và ghi lịch sử.
-                Để banner, logo hoặc phần giới thiệu thực sự thay đổi
-                trên trang chủ, cần cập nhật mã giao diện trang chủ
-                và header để đọc từ bảng <code>site_settings</code>.
+                <select id="vnnUserStatus">
+                    <option value="">Tất cả trạng thái</option>
+                    <option value="1">Hoạt động</option>
+                    <option value="0">Đang khóa</option>
+                </select>
             </div>
 
-            <section class="sys-panel">
-                <h2>Chỉnh sửa nội dung website</h2>
+            <div class="vnn-sys-table-wrap">
+                <table class="vnn-sys-table">
 
-                <form method="POST">
+                    <thead>
+                        <tr>
+                            <th>Họ tên</th>
+                            <th>Email</th>
+                            <th>Vai trò</th>
+                            <th>Trạng thái</th>
+                            <th>Thao tác</th>
+                        </tr>
+                    </thead>
 
-                    <input type="hidden" name="csrf"
-                           value="<?= sysH($csrf) ?>">
-                    <input type="hidden" name="action"
-                           value="save_content">
+                    <tbody>
 
-                    <div class="sys-grid">
+                    <?php foreach ($users as $user): ?>
 
-                        <?php foreach ($settingLabels as $key => $label): ?>
+                        <tr
+                            class="vnn-user-row"
+                            data-search="<?= vnnSysEsc(
+                                mb_strtolower(
+                                    $user['fullname'].' '.$user['email'],
+                                    'UTF-8'
+                                )
+                            ) ?>"
+                            data-role="<?= vnnSysEsc($user['role']) ?>"
+                            data-status="<?= (int)$user['status'] ?>"
+                        >
 
-                            <div class="sys-field sys-full">
-                                <label for="setting-<?= sysH($key) ?>">
-                                    <?= sysH($label) ?>
-                                </label>
+                            <td>
+                                <strong>
+                                    <?= vnnSysEsc($user['fullname']) ?>
+                                </strong>
+                            </td>
 
-                                <?php if (in_array(
-                                    $key,
-                                    ['home_description', 'footer_description'],
-                                    true
-                                )): ?>
+                            <td><?= vnnSysEsc($user['email']) ?></td>
 
-                                    <textarea
-                                        id="setting-<?= sysH($key) ?>"
-                                        name="<?= sysH($key) ?>"
-                                    ><?= sysH($settings[$key]) ?></textarea>
+                            <td>
+                                <?= vnnSysEsc(
+                                    strtoupper($user['role'])
+                                ) ?>
+                            </td>
 
-                                <?php else: ?>
+                            <td>
+                                <span class="vnn-sys-pill <?= (int)$user['status']===1?'':'off' ?>">
+                                    <?= (int)$user['status']===1
+                                        ? 'Hoạt động'
+                                        : 'Đang khóa' ?>
+                                </span>
+                            </td>
+
+                            <td>
+
+                            <?php if (
+                                $user['role'] !== 'admin' &&
+                                (int)$user['id'] !==
+                                (int)($_SESSION['user_id'] ?? 0)
+                            ): ?>
+
+                                <form
+                                    method="POST"
+                                    onsubmit="return confirm('Xác nhận thay đổi trạng thái tài khoản này?')"
+                                >
 
                                     <input
-                                        id="setting-<?= sysH($key) ?>"
-                                        name="<?= sysH($key) ?>"
-                                        value="<?= sysH($settings[$key]) ?>"
+                                        type="hidden"
+                                        name="csrf"
+                                        value="<?= vnnSysEsc($csrf) ?>"
                                     >
 
-                                <?php endif; ?>
-                            </div>
+                                    <input
+                                        type="hidden"
+                                        name="action"
+                                        value="toggle_user"
+                                    >
 
-                        <?php endforeach; ?>
+                                    <input
+                                        type="hidden"
+                                        name="user_id"
+                                        value="<?= (int)$user['id'] ?>"
+                                    >
 
-                    </div>
+                                    <button
+                                        class="vnn-sys-button small <?= (int)$user['status']===1?'danger':'' ?>"
+                                        type="submit"
+                                    >
+                                        <?= (int)$user['status']===1
+                                            ? 'Khóa'
+                                            : 'Mở khóa' ?>
+                                    </button>
 
-                    <button class="sys-btn"
-                            type="submit"
-                            style="margin-top:20px">
-                        <i class="fa-solid fa-floppy-disk"></i>
-                        Lưu thay đổi
-                    </button>
+                                </form>
 
-                </form>
-            </section>
+                            <?php else: ?>
 
-        <?php else: ?>
+                                <span class="vnn-sys-hint">
+                                    Được bảo vệ
+                                </span>
 
-            <section class="sys-panel">
+                            <?php endif; ?>
 
-                <h2>Lịch sử hoạt động</h2>
-
-                <p class="sys-muted">
-                    Chọn một trong bốn loại lịch sử để kiểm tra.
-                </p>
-
-                <div class="sys-tabs">
-
-                    <?php $n = 1; ?>
-
-                    <?php foreach ($historyGroups as $key => $label): ?>
-
-                        <button
-                            type="button"
-                            class="sys-tab"
-                            data-history-tab="<?= sysH($key) ?>"
-                        >
-                            <?= $n++ ?>. <?= sysH($label) ?>
-                        </button>
+                            </td>
+                        </tr>
 
                     <?php endforeach; ?>
 
-                </div>
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
-                <div class="sys-tools">
-                    <input
-                        id="sysHistorySearch"
-                        placeholder="Tìm người thực hiện, thao tác..."
-                    >
+    <?php else: ?>
 
-                    <input
-                        type="date"
-                        id="sysHistoryDate"
-                        aria-label="Lọc theo ngày"
-                    >
-                </div>
+        <!-- LICH SU HOAT DONG -->
 
-                <div class="sys-table-wrap">
-                    <table class="sys-table">
-                        <thead>
-                            <tr>
-                                <th>Thời gian</th>
-                                <th>Người thực hiện</th>
-                                <th>Thao tác</th>
-                                <th>Đối tượng</th>
-                                <th>Chi tiết</th>
-                            </tr>
-                        </thead>
+        <section class="vnn-sys-card">
 
-                        <tbody>
-                            <?php foreach ($logs as $log): ?>
+            <h2><?= vnnSysEsc($groups[$category]) ?></h2>
 
-                                <tr
-                                    class="sys-history-row"
-                                    data-category="<?= sysH($log['category']) ?>"
-                                    data-date="<?= sysH(substr($log['created_at'], 0, 10)) ?>"
-                                    data-search="<?= sysH(
-                                        mb_strtolower(
-                                            $log['actor_name'] . ' ' .
-                                            $log['action'] . ' ' .
-                                            $log['target_type'],
-                                            'UTF-8'
-                                        )
-                                    ) ?>"
-                                >
-                                    <td><?= sysH($log['created_at']) ?></td>
-                                    <td><?= sysH($log['actor_name']) ?></td>
-                                    <td><strong><?= sysH($log['action']) ?></strong></td>
+            <p class="vnn-sys-hint">
+                Chọn nhóm trong menu “Lịch sử hoạt động” bên trái
+                để mở rộng và xem từng loại nhật ký.
+                Nhật ký chỉ hiển thị các thao tác đã được tích hợp
+                ghi nhận sau khi triển khai.
+            </p>
 
-                                    <td>
-                                        <?= sysH($log['target_type']) ?>
-                                        #<?= sysH($log['target_id']) ?>
-                                    </td>
-
-                                    <td>
-                                        <details>
-                                            <summary>Xem chi tiết</summary>
-                                            <div class="sys-history-value">
-                                                <strong>Trước:</strong>
-                                                <?= sysH($log['old_value']) ?>
-
-                                                <strong>Sau:</strong>
-                                                <?= sysH($log['new_value']) ?>
-                                            </div>
-                                        </details>
-                                    </td>
-                                </tr>
-
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <p id="sysHistoryEmpty"
-                   class="sys-muted"
-                   hidden>
-                    Chưa có nhật ký phù hợp trong nhóm này.
+            <?php if ($logError): ?>
+                <p style="color:#b91c1c">
+                    <?= vnnSysEsc($logError) ?>
                 </p>
+            <?php endif; ?>
 
-            </section>
+            <div class="vnn-sys-filter">
 
-        <?php endif; ?>
+                <input
+                    id="vnnHistorySearch"
+                    placeholder="Tìm người thực hiện hoặc hành động..."
+                >
+
+                <input
+                    type="date"
+                    id="vnnHistoryDate"
+                    aria-label="Lọc ngày"
+                >
+
+            </div>
+
+            <div class="vnn-sys-table-wrap">
+                <table class="vnn-sys-table">
+
+                    <thead>
+                        <tr>
+                            <th>Thời gian</th>
+                            <th>Người thực hiện</th>
+                            <th>Hành động</th>
+                            <th>Đối tượng</th>
+                            <th>Chi tiết</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+
+                    <?php foreach ($logs as $log): ?>
+
+                        <tr
+                            class="vnn-log-row"
+                            data-date="<?= vnnSysEsc(
+                                substr($log['created_at'], 0, 10)
+                            ) ?>"
+                            data-search="<?= vnnSysEsc(
+                                mb_strtolower(
+                                    $log['actor_name'].' '.$log['action'],
+                                    'UTF-8'
+                                )
+                            ) ?>"
+                        >
+
+                            <td>
+                                <?= vnnSysEsc($log['created_at']) ?>
+                            </td>
+
+                            <td>
+                                <?= vnnSysEsc($log['actor_name']) ?>
+                            </td>
+
+                            <td>
+                                <strong>
+                                    <?= vnnSysEsc($log['action']) ?>
+                                </strong>
+                            </td>
+
+                            <td>
+                                <?= vnnSysEsc($log['target_type']) ?>
+                                #<?= vnnSysEsc($log['target_id']) ?>
+                            </td>
+
+                            <td>
+                                <details>
+                                    <summary>Xem chi tiết</summary>
+
+                                    <div class="vnn-sys-details">
+                                        <b>Trước:</b>
+                                        <?= vnnSysEsc($log['old_value']) ?>
+
+                                        <b>Sau:</b>
+                                        <?= vnnSysEsc($log['new_value']) ?>
+                                    </div>
+                                </details>
+                            </td>
+
+                        </tr>
+
+                    <?php endforeach; ?>
+
+                    </tbody>
+                </table>
+            </div>
+
+            <p
+                class="vnn-sys-hint"
+                id="vnnEmptyLog"
+                <?= !$logs?'':'hidden' ?>
+            >
+                Chưa có nhật ký phù hợp.
+            </p>
+
+        </section>
+
+    <?php endif; ?>
 
     </div>
 </main>
 
-<!-- POPUP -->
+<!-- POPUP THONG BAO -->
 
 <div
-    class="sys-modal"
-    id="sysModal"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="sysModalTitle"
-    <?= $popup ? '' : 'hidden' ?>
+    class="vnn-sys-overlay"
+    id="vnnSystemPopup"
+    <?= $popup?'':'hidden' ?>
 >
-    <div class="sys-modal-card">
-        <div class="sys-modal-icon">
-            <i class="fa-solid <?= ($popup['type'] ?? '') === 'error'
-                ? 'fa-circle-xmark'
-                : 'fa-circle-check' ?>"></i>
-        </div>
 
-        <h2 id="sysModalTitle">
-            <?= sysH($popup['title'] ?? 'Thông báo') ?>
+    <div class="vnn-sys-popup <?= ($popup['type']??'')==='error'?'error':'' ?>">
+
+        <i class="fa-solid <?= ($popup['type']??'')==='error'
+            ? 'fa-circle-xmark'
+            : 'fa-circle-check' ?>"></i>
+
+        <h2>
+            <?= vnnSysEsc($popup['title']??'Thông báo') ?>
         </h2>
 
-        <p><?= sysH($popup['message'] ?? '') ?></p>
+        <p>
+            <?= vnnSysEsc($popup['message']??'') ?>
+        </p>
 
         <button
-            id="sysModalClose"
-            class="sys-btn"
+            class="vnn-sys-button"
+            id="vnnClosePopup"
             type="button"
         >
             Đóng
         </button>
+
     </div>
+
 </div>
 
 <script>
 (function() {
-    const search = document.getElementById('sysUserSearch');
-    const role = document.getElementById('sysRoleFilter');
-    const status = document.getElementById('sysStatusFilter');
+
+    const q = document.getElementById('vnnUserSearch');
+    const role = document.getElementById('vnnUserRole');
+    const status = document.getElementById('vnnUserStatus');
 
     function filterUsers() {
-        if (!search) return;
+        if (!q) return;
 
-        const query = search.value.trim().toLocaleLowerCase('vi');
+        const term = q.value.toLocaleLowerCase('vi').trim();
 
-        document.querySelectorAll('.sys-user-row').forEach(row => {
+        document.querySelectorAll('.vnn-user-row').forEach(row => {
             row.hidden = !(
-                row.dataset.search.includes(query) &&
-                (!role.value || row.dataset.role === role.value) &&
-                (!status.value || row.dataset.status === status.value)
+                row.dataset.search.includes(term) &&
+                (!role.value || role.value === row.dataset.role) &&
+                (!status.value || status.value === row.dataset.status)
             );
         });
     }
 
-    [search, role, status].forEach(el => {
+    [q, role, status].forEach(el => {
         if (el) {
             el.addEventListener('input', filterUsers);
             el.addEventListener('change', filterUsers);
         }
     });
 
-    const historyTabs = document.querySelectorAll(
-        '[data-history-tab]'
-    );
-
-    const historySearch = document.getElementById(
-        'sysHistorySearch'
-    );
-
-    const historyDate = document.getElementById(
-        'sysHistoryDate'
-    );
-
-    let activeHistory = 'accounts';
+    const hq = document.getElementById('vnnHistorySearch');
+    const hd = document.getElementById('vnnHistoryDate');
 
     function filterHistory() {
-        if (!historySearch) return;
+        if (!hq) return;
 
-        const keyword = historySearch.value
-            .trim()
-            .toLocaleLowerCase('vi');
+        let n = 0;
+        const term = hq.value.toLocaleLowerCase('vi').trim();
 
-        const day = historyDate.value;
-        let shown = 0;
-
-        historyTabs.forEach(button => {
-            button.classList.toggle(
-                'active',
-                button.dataset.historyTab === activeHistory
+        document.querySelectorAll('.vnn-log-row').forEach(row => {
+            row.hidden = !(
+                row.dataset.search.includes(term) &&
+                (!hd.value || hd.value === row.dataset.date)
             );
+
+            if (!row.hidden) n++;
         });
 
-        document.querySelectorAll('.sys-history-row').forEach(row => {
-            const visible =
-                row.dataset.category === activeHistory &&
-                row.dataset.search.includes(keyword) &&
-                (!day || row.dataset.date === day);
+        const empty = document.getElementById('vnnEmptyLog');
 
-            row.hidden = !visible;
-
-            if (visible) shown++;
-        });
-
-        const empty = document.getElementById('sysHistoryEmpty');
-        if (empty) empty.hidden = shown > 0;
+        if (empty) {
+            empty.hidden = n > 0;
+        }
     }
 
-    historyTabs.forEach(button => {
-        button.addEventListener('click', function() {
-            activeHistory = button.dataset.historyTab;
-            filterHistory();
-        });
-    });
-
-    if (historySearch) {
-        historySearch.addEventListener('input', filterHistory);
-        historyDate.addEventListener('change', filterHistory);
-        filterHistory();
-    }
-
-    const modal = document.getElementById('sysModal');
-    const close = document.getElementById('sysModalClose');
-
-    function closeModal() {
-        modal.hidden = true;
-    }
-
-    if (close) {
-        close.addEventListener('click', closeModal);
-    }
-
-    if (modal) {
-        modal.addEventListener('click', event => {
-            if (event.target === modal) closeModal();
-        });
-    }
-
-    document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && modal) {
-            closeModal();
+    [hq, hd].forEach(el => {
+        if (el) {
+            el.addEventListener('input', filterHistory);
+            el.addEventListener('change', filterHistory);
         }
     });
+
+    filterHistory();
+
+    const pop = document.getElementById('vnnSystemPopup');
+
+    function closePopup() {
+        if (pop) pop.hidden = true;
+    }
+
+    const btn = document.getElementById('vnnClosePopup');
+
+    if (btn) {
+        btn.addEventListener('click', closePopup);
+    }
+
+    if (pop) {
+        pop.addEventListener('click', function(event) {
+            if (event.target === pop) {
+                closePopup();
+            }
+        });
+    }
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            closePopup();
+        }
+    });
+
 })();
 </script>
 
