@@ -1,20 +1,31 @@
-
 <?php
 ob_start();
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-function coRedirect(): void {
-    header('Location: /shop/my-orders.php', true, 303);
+function cancelRedirect(): void
+{
+    $url = '/shop/my-orders.php';
+
+    if (!headers_sent()) {
+        header('Location: ' . $url, true, 303);
+        exit;
+    }
+
+    // Du phong truong hop file khac da xuat noi dung.
+    echo '<script>window.location.replace(' .
+        json_encode($url) .
+        ');</script>';
     exit;
 }
 
-function coNotice(string $type, string $message): void {
+function cancelNotice(string $type, string $message): void
+{
     $_SESSION['shop_order_notice'] = [
         'type' => $type,
         'message' => $message
@@ -22,24 +33,31 @@ function coNotice(string $type, string $message): void {
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    coRedirect();
+    cancelRedirect();
 }
 
 $userId = (int)($_SESSION['user_id'] ?? 0);
 
 if ($userId <= 0) {
-    coNotice('error', 'Vui lòng đăng nhập để hủy đơn hàng.');
-    coRedirect();
+    cancelNotice(
+        'error',
+        'Vui lòng đăng nhập để hủy đơn hàng.'
+    );
+    cancelRedirect();
 }
 
 $csrf = (string)($_POST['csrf'] ?? '');
+$savedCsrf = (string)($_SESSION['shop_cancel_csrf'] ?? '');
 
 if (
-    empty($_SESSION['shop_cancel_csrf']) ||
-    !hash_equals((string)$_SESSION['shop_cancel_csrf'], $csrf)
+    $savedCsrf === '' ||
+    !hash_equals($savedCsrf, $csrf)
 ) {
-    coNotice('error', 'Phiên làm việc không hợp lệ.');
-    coRedirect();
+    cancelNotice(
+        'error',
+        'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
+    );
+    cancelRedirect();
 }
 
 $orderId = filter_var(
@@ -47,26 +65,35 @@ $orderId = filter_var(
     FILTER_VALIDATE_INT
 );
 
-if (!$orderId || $orderId <= 0) {
-    coNotice('error', 'Mã đơn hàng không hợp lệ.');
-    coRedirect();
+if ($orderId === false || $orderId === null || $orderId <= 0) {
+    cancelNotice(
+        'error',
+        'Mã đơn hàng không hợp lệ.'
+    );
+    cancelRedirect();
 }
 
 try {
     $pdo->beginTransaction();
 
-    // Khoa don hang truoc khi kiem tra.
-    $stmt = $pdo->prepare("
+    // Khoa don hang de tranh hai yeu cau huy
+    // hoac duyet don cung luc.
+    $checkOrder = $pdo->prepare("
         SELECT id, status
         FROM orders
-        WHERE id = ? AND user_id = ?
+        WHERE id = ?
+          AND user_id = ?
         LIMIT 1
         FOR UPDATE
     ");
 
-    $stmt->execute([$orderId, $userId]);
-    $order = $stmt->fetch(PDO::FETCH_ASSOC);
-    $stmt->closeCursor();
+    $checkOrder->execute([
+        $orderId,
+        $userId
+    ]);
+
+    $order = $checkOrder->fetch(PDO::FETCH_ASSOC);
+    $checkOrder->closeCursor();
 
     if (!$order) {
         throw new RuntimeException(
@@ -80,17 +107,18 @@ try {
         );
     }
 
-    // Lay so luong san pham da tru kho luc checkout.
-    $details = $pdo->prepare("
-        SELECT product_id, SUM(quantity) AS quantity
+    // Lay san pham va so luong da dat.
+    $getDetails = $pdo->prepare("
+        SELECT product_id, SUM(quantity) AS total_quantity
         FROM order_details
         WHERE order_id = ?
         GROUP BY product_id
     ");
 
-    $details->execute([$orderId]);
-    $products = $details->fetchAll(PDO::FETCH_ASSOC);
-    $details->closeCursor();
+    $getDetails->execute([$orderId]);
+
+    $products = $getDetails->fetchAll(PDO::FETCH_ASSOC);
+    $getDetails->closeCursor();
 
     if (!$products) {
         throw new RuntimeException(
@@ -98,9 +126,8 @@ try {
         );
     }
 
-    // Cap nhat trang thai truoc.
-    // Dieu kien Chờ xác nhận dam bao khong huy hai lan.
-    $update = $pdo->prepare("
+    // Chi chuyen tu Cho xac nhan sang Da huy.
+    $cancelOrder = $pdo->prepare("
         UPDATE orders
         SET status = 'Đã hủy'
         WHERE id = ?
@@ -108,60 +135,70 @@ try {
           AND status = 'Chờ xác nhận'
     ");
 
-    $update->execute([$orderId, $userId]);
+    $cancelOrder->execute([
+        $orderId,
+        $userId
+    ]);
 
-    if ($update->rowCount() !== 1) {
+    if ($cancelOrder->rowCount() !== 1) {
         throw new RuntimeException(
             'Trạng thái đơn hàng đã thay đổi.'
         );
     }
 
-    // Hoan dung so luong tung san pham.
-    $restore = $pdo->prepare("
+    // Hoan kho dung mot lan trong transaction.
+    $restoreStock = $pdo->prepare("
         UPDATE products
         SET stock = stock + ?
         WHERE id = ?
     ");
 
     foreach ($products as $product) {
-        $quantity = (int)$product['quantity'];
         $productId = (int)$product['product_id'];
+        $quantity = (int)$product['total_quantity'];
 
-        if ($quantity <= 0 || $productId <= 0) {
+        if ($productId <= 0 || $quantity <= 0) {
             throw new RuntimeException(
-                'Số lượng hoàn kho không hợp lệ.'
+                'Thông tin sản phẩm hoặc số lượng không hợp lệ.'
             );
         }
 
-        $restore->execute([$quantity, $productId]);
+        $restoreStock->execute([
+            $quantity,
+            $productId
+        ]);
 
-        if ($restore->rowCount() !== 1) {
+        if ($restoreStock->rowCount() !== 1) {
             throw new RuntimeException(
-                'Không thể hoàn tồn kho cho một sản phẩm.'
+                'Không thể hoàn kho cho sản phẩm #' .
+                $productId
             );
         }
     }
 
     $pdo->commit();
 
-    coNotice(
+    cancelNotice(
         'success',
         'Đơn hàng đã được hủy thành công.'
     );
 
 } catch (Throwable $e) {
+
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
 
-    error_log('Cancel order: ' . $e->getMessage());
+    error_log(
+        'Cancel order error: ' . $e->getMessage()
+    );
 
-    coNotice(
+    cancelNotice(
         'error',
         $e instanceof RuntimeException
             ? $e->getMessage()
-            : 'Không thể hủy đơn hàng lúc này.'
+            : 'Không thể hủy đơn hàng. Vui lòng thử lại.'
     );
 }
 
-coRedirect();
+cancelRedirect();
