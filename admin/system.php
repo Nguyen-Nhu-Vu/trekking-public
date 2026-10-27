@@ -12,6 +12,21 @@ if (!function_exists('vnnSysH')) {
     }
 }
 
+// login_time va created_at cua ban ghi cu dang duoc luu theo UTC.
+// Hien thi lich su dang nhap theo Asia/Ho_Chi_Minh, khong sua gia tri DB.
+if (!function_exists('vnnSysLoginTime')) {
+    function vnnSysLoginTime($value, bool $dateOnly = false): string {
+        if ($value === null || trim((string)$value) === '') return $dateOnly ? '' : '—';
+        try {
+            $utc = new DateTimeImmutable((string)$value, new DateTimeZone('UTC'));
+            $local = $utc->setTimezone(new DateTimeZone('Asia/Ho_Chi_Minh'));
+            return $local->format($dateOnly ? 'Y-m-d' : 'd/m/Y H:i:s');
+        } catch (Throwable $e) {
+            return $dateOnly ? '' : '—';
+        }
+    }
+}
+
 if (!function_exists('vnnSysQuery')) {
     function vnnSysQuery(PDO $pdo, string $sql, array $params = []) {
         $stmt = $pdo->prepare($sql);
@@ -1229,7 +1244,7 @@ try {
 
                     <tr
                         class="vs-data-row"
-                        data-date="<?= vnnSysH(substr($row['login_time'], 0, 10)) ?>"
+                        data-date="<?= vnnSysH(vnnSysLoginTime($row['login_time'], true)) ?>"
                         data-email="<?= vnnSysH($row['account_email']) ?>"
                         data-result="<?= vnnSysH($row['result']) ?>"
                         data-search="<?= vnnSysH(
@@ -1265,10 +1280,7 @@ try {
 
                         <td>
                             <?= vnnSysH(
-                                date(
-                                    'd/m/Y H:i:s',
-                                    strtotime($row['login_time'])
-                                )
+                                vnnSysLoginTime($row['login_time'])
                             ) ?>
                         </td>
 
