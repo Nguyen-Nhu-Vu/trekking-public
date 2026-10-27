@@ -1,9 +1,32 @@
-
 <?php
 ob_start();
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
+
+// Vercel dat PHP sau reverse proxy. Chi tin forwarded IP tren Vercel.
+// IP co the thay doi khi nguoi dung doi mang hoac su dung VPN.
+if (!function_exists('vnnVisitorIp')) {
+    function vnnVisitorIp(): string {
+        $remote = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        $onVercel = getenv('VERCEL') === '1';
+        if ($onVercel) {
+            foreach (['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'] as $header) {
+                $raw = (string)($_SERVER[$header] ?? '');
+                if ($raw === '') continue;
+                foreach (explode(',', $raw) as $candidate) {
+                    $ip = trim($candidate);
+                    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                        return substr($ip, 0, 45);
+                    }
+                }
+            }
+        }
+        return filter_var($remote, FILTER_VALIDATE_IP)
+            ? substr($remote, 0, 45) : 'Không xác định';
+    }
+}
+
 
 $error = '';
 
@@ -46,9 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             INSERT INTO login_audit_logs
             (
                 user_id,account_email,account_name,
-                account_role,ip_address,user_agent,result,note
+                account_role,ip_address,user_agent,result,note,login_time
             )
-            VALUES (?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP())
         ");
 
         $log->execute([
@@ -56,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $email,
             $user['fullname'] ?? null,
             $user['role'] ?? null,
-            substr((string)($_SERVER['REMOTE_ADDR'] ?? ''),0,45),
+            vnnVisitorIp(),
             substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''),0,1000),
             $result,
             $note
