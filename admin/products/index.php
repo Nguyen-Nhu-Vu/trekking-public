@@ -1,200 +1,882 @@
 <?php
-// trekking/admin/products/index.php
-require_once '../../config/database.php';
-require_once '../../includes/functions.php';
+ob_start();
+
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/functions.php';
+
 requireManager();
 
-$msg = '';
-$error = '';
-
-// 1. Cập nhật tồn kho nhanh trực tiếp từ bảng
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock_fast'])) {
-    $pid = intval($_POST['product_id']);
-    $new_stock = intval($_POST['stock']);
-    $pdo->prepare("UPDATE products SET stock = ? WHERE id = ?")->execute([$new_stock, $pid]);
-    $msg = "Cập nhật tồn kho thành công!";
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
 }
-
-// 2. Xử lý thêm sản phẩm mới (Tải ảnh trực tiếp từ máy tính)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
-    $name = sanitize($_POST['name'] ?? '');
-    $category_id = intval($_POST['category_id'] ?? 0);
-    $brand = sanitize($_POST['brand'] ?? 'TrekGear');
-    $price = floatval($_POST['price'] ?? 0);
-    $stock = intval($_POST['stock'] ?? 0);
-    $specs = sanitize($_POST['specs'] ?? '');
-    $description = sanitize($_POST['description'] ?? '');
-
-    // Ảnh mặc định nếu người dùng không chọn file
-    $image_path = 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800';
-
-    // Xử lý upload file từ máy tính
-    if (isset($_FILES['image_file']) && $_FILES['image_file']['error'] === UPLOAD_ERR_OK) {
-        $file_tmp = $_FILES['image_file']['tmp_name'];
-        $file_name = $_FILES['image_file']['name'];
-        $ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-        $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-
-        if (in_array($ext, $allowed)) {
-            $new_name = 'prod_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
-            $upload_dir = __DIR__ . '/../../uploads/products/';
-            
-            // Tự động tạo thư mục uploads/products nếu chưa có
-            if (!is_dir($upload_dir)) {
-                mkdir($upload_dir, 0777, true);
-            }
-            
-            if (move_uploaded_file($file_tmp, $upload_dir . $new_name)) {
-                $image_path = BASE_URL . 'uploads/products/' . $new_name;
-            } else {
-                $error = "Không thể lưu file ảnh vào thư mục uploads/products!";
-            }
-        } else {
-            $error = "Định dạng file không hợp lệ (chỉ chấp nhận JPG, PNG, WEBP, GIF)!";
-        }
-    }
-
-    if (empty($name) || $category_id <= 0 || $price <= 0) {
-        $error = "Vui lòng nhập đầy đủ tên sản phẩm, danh mục và giá!";
-    } elseif (empty($error)) {
-        $stmt = $pdo->prepare("INSERT INTO products (name, category_id, brand, price, stock, image, specs, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)");
-        $stmt->execute([$name, $category_id, $brand, $price, $stock, $image_path, $specs, $description]);
-        $msg = "Đã thêm sản phẩm mới và tải ảnh lên thành công!";
-    }
-}
-
-// 3. Xóa sản phẩm
-if (isset($_GET['delete'])) {
-    $del_id = intval($_GET['delete']);
-    $pdo->prepare("DELETE FROM products WHERE id = ?")->execute([$del_id]);
-    $msg = "Đã xóa sản phẩm thành công!";
-}
-
-$categories = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
-$products = $pdo->query("SELECT p.*, c.name as category_name FROM products p JOIN categories c ON p.category_id = c.id ORDER BY p.id DESC")->fetchAll();
 
 $current_page = 'products';
+$page_title = 'Quản lý Dụng cụ & Tồn kho - VNN Travel';
+
+function productH($value): string {
+    return htmlspecialchars(
+        (string)($value ?? ''),
+        ENT_QUOTES,
+        'UTF-8'
+    );
+}
+
+if (empty($_SESSION['products_csrf'])) {
+    $_SESSION['products_csrf'] = bin2hex(random_bytes(32));
+}
+
+$csrf = $_SESSION['products_csrf'];
+
+$popupMessage = $_SESSION['product_notice'] ?? '';
+$popupType = 'success';
+unset($_SESSION['product_notice']);
+
+function productRedirect(string $message): void {
+    $_SESSION['product_notice'] = $message;
+    header('Location: index.php', true, 303);
+    exit;
+}
+
+// =====================================
+// XU LY CAC THAO TAC
+// =====================================
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        if (!hash_equals(
+            (string)$csrf,
+            (string)($_POST['csrf'] ?? '')
+        )) {
+            throw new RuntimeException(
+                'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
+            );
+        }
+
+        $action = (string)($_POST['action'] ?? '');
+        $id = filter_var(
+            $_POST['product_id'] ?? null,
+            FILTER_VALIDATE_INT
+        );
+
+        if (!$id || $id <= 0) {
+            throw new RuntimeException(
+                'Sản phẩm không hợp lệ.'
+            );
+        }
+
+        if ($action === 'update_stock') {
+            $stock = filter_var(
+                $_POST['stock'] ?? null,
+                FILTER_VALIDATE_INT
+            );
+
+            if ($stock === false || $stock < 0) {
+                throw new RuntimeException(
+                    'Số lượng tồn kho phải từ 0 trở lên.'
+                );
+            }
+
+            $stmt = $pdo->prepare("
+                UPDATE products
+                SET stock = ?
+                WHERE id = ?
+            ");
+
+            $stmt->execute([$stock, $id]);
+
+            productRedirect(
+                'Đã cập nhật số lượng tồn kho thành công.'
+            );
+        }
+
+        if ($action === 'delete') {
+            // Neu san pham da co trong don hang,
+            // khoa ngoai co the khong cho xoa.
+            $stmt = $pdo->prepare("
+                DELETE FROM products
+                WHERE id = ?
+            ");
+
+            $stmt->execute([$id]);
+
+            if ($stmt->rowCount() !== 1) {
+                throw new RuntimeException(
+                    'Không tìm thấy sản phẩm cần xóa.'
+                );
+            }
+
+            productRedirect(
+                'Đã xóa sản phẩm thành công.'
+            );
+        }
+
+        throw new RuntimeException(
+            'Thao tác không hợp lệ.'
+        );
+
+    } catch (Throwable $e) {
+        error_log('Product index: ' . $e->getMessage());
+
+        $popupType = 'error';
+        $popupMessage = $e instanceof RuntimeException
+            ? $e->getMessage()
+            : 'Không thể thực hiện thao tác. Sản phẩm có thể đã liên kết với đơn hàng.';
+    }
+}
+
+// =====================================
+// LAY DANH MUC VA DANH SACH SAN PHAM
+// =====================================
+
+$categories = [];
+$products = [];
+
+$search = trim((string)($_GET['q'] ?? ''));
+$categoryId = (int)($_GET['category'] ?? 0);
+
+try {
+    $categories = $pdo->query("
+        SELECT id, name
+        FROM categories
+        ORDER BY name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    $sql = "
+        SELECT
+            p.*,
+            c.name AS category_name
+        FROM products p
+        LEFT JOIN categories c
+            ON c.id = p.category_id
+        WHERE 1 = 1
+    ";
+
+    $params = [];
+
+    if ($categoryId > 0) {
+        $sql .= " AND p.category_id = ?";
+        $params[] = $categoryId;
+    }
+
+    if ($search !== '') {
+        $sql .= "
+            AND (
+                p.name LIKE ?
+                OR p.brand LIKE ?
+            )
+        ";
+
+        $params[] = '%' . $search . '%';
+        $params[] = '%' . $search . '%';
+    }
+
+    $sql .= " ORDER BY p.id DESC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+} catch (Throwable $e) {
+    error_log('Load products: ' . $e->getMessage());
+    $popupType = 'error';
+    $popupMessage = 'Không thể tải danh sách sản phẩm.';
+}
+
+$totalStock = 0;
+
+foreach ($products as $p) {
+    $totalStock += (int)$p['stock'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <title>Quản Lý Dụng Cụ & Tồn Kho - TrekHub</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="../../assets/css/style.css">
-    <link rel="stylesheet" href="../../assets/css/admin.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title><?= productH($page_title) ?></title>
+
+<link rel="stylesheet"
+ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+<link rel="stylesheet" href="../../assets/css/style.css">
+<link rel="stylesheet" href="../../assets/css/admin.css">
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+.pr-page {
+    flex: 1;
+    min-width: 0;
+    min-height: 100vh;
+    padding: 24px;
+    background: #f1f5f9;
+    color: #152f51;
+    font-size: 14px;
+}
+
+.pr-header,
+.pr-panel,
+.pr-stat {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+}
+
+.pr-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    flex-wrap: wrap;
+    padding: 22px;
+    margin-bottom: 18px;
+}
+
+.pr-header h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    color: #102e52;
+}
+
+.pr-header p {
+    margin: 8px 0 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.pr-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px 15px;
+    border: 0;
+    border-radius: 9px;
+    background: #166534;
+    color: white !important;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.pr-btn:hover {
+    background: #14532d;
+}
+
+.pr-btn.blue {
+    background: #1d4ed8;
+}
+
+.pr-btn.gray {
+    background: #e2e8f0;
+    color: #334155 !important;
+}
+
+.pr-btn.red {
+    background: #dc2626;
+}
+
+.pr-btn.small {
+    min-height: 36px;
+    padding: 8px 11px;
+    font-size: 12px;
+}
+
+.pr-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 15px;
+    margin-bottom: 18px;
+}
+
+.pr-stat {
+    padding: 19px;
+}
+
+.pr-stat span {
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+}
+
+.pr-stat strong {
+    display: block;
+    margin-top: 9px;
+    font-size: 25px;
+    color: #102e52;
+}
+
+.pr-panel {
+    overflow: hidden;
+}
+
+.pr-panel-title {
+    padding: 20px 22px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.pr-panel-title h2 {
+    margin: 0;
+    font-size: 18px;
+    color: #102e52;
+}
+
+.pr-filter {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 20px 22px;
+}
+
+.pr-filter-field {
+    flex: 1;
+    min-width: 180px;
+}
+
+.pr-filter-field label {
+    display: block;
+    margin-bottom: 7px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.pr-input {
+    display: block;
+    width: 100%;
+    min-height: 41px;
+    padding: 9px 11px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13px;
+    background: white;
+    color: #173454;
+}
+
+.pr-table-wrap {
+    overflow-x: auto;
+}
+
+.pr-table {
+    width: 100%;
+    min-width: 920px;
+    border-collapse: collapse;
+}
+
+.pr-table th,
+.pr-table td {
+    padding: 13px 14px;
+    text-align: left;
+    vertical-align: middle;
+    border-top: 1px solid #e2e8f0;
+    font-size: 13px;
+}
+
+.pr-table th {
+    background: #f8fafc;
+    color: #102e52;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.pr-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.pr-image {
+    width: 63px;
+    height: 67px;
+    object-fit: cover;
+    border-radius: 9px;
+    background: #e2e8f0;
+}
+
+.pr-name {
+    color: #102e52;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.pr-brand {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+.pr-price {
+    color: #ea580c;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.pr-stock {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.pr-stock .pr-input {
+    width: 85px;
+}
+
+.pr-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.pr-actions form,
+.pr-stock {
+    margin: 0;
+}
+
+.pr-empty {
+    text-align: center !important;
+    padding: 30px !important;
+    color: #64748b;
+}
+
+/* POPUP THONG BAO VA XAC NHAN */
+
+.pr-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15,23,42,.56);
+    padding: 20px;
+}
+
+.pr-overlay[hidden] {
+    display: none !important;
+}
+
+.pr-modal {
+    width: 100%;
+    max-width: 410px;
+    padding: 28px;
+    border-radius: 17px;
+    background: white;
+    text-align: center;
+    box-shadow: 0 22px 70px rgba(0,0,0,.2);
+}
+
+.pr-modal-icon {
+    width: 65px;
+    height: 65px;
+    border-radius: 50%;
+    background: #dcfce7;
+    color: #166534;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+    font-size: 28px;
+}
+
+.pr-modal-icon.error {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.pr-modal-icon.warning {
+    background: #fff7ed;
+    color: #ea580c;
+}
+
+.pr-modal h2 {
+    margin: 0 0 10px;
+    font-size: 20px;
+    color: #102e52;
+}
+
+.pr-modal p {
+    margin: 0 0 22px;
+    line-height: 1.7;
+    color: #64748b;
+}
+
+.pr-modal-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+@media(max-width:650px) {
+    .pr-page {
+        padding: 12px;
+    }
+
+    .pr-header,
+    .pr-panel-title,
+    .pr-filter {
+        padding: 15px;
+    }
+
+    .pr-stats {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 </head>
+
 <body class="admin-body">
 
-    <!-- Thanh sidebar Accordion dùng chung -->
-    <?php require_once __DIR__ . '/../includes/sidebar.php'; ?>
+<?php require_once __DIR__ . '/../includes/sidebar.php'; ?>
 
-    <main class="admin-main">
-        <div class="admin-topbar">
-            <div><strong>QUẢN LÝ DỤNG CỤ VÀ THỐNG KÊ TỒN KHO</strong></div>
+<main class="admin-main pr-page">
+
+    <div class="pr-header">
+        <div>
+            <h1>
+                <i class="fa-solid fa-boxes-stacked"></i>
+                QUẢN LÝ DỤNG CỤ & TỒN KHO
+            </h1>
+            <p>
+                Danh sách sản phẩm trekking và số lượng tồn kho.
+            </p>
         </div>
 
-        <div class="admin-content">
-            <?php if ($msg): ?><div class="alert alert-success"><?= $msg ?></div><?php endif; ?>
-            <?php if ($error): ?><div class="alert alert-error"><?= $error ?></div><?php endif; ?>
+        <a href="form.php" class="pr-btn">
+            <i class="fa-solid fa-plus"></i>
+            Thêm sản phẩm mới
+        </a>
+    </div>
 
-            <!-- Form thêm sản phẩm kèm tải file từ máy tính -->
-            <div style="background:white; padding:25px; border-radius:10px; box-shadow:var(--shadow); margin-bottom:30px;">
-                <h4 style="margin-bottom:15px; color:#1e293b;"><i class="fa-solid fa-plus-circle"></i> Thêm Dụng Cụ Mới Vào Kho</h4>
-                <form action="" method="POST" enctype="multipart/form-data">
-                    <input type="hidden" name="add_product" value="1">
-                    <div class="grid grid-3">
-                        <div class="form-group">
-                            <label>Tên sản phẩm *</label>
-                            <input type="text" name="name" class="form-control" required placeholder="Balo, Giày leo núi...">
-                        </div>
-                        <div class="form-group">
-                            <label>Danh mục *</label>
-                            <select name="category_id" class="form-control" required>
-                                <?php foreach ($categories as $cat): ?>
-                                    <option value="<?= $cat['id'] ?>"><?= htmlspecialchars($cat['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Thương hiệu</label>
-                            <input type="text" name="brand" class="form-control" value="TrekGear">
-                        </div>
-                    </div>
-                    <div class="grid grid-3">
-                        <div class="form-group">
-                            <label>Giá bán (VNĐ) *</label>
-                            <input type="number" name="price" class="form-control" required placeholder="1500000">
-                        </div>
-                        <div class="form-group">
-                            <label>Số lượng tồn kho ban đầu *</label>
-                            <input type="number" name="stock" class="form-control" value="20" required>
-                        </div>
-                        <div class="form-group">
-                            <label><i class="fa-solid fa-upload"></i> Chọn ảnh từ máy tính</label>
-                            <input type="file" name="image_file" class="form-control" accept="image/*">
-                        </div>
-                    </div>
-                    <div class="grid grid-2">
-                        <div class="form-group">
-                            <label>Thông số kỹ thuật</label>
-                            <textarea name="specs" class="form-control" rows="2" placeholder="Chất liệu chống nước, dung tích..."></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>Mô tả chi tiết</label>
-                            <textarea name="description" class="form-control" rows="2" placeholder="Đặc điểm nổi bật..."></textarea>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> Thêm Vào Kho</button>
-                </form>
-            </div>
-
-            <!-- Bảng quản lý tồn kho có thể chỉnh sửa trực tiếp -->
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Ảnh</th>
-                            <th>Tên Sản Phẩm</th>
-                            <th>Danh Mục</th>
-                            <th>Giá Bán</th>
-                            <th style="width:170px;">Chỉnh Sửa Tồn Kho</th>
-                            <th>Thao Tác</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (count($products) > 0): ?>
-                            <?php foreach ($products as $p): ?>
-                                <tr>
-                                    <td><img src="<?= htmlspecialchars($p['image']) ?>" style="width:50px; height:50px; object-fit:cover; border-radius:6px;"></td>
-                                    <td>
-                                        <strong><?= htmlspecialchars($p['name']) ?></strong><br>
-                                        <small style="color:var(--gray);"><?= htmlspecialchars($p['brand']) ?></small>
-                                    </td>
-                                    <td><?= htmlspecialchars($p['category_name']) ?></td>
-                                    <td style="color:var(--accent); font-weight:bold;"><?= format_price($p['price']) ?></td>
-                                    <td>
-                                        <form action="" method="POST" style="display:flex; gap:6px; align-items:center;">
-                                            <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
-                                            <input type="number" name="stock" value="<?= $p['stock'] ?>" class="form-control" style="width:80px; padding:4px 8px; text-align:center;">
-                                            <button type="submit" name="update_stock_fast" class="btn btn-primary btn-sm" title="Lưu số lượng tồn kho"><i class="fa-solid fa-check"></i></button>
-                                        </form>
-                                    </td>
-                                    <td>
-                                        <a href="../../product-detail.php?id=<?= $p['id'] ?>" target="_blank" class="btn btn-outline btn-sm"><i class="fa-solid fa-eye"></i></a>
-                                        <a href="index.php?delete=<?= $p['id'] ?>" class="btn btn-danger btn-sm" onclick="return confirm('Bạn có chắc muốn xóa sản phẩm này?');"><i class="fa-solid fa-trash"></i></a>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="6" style="text-align:center; padding:35px; color:#64748b;">Chưa có sản phẩm nào trong kho.</td>
-                            </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
+    <div class="pr-stats">
+        <div class="pr-stat">
+            <span>Sản phẩm đang hiển thị</span>
+            <strong><?= count($products) ?></strong>
         </div>
-    </main>
+
+        <div class="pr-stat">
+            <span>Tổng số lượng tồn của danh sách</span>
+            <strong><?= number_format($totalStock, 0, ',', '.') ?></strong>
+        </div>
+    </div>
+
+    <section class="pr-panel">
+
+        <div class="pr-panel-title">
+            <h2>Danh sách hàng hóa</h2>
+        </div>
+
+        <form method="GET" class="pr-filter">
+
+            <div class="pr-filter-field">
+                <label for="category">Danh mục</label>
+                <select class="pr-input"
+                        name="category"
+                        id="category">
+                    <option value="0">Tất cả danh mục</option>
+
+                    <?php foreach ($categories as $c): ?>
+                        <option
+                            value="<?= (int)$c['id'] ?>"
+                            <?= $categoryId === (int)$c['id']
+                                ? 'selected' : '' ?>
+                        >
+                            <?= productH($c['name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="pr-filter-field">
+                <label for="q">Tìm kiếm sản phẩm</label>
+                <input class="pr-input"
+                       type="search"
+                       name="q"
+                       id="q"
+                       value="<?= productH($search) ?>"
+                       placeholder="Tên hoặc thương hiệu...">
+            </div>
+
+            <button type="submit" class="pr-btn blue">
+                <i class="fa-solid fa-filter"></i>
+                Lọc
+            </button>
+
+            <a href="index.php" class="pr-btn gray">
+                Xóa lọc
+            </a>
+
+        </form>
+
+        <div class="pr-table-wrap">
+            <table class="pr-table">
+
+                <thead>
+                    <tr>
+                        <th>Ảnh</th>
+                        <th>Tên sản phẩm</th>
+                        <th>Danh mục</th>
+                        <th>Giá bán</th>
+                        <th>Tồn kho</th>
+                        <th>Thao tác</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                <?php foreach ($products as $p): ?>
+
+                    <tr>
+                        <td>
+                            <img class="pr-image"
+                                 src="<?= productH($p['image']) ?>"
+                                 alt="<?= productH($p['name']) ?>"
+                                 loading="lazy">
+                        </td>
+
+                        <td>
+                            <div class="pr-name">
+                                <?= productH($p['name']) ?>
+                            </div>
+                            <div class="pr-brand">
+                                <?= productH($p['brand'] ?? '') ?>
+                            </div>
+                        </td>
+
+                        <td>
+                            <?= productH($p['category_name'] ?? '—') ?>
+                        </td>
+
+                        <td class="pr-price">
+                            <?= number_format(
+                                (float)$p['price'],
+                                0,
+                                ',',
+                                '.'
+                            ) ?> đ
+                        </td>
+
+                        <td>
+                            <form method="POST" class="pr-stock">
+                                <input type="hidden"
+                                       name="csrf"
+                                       value="<?= productH($csrf) ?>">
+
+                                <input type="hidden"
+                                       name="product_id"
+                                       value="<?= (int)$p['id'] ?>">
+
+                                <input class="pr-input"
+                                       type="number"
+                                       name="stock"
+                                       min="0"
+                                       value="<?= (int)$p['stock'] ?>"
+                                       required>
+
+                                <button
+                                    class="pr-btn small"
+                                    type="submit"
+                                    name="action"
+                                    value="update_stock"
+                                    title="Lưu tồn kho"
+                                >
+                                    <i class="fa-solid fa-floppy-disk"></i>
+                                </button>
+                            </form>
+                        </td>
+
+                        <td>
+                            <div class="pr-actions">
+
+                                <a href="form.php?id=<?= (int)$p['id'] ?>"
+                                   class="pr-btn blue small">
+                                    <i class="fa-solid fa-pen"></i>
+                                    Sửa
+                                </a>
+
+                                <form method="POST"
+                                      class="product-delete-form">
+
+                                    <input type="hidden"
+                                           name="csrf"
+                                           value="<?= productH($csrf) ?>">
+
+                                    <input type="hidden"
+                                           name="product_id"
+                                           value="<?= (int)$p['id'] ?>">
+
+                                    <input type="hidden"
+                                           name="action"
+                                           value="delete">
+
+                                    <button type="submit"
+                                            class="pr-btn red small">
+                                        <i class="fa-solid fa-trash"></i>
+                                        Xóa
+                                    </button>
+                                </form>
+
+                            </div>
+                        </td>
+                    </tr>
+
+                <?php endforeach; ?>
+
+                <?php if (!$products): ?>
+                    <tr>
+                        <td colspan="6" class="pr-empty">
+                            Không có sản phẩm phù hợp.
+                        </td>
+                    </tr>
+                <?php endif; ?>
+
+                </tbody>
+
+            </table>
+        </div>
+
+    </section>
+</main>
+
+<!-- POPUP KET QUA -->
+
+<div class="pr-overlay"
+     id="resultPopup"
+     <?= $popupMessage === '' ? 'hidden' : '' ?>>
+
+    <div class="pr-modal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="resultTitle">
+
+        <div class="pr-modal-icon <?= $popupType === 'error' ? 'error' : '' ?>">
+            <i class="fa-solid <?= $popupType === 'error'
+                ? 'fa-circle-xmark'
+                : 'fa-circle-check' ?>"></i>
+        </div>
+
+        <h2 id="resultTitle">
+            <?= $popupType === 'error'
+                ? 'Không thành công'
+                : 'Thành công!' ?>
+        </h2>
+
+        <p><?= productH($popupMessage) ?></p>
+
+        <button type="button"
+                class="pr-btn"
+                id="closeResult">
+            Đồng ý
+        </button>
+    </div>
+</div>
+
+<!-- POPUP XAC NHAN XOA -->
+
+<div class="pr-overlay" id="deletePopup" hidden>
+
+    <div class="pr-modal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="deleteTitle">
+
+        <div class="pr-modal-icon warning">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+
+        <h2 id="deleteTitle">
+            Xác nhận xóa sản phẩm
+        </h2>
+
+        <p>
+            Bạn có chắc muốn xóa sản phẩm này?
+            Thao tác không thể hoàn tác.
+        </p>
+
+        <div class="pr-modal-actions">
+            <button type="button"
+                    class="pr-btn gray"
+                    id="cancelDelete">
+                Quay lại
+            </button>
+
+            <button type="button"
+                    class="pr-btn red"
+                    id="confirmDelete">
+                Xác nhận xóa
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const result = document.getElementById('resultPopup');
+    const deletePopup = document.getElementById('deletePopup');
+
+    document.getElementById('closeResult')
+        ?.addEventListener('click', function() {
+            result.hidden = true;
+        });
+
+    let pendingForm = null;
+
+    document.querySelectorAll('.product-delete-form')
+        .forEach(function(form) {
+
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+                pendingForm = form;
+                deletePopup.hidden = false;
+            });
+
+        });
+
+    document.getElementById('cancelDelete')
+        ?.addEventListener('click', function() {
+            deletePopup.hidden = true;
+            pendingForm = null;
+        });
+
+    document.getElementById('confirmDelete')
+        ?.addEventListener('click', function() {
+
+            if (!pendingForm) return;
+
+            this.disabled = true;
+            this.textContent = 'Đang xóa...';
+
+            pendingForm.submit();
+        });
+
+    result?.addEventListener('click', function(event) {
+        if (event.target === result) {
+            result.hidden = true;
+        }
+    });
+
+    deletePopup?.addEventListener('click', function(event) {
+        if (event.target === deletePopup) {
+            deletePopup.hidden = true;
+            pendingForm = null;
+        }
+    });
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            if (result) result.hidden = true;
+            if (deletePopup) deletePopup.hidden = true;
+            pendingForm = null;
+        }
+    });
+})();
+</script>
+
 </body>
 </html>
