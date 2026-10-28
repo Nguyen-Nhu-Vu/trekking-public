@@ -13,19 +13,51 @@ if (session_status() === PHP_SESSION_NONE) {
 $current_page = 'products';
 $page_title = 'Thêm / Sửa sản phẩm - VNN Travel';
 
-function productFormH($value): string {
-    return htmlspecialchars(
-        (string)($value ?? ''),
-        ENT_QUOTES,
-        'UTF-8'
-    );
+if (!function_exists('productFormH')) {
+    function productFormH($value): string {
+        return htmlspecialchars(
+            (string)($value ?? ''),
+            ENT_QUOTES,
+            'UTF-8'
+        );
+    }
+}
+
+/*
+ * Chuyen trang khong dung header().
+ * Khac phuc loi "headers already sent"
+ * tren moi truong Vercel PHP.
+ */
+if (!function_exists('productFormGoBack')) {
+    function productFormGoBack(): void {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        $target = 'index.php';
+
+        echo '<!DOCTYPE html>';
+        echo '<html lang="vi"><head>';
+        echo '<meta charset="UTF-8">';
+        echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
+        echo '<title>Đã lưu sản phẩm</title>';
+        echo '</head><body>';
+        echo '<p>Đang quay về danh sách sản phẩm...</p>';
+        echo '<a href="index.php">Quay lại danh sách</a>';
+        echo '<script>window.location.replace(';
+        echo json_encode($target);
+        echo ');</script>';
+        echo '</body></html>';
+
+        exit;
+    }
 }
 
 if (empty($_SESSION['products_csrf'])) {
     $_SESSION['products_csrf'] = bin2hex(random_bytes(32));
 }
 
-$csrf = $_SESSION['products_csrf'];
+$csrf = (string)$_SESSION['products_csrf'];
 
 $id = filter_var(
     $_GET['id'] ?? $_POST['id'] ?? 0,
@@ -48,10 +80,11 @@ $product = [
 ];
 
 $categories = [];
+$record = null;
 
-// =====================================
-// THU VIEN ANH CO SAN TREN GITHUB
-// =====================================
+/* ==========================================
+   THU VIEN ANH SAN PHAM
+   ========================================== */
 
 $imageDirectory = dirname(__DIR__, 2)
     . '/assets/images/products';
@@ -61,38 +94,44 @@ $availableImages = [];
 if (is_dir($imageDirectory)) {
     $files = scandir($imageDirectory);
 
-    foreach ($files ?: [] as $filename) {
-        if (!preg_match(
-            '/\.(jpg|jpeg|png|webp)$/i',
-            $filename
-        )) {
-            continue;
+    if (is_array($files)) {
+        foreach ($files as $filename) {
+            if ($filename === '.' || $filename === '..') {
+                continue;
+            }
+
+            if (!preg_match(
+                '/\.(jpg|jpeg|png|webp)$/i',
+                $filename
+            )) {
+                continue;
+            }
+
+            $fullPath = $imageDirectory
+                . DIRECTORY_SEPARATOR
+                . $filename;
+
+            if (!is_file($fullPath)) {
+                continue;
+            }
+
+            $availableImages[] = [
+                'name' => $filename,
+                'path' => '/assets/images/products/'
+                    . rawurlencode($filename)
+            ];
         }
 
-        $fullPath = $imageDirectory
-            . DIRECTORY_SEPARATOR
-            . $filename;
-
-        if (!is_file($fullPath)) {
-            continue;
-        }
-
-        $availableImages[] = [
-            'name' => $filename,
-            'path' => '/assets/images/products/'
-                . rawurlencode($filename)
-        ];
+        usort(
+            $availableImages,
+            static function($a, $b) {
+                return strnatcasecmp(
+                    $a['name'],
+                    $b['name']
+                );
+            }
+        );
     }
-
-    usort(
-        $availableImages,
-        static function($a, $b) {
-            return strnatcasecmp(
-                $a['name'],
-                $b['name']
-            );
-        }
-    );
 }
 
 $allowedImages = array_column(
@@ -100,9 +139,9 @@ $allowedImages = array_column(
     'path'
 );
 
-// =====================================
-// DANH MUC
-// =====================================
+/* ==========================================
+   LAY DANH MUC
+   ========================================== */
 
 try {
     $categories = $pdo->query("
@@ -110,55 +149,81 @@ try {
         FROM categories
         ORDER BY name ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
-
 } catch (Throwable $e) {
-    error_log('Product categories: ' . $e->getMessage());
+    error_log(
+        'Product categories: ' . $e->getMessage()
+    );
+
     $error = 'Không thể tải danh mục sản phẩm.';
 }
 
-// =====================================
-// DU LIEU SAN PHAM KHI SUA
-// =====================================
-
-$record = null;
+/* ==========================================
+   LAY THONG TIN SAN PHAM KHI SUA
+   ========================================== */
 
 if ($isEdit) {
-    $stmt = $pdo->prepare("
-        SELECT *
-        FROM products
-        WHERE id = ?
-        LIMIT 1
-    ");
+    try {
+        $stmt = $pdo->prepare("
+            SELECT *
+            FROM products
+            WHERE id = ?
+            LIMIT 1
+        ");
 
-    $stmt->execute([$id]);
-    $record = $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt->execute([$id]);
 
-    if (!$record) {
-        http_response_code(404);
-        exit('Không tìm thấy sản phẩm.');
+        $record = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$record) {
+            http_response_code(404);
+            exit('Không tìm thấy sản phẩm.');
+        }
+
+        $product = array_merge(
+            $product,
+            $record
+        );
+    } catch (Throwable $e) {
+        error_log(
+            'Product edit load: ' . $e->getMessage()
+        );
+
+        http_response_code(500);
+        exit('Không thể tải thông tin sản phẩm.');
     }
-
-    $product = array_merge($product, $record);
 }
 
-// =====================================
-// LUU SAN PHAM
-// =====================================
+/* ==========================================
+   XU LY LUU SAN PHAM
+   ========================================== */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
+        $postedCsrf = (string)(
+            $_POST['csrf'] ?? ''
+        );
+
         if (!hash_equals(
-            (string)$csrf,
-            (string)($_POST['csrf'] ?? '')
+            $csrf,
+            $postedCsrf
         )) {
             throw new RuntimeException(
-                'Phiên làm việc không hợp lệ.'
+                'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
             );
         }
 
-        $name = trim((string)($_POST['name'] ?? ''));
-        $brand = trim((string)($_POST['brand'] ?? ''));
-        $specs = trim((string)($_POST['specs'] ?? ''));
+        $name = trim(
+            (string)($_POST['name'] ?? '')
+        );
+
+        $brand = trim(
+            (string)($_POST['brand'] ?? '')
+        );
+
+        $specs = trim(
+            (string)($_POST['specs'] ?? '')
+        );
+
         $description = trim(
             (string)($_POST['description'] ?? '')
         );
@@ -178,12 +243,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FILTER_VALIDATE_INT
         );
 
-        $status = isset($_POST['status']) ? 1 : 0;
+        $status = isset($_POST['status'])
+            ? 1
+            : 0;
 
         $selectedImage = trim(
             (string)($_POST['image'] ?? '')
         );
 
+        // Giu thong tin da nhap neu bao loi.
         $product = array_merge($product, [
             'name' => $name,
             'brand' => $brand,
@@ -195,6 +263,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'status' => $status
         ]);
 
+        /* ==================================
+           KIEM TRA DU LIEU
+           ================================== */
+
         if ($name === '') {
             throw new RuntimeException(
                 'Vui lòng nhập tên sản phẩm.'
@@ -203,7 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (mb_strlen($name) > 255) {
             throw new RuntimeException(
-                'Tên sản phẩm quá dài.'
+                'Tên sản phẩm không được quá 255 ký tự.'
             );
         }
 
@@ -221,7 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($stock === false || $stock < 0) {
             throw new RuntimeException(
-                'Tồn kho phải từ 0 trở lên.'
+                'Số lượng tồn kho phải từ 0 trở lên.'
             );
         }
 
@@ -236,15 +308,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$checkCategory->fetchColumn()) {
             throw new RuntimeException(
-                'Danh mục không tồn tại.'
+                'Danh mục sản phẩm không tồn tại.'
             );
         }
 
-        // Anh cu duoc giu nguyen neu khong doi anh.
+        /* ==================================
+           KIEM TRA ANH SAN PHAM
+           ================================== */
+
         $currentImage = $isEdit
             ? (string)($record['image'] ?? '')
             : '';
 
+        // Neu sua ma khong chon anh moi,
+        // giu anh dang su dung.
         if ($selectedImage === '' && $isEdit) {
             $selectedImage = $currentImage;
         }
@@ -264,20 +341,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isExistingImage = (
             $isEdit &&
             $currentImage !== '' &&
-            hash_equals($currentImage, $selectedImage)
+            hash_equals(
+                $currentImage,
+                $selectedImage
+            )
         );
 
         if (!$isLibraryImage && !$isExistingImage) {
             throw new RuntimeException(
-                'Ảnh được chọn không tồn tại trong thư viện.'
+                'Ảnh được chọn không có trong thư viện.'
             );
         }
 
         $product['image'] = $selectedImage;
 
+        /* ==================================
+           CAP NHAT SAN PHAM
+           ================================== */
+
         if ($isEdit) {
             $stmt = $pdo->prepare("
-                UPDATE products SET
+                UPDATE products
+                SET
                     name = ?,
                     category_id = ?,
                     brand = ?,
@@ -305,8 +390,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $_SESSION['product_notice'] =
                 'Đã cập nhật sản phẩm thành công.';
-
         } else {
+            /* ==================================
+               THEM SAN PHAM
+               ================================== */
+
             $stmt = $pdo->prepare("
                 INSERT INTO products (
                     name,
@@ -338,19 +426,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'Đã thêm sản phẩm mới thành công.';
         }
 
-        header('Location: index.php', true, 303);
-        exit;
+        /*
+         * Khong goi header('Location: ...')
+         * de tranh Warning tren Vercel.
+         */
+        productFormGoBack();
 
     } catch (Throwable $e) {
-        error_log('Product form: ' . $e->getMessage());
+        error_log(
+            'Product form save: ' . $e->getMessage()
+        );
 
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
-            : 'Không thể lưu sản phẩm.';
+            : 'Không thể lưu sản phẩm. Vui lòng thử lại.';
     }
 }
 
-$selectedImage = (string)($product['image'] ?? '');
+$selectedImage = (string)(
+    $product['image'] ?? ''
+);
 
 $selectedFilename = $selectedImage
     ? basename(rawurldecode($selectedImage))
@@ -379,8 +474,8 @@ $selectedFilename = $selectedImage
     flex: 1;
     min-width: 0;
     min-height: 100vh;
-    background: #f1f5f9;
     padding: 24px;
+    background: #f1f5f9;
     color: #173454;
     font-size: 14px;
 }
@@ -404,9 +499,21 @@ $selectedFilename = $selectedImage
 }
 
 .pf-header h1 {
-    font-size: 20px;
-    color: #102e52;
     margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    color: #102e52;
+}
+
+.pf-section {
+    margin-bottom: 25px;
+}
+
+.pf-section h2 {
+    margin: 0 0 18px;
+    font-size: 18px;
+    font-weight: 800;
+    color: #102e52;
 }
 
 .pf-grid {
@@ -433,14 +540,14 @@ $selectedFilename = $selectedImage
 .pf-input {
     display: block;
     width: 100%;
-    padding: 12px 13px;
     min-height: 44px;
+    padding: 12px 13px;
     border: 1px solid #cbd5e1;
     border-radius: 9px;
-    font: inherit;
-    font-size: 13px;
     background: white;
     color: #173454;
+    font: inherit;
+    font-size: 13px;
 }
 
 .pf-input:focus {
@@ -451,18 +558,8 @@ $selectedFilename = $selectedImage
 
 textarea.pf-input {
     min-height: 115px;
-    resize: vertical;
     line-height: 1.7;
-}
-
-.pf-section {
-    margin-bottom: 25px;
-}
-
-.pf-section h2 {
-    margin: 0 0 18px;
-    font-size: 18px;
-    color: #102e52;
+    resize: vertical;
 }
 
 .pf-divider {
@@ -472,16 +569,16 @@ textarea.pf-input {
 }
 
 .pf-note {
-    font-size: 12px;
-    color: #64748b;
-    line-height: 1.8;
     margin-bottom: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #64748b;
 }
 
 .pf-gallery-tools {
     display: flex;
-    gap: 12px;
     align-items: center;
+    gap: 12px;
     flex-wrap: wrap;
     margin-bottom: 17px;
 }
@@ -583,15 +680,15 @@ textarea.pf-input {
 
 .pf-check {
     position: absolute;
-    right: 9px;
     top: 9px;
+    right: 9px;
     display: flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     width: 29px;
     height: 29px;
     border-radius: 50%;
-    background: #fff;
+    background: white;
     color: #94a3b8;
     box-shadow: 0 2px 8px #0002;
 }
@@ -604,39 +701,44 @@ textarea.pf-input {
 .pf-selected {
     margin-top: 16px;
     padding: 13px;
-    background: #f0fdf4;
-    color: #166534;
     border: 1px solid #bbf7d0;
     border-radius: 9px;
+    background: #f0fdf4;
+    color: #166534;
     font-size: 13px;
+    overflow-wrap: anywhere;
 }
 
 .pf-current-image {
+    display: block;
     width: 170px;
     height: 145px;
     object-fit: cover;
-    border-radius: 10px;
     border: 1px solid #e2e8f0;
-    display: block;
+    border-radius: 10px;
     margin: 12px 0 20px;
 }
 
 .pf-empty {
     padding: 20px;
-    background: #fff7ed;
     border: 1px solid #fed7aa;
-    color: #9a3412;
     border-radius: 10px;
-    line-height: 1.8;
+    background: #fff7ed;
+    color: #9a3412;
     font-size: 13px;
+    line-height: 1.8;
+}
+
+.pf-empty[hidden] {
+    display: none !important;
 }
 
 .pf-error {
     margin-bottom: 19px;
     padding: 14px 16px;
+    border-radius: 10px;
     background: #fee2e2;
     color: #991b1b;
-    border-radius: 10px;
     font-size: 13px;
 }
 
@@ -661,7 +763,7 @@ textarea.pf-input {
     flex-wrap: wrap;
 }
 
-@media(max-width:750px) {
+@media (max-width: 750px) {
     .pf-page {
         padding: 12px;
     }
@@ -684,15 +786,15 @@ textarea.pf-input {
 
 <body class="admin-body">
 
-<?php require_once __DIR__ . '/../includes/sidebar.php'; ?>
+<?php
+require_once __DIR__ . '/../includes/sidebar.php';
+?>
 
 <main class="admin-main pf-page">
 
     <div class="pf-header">
-
         <h1>
             <i class="fa-solid fa-box"></i>
-
             <?= $isEdit
                 ? 'CHỈNH SỬA SẢN PHẨM'
                 : 'THÊM HÀNG HÓA MỚI' ?>
@@ -702,52 +804,66 @@ textarea.pf-input {
             <i class="fa-solid fa-arrow-left"></i>
             Quay lại danh sách
         </a>
-
     </div>
 
     <section class="pf-panel">
 
-        <?php if ($error): ?>
+        <?php if ($error !== ''): ?>
             <div class="pf-error" role="alert">
+                <i class="fa-solid fa-circle-exclamation"></i>
                 <?= productFormH($error) ?>
             </div>
         <?php endif; ?>
 
         <form method="POST" id="productForm">
 
-            <input type="hidden"
-                   name="csrf"
-                   value="<?= productFormH($csrf) ?>">
+            <input
+                type="hidden"
+                name="csrf"
+                value="<?= productFormH($csrf) ?>"
+            >
 
-            <input type="hidden"
-                   name="id"
-                   value="<?= (int)$id ?>">
+            <input
+                type="hidden"
+                name="id"
+                value="<?= (int)$id ?>"
+            >
 
             <div class="pf-section">
-
                 <h2>Thông tin sản phẩm</h2>
 
                 <div class="pf-grid">
 
                     <div class="pf-field">
-                        <label for="name">Tên sản phẩm *</label>
-                        <input class="pf-input"
-                               type="text"
-                               name="name"
-                               id="name"
-                               maxlength="255"
-                               value="<?= productFormH($product['name']) ?>"
-                               required>
+                        <label for="name">
+                            Tên sản phẩm *
+                        </label>
+
+                        <input
+                            class="pf-input"
+                            type="text"
+                            name="name"
+                            id="name"
+                            maxlength="255"
+                            value="<?= productFormH($product['name']) ?>"
+                            required
+                        >
                     </div>
 
                     <div class="pf-field">
-                        <label for="category_id">Danh mục *</label>
-                        <select class="pf-input"
-                                name="category_id"
-                                id="category_id"
-                                required>
+                        <label for="category_id">
+                            Danh mục *
+                        </label>
 
-                            <option value="">-- Chọn danh mục --</option>
+                        <select
+                            class="pf-input"
+                            name="category_id"
+                            id="category_id"
+                            required
+                        >
+                            <option value="">
+                                -- Chọn danh mục --
+                            </option>
 
                             <?php foreach ($categories as $c): ?>
                                 <option
@@ -758,56 +874,80 @@ textarea.pf-input {
                                     <?= productFormH($c['name']) ?>
                                 </option>
                             <?php endforeach; ?>
-
                         </select>
                     </div>
 
                     <div class="pf-field">
-                        <label for="brand">Thương hiệu</label>
-                        <input class="pf-input"
-                               type="text"
-                               name="brand"
-                               id="brand"
-                               value="<?= productFormH($product['brand']) ?>">
+                        <label for="brand">
+                            Thương hiệu
+                        </label>
+
+                        <input
+                            class="pf-input"
+                            type="text"
+                            name="brand"
+                            id="brand"
+                            value="<?= productFormH($product['brand']) ?>"
+                        >
                     </div>
 
                     <div class="pf-field">
-                        <label for="price">Giá bán (VNĐ) *</label>
-                        <input class="pf-input"
-                               type="number"
-                               min="0"
-                               step="1"
-                               name="price"
-                               id="price"
-                               value="<?= productFormH($product['price']) ?>"
-                               required>
+                        <label for="price">
+                            Giá bán (VNĐ) *
+                        </label>
+
+                        <input
+                            class="pf-input"
+                            type="number"
+                            min="0"
+                            step="1"
+                            name="price"
+                            id="price"
+                            value="<?= productFormH($product['price']) ?>"
+                            required
+                        >
                     </div>
 
                     <div class="pf-field">
-                        <label for="stock">Số lượng tồn kho *</label>
-                        <input class="pf-input"
-                               type="number"
-                               min="0"
-                               name="stock"
-                               id="stock"
-                               value="<?= productFormH($product['stock']) ?>"
-                               required>
+                        <label for="stock">
+                            Số lượng tồn kho *
+                        </label>
+
+                        <input
+                            class="pf-input"
+                            type="number"
+                            min="0"
+                            name="stock"
+                            id="stock"
+                            value="<?= productFormH($product['stock']) ?>"
+                            required
+                        >
                     </div>
 
                     <div class="pf-field full">
-                        <label for="specs">Thông số kỹ thuật</label>
-                        <textarea class="pf-input"
-                                  name="specs"
-                                  id="specs"
-                                  rows="4"><?= productFormH($product['specs']) ?></textarea>
+                        <label for="specs">
+                            Thông số kỹ thuật
+                        </label>
+
+                        <textarea
+                            class="pf-input"
+                            name="specs"
+                            id="specs"
+                            rows="4"
+                        ><?= productFormH($product['specs']) ?></textarea>
                     </div>
 
                     <div class="pf-field full">
-                        <label for="description">Mô tả sản phẩm</label>
-                        <textarea class="pf-input"
-                                  name="description"
-                                  id="description"
-                                  rows="5"><?= productFormH($product['description']) ?></textarea>
+                        <label for="description">
+                            Mô tả sản phẩm
+                        </label>
+
+                        <textarea
+                            class="pf-input"
+                            name="description"
+                            id="description"
+                            rows="5"
+                        ><?= productFormH($product['description']) ?></textarea>
                     </div>
 
                 </div>
@@ -823,39 +963,43 @@ textarea.pf-input {
                 </h2>
 
                 <p class="pf-note">
-                    Ảnh được lấy từ thư mục
+                    Thư viện ảnh được đọc từ thư mục
                     <strong>assets/images/products/</strong>
-                    trong GitHub.
-                    Mặc định chỉ hiển thị 6 ảnh.
-                    Có thể tìm theo tên file hoặc xem toàn bộ.
+                    trên GitHub. Bạn có thể tìm theo tên
+                    file hoặc xem toàn bộ ảnh.
                 </p>
 
-                <?php if ($isEdit && $selectedImage): ?>
+                <?php if ($isEdit && $selectedImage !== ''): ?>
 
                     <strong style="font-size:13px">
-                        Ảnh sản phẩm hiện tại
+                        Ảnh hiện tại
                     </strong>
 
-                    <img class="pf-current-image"
-                         src="<?= productFormH($selectedImage) ?>"
-                         alt="Ảnh sản phẩm hiện tại"
-                         onerror="this.style.display='none'">
+                    <img
+                        class="pf-current-image"
+                        src="<?= productFormH($selectedImage) ?>"
+                        alt="Ảnh sản phẩm hiện tại"
+                        onerror="this.style.display='none'"
+                    >
 
                 <?php endif; ?>
 
                 <?php if ($availableImages): ?>
 
                     <div class="pf-gallery-tools">
+                        <input
+                            class="pf-input"
+                            type="search"
+                            id="photoSearch"
+                            placeholder="Tìm tên ảnh... ví dụ: balo, giay, ao..."
+                            autocomplete="off"
+                        >
 
-                        <input class="pf-input"
-                               type="search"
-                               id="photoSearch"
-                               placeholder="Tìm tên ảnh... Ví dụ: balo, giay, ao..."
-                               autocomplete="off">
-
-                        <button type="button"
-                                class="pf-btn blue"
-                                id="togglePhotos">
+                        <button
+                            type="button"
+                            class="pf-btn blue"
+                            id="togglePhotos"
+                        >
                             Xem tất cả ảnh
                         </button>
                     </div>
@@ -864,8 +1008,10 @@ textarea.pf-input {
 
                         <?php foreach ($availableImages as $photo): ?>
 
-                            <label class="pf-photo"
-                                   data-name="<?= productFormH($photo['name']) ?>">
+                            <label
+                                class="pf-photo"
+                                data-name="<?= productFormH($photo['name']) ?>"
+                            >
 
                                 <input
                                     type="radio"
@@ -875,16 +1021,20 @@ textarea.pf-input {
                                         ? 'checked' : '' ?>
                                 >
 
-                                <img src="<?= productFormH($photo['path']) ?>"
-                                     alt="<?= productFormH($photo['name']) ?>"
-                                     loading="lazy">
+                                <img
+                                    src="<?= productFormH($photo['path']) ?>"
+                                    alt="<?= productFormH($photo['name']) ?>"
+                                    loading="lazy"
+                                >
 
                                 <span class="pf-check">
                                     <i class="fa-solid fa-check"></i>
                                 </span>
 
-                                <div class="pf-photo-name"
-                                     title="<?= productFormH($photo['name']) ?>">
+                                <div
+                                    class="pf-photo-name"
+                                    title="<?= productFormH($photo['name']) ?>"
+                                >
                                     <?= productFormH($photo['name']) ?>
                                 </div>
 
@@ -894,13 +1044,17 @@ textarea.pf-input {
 
                     </div>
 
-                    <p class="pf-note"
-                       id="photoCount"
-                       style="margin-top:12px"></p>
+                    <p
+                        class="pf-note"
+                        id="photoCount"
+                        style="margin-top:12px"
+                    ></p>
 
-                    <div class="pf-empty"
-                         id="photoNoResults"
-                         hidden>
+                    <div
+                        class="pf-empty"
+                        id="photoNoResults"
+                        hidden
+                    >
                         Không tìm thấy ảnh phù hợp.
                     </div>
 
@@ -917,8 +1071,10 @@ textarea.pf-input {
                     <div class="pf-empty">
                         Chưa có ảnh trong thư mục
                         <strong>assets/images/products/</strong>.
-                        Hãy tải ảnh lên GitHub và chờ Vercel
-                        triển khai xong rồi tải lại trang.
+
+                        Hãy tải ảnh lên GitHub và triển khai
+                        lại Vercel.
+
                         <?php if ($isEdit && $selectedImage): ?>
                             Bạn vẫn có thể giữ ảnh hiện tại.
                         <?php endif; ?>
@@ -931,23 +1087,27 @@ textarea.pf-input {
             <hr class="pf-divider">
 
             <label class="pf-status">
-                <input type="checkbox"
-                       name="status"
-                       value="1"
-                       <?= (int)$product['status'] === 1
-                           ? 'checked' : '' ?>>
+                <input
+                    type="checkbox"
+                    name="status"
+                    value="1"
+                    <?= (int)$product['status'] === 1
+                        ? 'checked' : '' ?>
+                >
 
                 Hiển thị sản phẩm trên cửa hàng
             </label>
 
             <div class="pf-actions">
 
-                <button type="submit"
-                        class="pf-btn"
-                        id="saveProduct"
-                        <?= !$availableImages && !$selectedImage
-                            ? 'disabled' : '' ?>>
-
+                <button
+                    type="submit"
+                    class="pf-btn"
+                    id="saveProduct"
+                    <?= !$availableImages && !$selectedImage
+                        ? 'disabled'
+                        : '' ?>
+                >
                     <i class="fa-solid fa-floppy-disk"></i>
 
                     <?= $isEdit
@@ -976,7 +1136,9 @@ textarea.pf-input {
     const selected = document.getElementById('selectedPhoto');
 
     const cards = gallery
-        ? Array.from(gallery.querySelectorAll('.pf-photo'))
+        ? Array.from(
+            gallery.querySelectorAll('.pf-photo')
+        )
         : [];
 
     let showAll = false;
@@ -991,10 +1153,14 @@ textarea.pf-input {
     }
 
     function updatePhotos() {
-        const keyword = normalize(search?.value.trim() || '');
+        const keyword = normalize(
+            search?.value.trim() || ''
+        );
 
         const matching = cards.filter(function(card) {
-            return normalize(card.dataset.name).includes(keyword);
+            return normalize(
+                card.dataset.name
+            ).includes(keyword);
         });
 
         const limit = keyword || showAll
@@ -1010,7 +1176,8 @@ textarea.pf-input {
             count.textContent =
                 'Hiển thị ' +
                 Math.min(limit, matching.length) +
-                '/' + matching.length +
+                '/' +
+                matching.length +
                 ' ảnh phù hợp.';
         }
 
@@ -1019,27 +1186,35 @@ textarea.pf-input {
         }
 
         if (toggle) {
-            toggle.style.display = keyword ? 'none' : '';
+            toggle.style.display = keyword
+                ? 'none'
+                : '';
+
             toggle.textContent = showAll
                 ? 'Thu gọn ảnh'
                 : 'Xem tất cả ảnh';
         }
     }
 
-    search?.addEventListener('input', updatePhotos);
+    search?.addEventListener(
+        'input',
+        updatePhotos
+    );
 
     toggle?.addEventListener('click', function() {
         showAll = !showAll;
         updatePhotos();
     });
 
-    gallery?.querySelectorAll('input[name="image"]')
+    gallery
+        ?.querySelectorAll('input[name="image"]')
         .forEach(function(radio) {
             radio.addEventListener('change', function() {
                 if (selected && radio.checked) {
-                    selected.textContent = decodeURIComponent(
-                        radio.value.split('/').pop()
-                    );
+                    selected.textContent =
+                        decodeURIComponent(
+                            radio.value.split('/').pop()
+                        );
                 }
             });
         });
@@ -1054,7 +1229,9 @@ textarea.pf-input {
         );
 
         const oldImage = <?= json_encode(
-            $isEdit ? (string)($record['image'] ?? '') : '',
+            $isEdit
+                ? (string)($record['image'] ?? '')
+                : '',
             JSON_UNESCAPED_UNICODE |
             JSON_HEX_TAG |
             JSON_HEX_AMP |
@@ -1064,12 +1241,15 @@ textarea.pf-input {
 
         if (!chosen && !oldImage) {
             event.preventDefault();
+
             alert('Vui lòng chọn ảnh sản phẩm.');
             return;
         }
 
         if (form.checkValidity()) {
-            const button = document.getElementById('saveProduct');
+            const button = document.getElementById(
+                'saveProduct'
+            );
 
             if (button) {
                 button.disabled = true;
