@@ -6,20 +6,30 @@ require_once __DIR__ . '/../../includes/functions.php';
 
 requireManager();
 
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    session_start();
+}
+
 $current_page = 'leaders';
 $page_title = 'Thêm / Sửa Leader - VNN Travel';
 
-function lfH($value) {
-    return htmlspecialchars(
-        (string)($value ?? ''),
-        ENT_QUOTES,
-        'UTF-8'
-    );
+if (!function_exists('leaderFormH')) {
+    function leaderFormH($value) {
+        return htmlspecialchars(
+            (string)($value ?? ''),
+            ENT_QUOTES,
+            'UTF-8'
+        );
+    }
 }
 
 if (empty($_SESSION['leader_csrf'])) {
     $_SESSION['leader_csrf'] = bin2hex(random_bytes(32));
 }
+
+// ==========================================
+// CAC TRUONG THONG TIN LEADER
+// ==========================================
 
 $fields = [
     'fullname',
@@ -45,10 +55,10 @@ $labels = [
     'skills' => 'Kỹ năng chuyên môn',
     'biography' => 'Giới thiệu bản thân',
     'experience_detail' => 'Hành trình và kinh nghiệm chi tiết',
-    'philosophy' => 'Phương châm sống và leo núi',
+    'philosophy' => 'Phương châm trekking',
     'safety_commitment' => 'Cam kết an toàn',
     'achievements' => 'Thành tích nổi bật',
-    'gallery' => 'Album ảnh bổ sung (mỗi URL HTTPS một dòng)'
+    'gallery' => 'Album ảnh bổ sung'
 ];
 
 $longFields = [
@@ -74,175 +84,117 @@ $editing['status'] = 1;
 $editing['experience_years'] = 0;
 
 $error = '';
+$record = null;
+
+// ==========================================
+// QUET ANH CO SAN TRONG GITHUB
+// ==========================================
+
+// Thu muc nay nam trong source code da deploy.
+// Vercel chi can deploy lai sau khi ban
+// tai anh thu cong len GitHub.
+
+$imageDirectory = dirname(__DIR__, 2)
+    . '/assets/images/leaders';
+
+$availableImages = [];
+
+if (is_dir($imageDirectory)) {
+
+    $files = scandir($imageDirectory);
+
+    if (is_array($files)) {
+
+        foreach ($files as $filename) {
+
+            if ($filename === '.' || $filename === '..') {
+                continue;
+            }
+
+            if (!preg_match(
+                '/\.(jpg|jpeg|png|webp)$/i',
+                $filename
+            )) {
+                continue;
+            }
+
+            $fullPath = $imageDirectory
+                . DIRECTORY_SEPARATOR
+                . $filename;
+
+            if (!is_file($fullPath)) {
+                continue;
+            }
+
+            $availableImages[] = [
+                'name' => $filename,
+                'path' => '/assets/images/leaders/' . $filename
+            ];
+        }
+
+        usort(
+            $availableImages,
+            static function($a, $b) {
+                return strnatcasecmp(
+                    $a['name'],
+                    $b['name']
+                );
+            }
+        );
+
+    }
+}
+
+// ==========================================
+// LAY LEADER NEU DANG SUA
+// ==========================================
 
 if ($id > 0) {
-    $stmt = $pdo->prepare("
-        SELECT *
-        FROM trekking_leaders
-        WHERE id = ?
-        LIMIT 1
-    ");
 
-    $stmt->execute([$id]);
+    try {
 
-    $record = $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt = $pdo->prepare("
+            SELECT *
+            FROM trekking_leaders
+            WHERE id = ?
+            LIMIT 1
+        ");
 
-    if (!$record) {
-        http_response_code(404);
-        exit('Không tìm thấy Leader.');
-    }
+        $stmt->execute([$id]);
 
-    $editing = $record;
-}
+        $record = $stmt->fetch(PDO::FETCH_ASSOC);
 
-// ==========================================
-// UPLOAD ANH LEN GITHUB
-// ==========================================
+        if (!$record) {
+            http_response_code(404);
+            exit('Không tìm thấy hồ sơ Leader.');
+        }
 
-function lfUploadGitHub(array $file): string {
+        $editing = $record;
 
-    if (
-        ($file['error'] ?? UPLOAD_ERR_NO_FILE)
-        !== UPLOAD_ERR_OK
-    ) {
-        throw new RuntimeException(
-            'Tải ảnh lên không thành công.'
-        );
-    }
+    } catch (Throwable $e) {
 
-    if (!is_uploaded_file($file['tmp_name'])) {
-        throw new RuntimeException(
-            'Tệp tải lên không hợp lệ.'
-        );
-    }
-
-    if (
-        $file['size'] <= 0 ||
-        $file['size'] > 4 * 1024 * 1024
-    ) {
-        throw new RuntimeException(
-            'Ảnh phải nhỏ hơn 4 MB.'
-        );
-    }
-
-    $mime = (new finfo(FILEINFO_MIME_TYPE))
-        ->file($file['tmp_name']);
-
-    $extension = match ($mime) {
-        'image/jpeg' => 'jpg',
-        'image/png' => 'png',
-        'image/webp' => 'webp',
-        default => null
-    };
-
-    if ($extension === null) {
-        throw new RuntimeException(
-            'Chỉ nhận ảnh JPG, PNG hoặc WebP.'
-        );
-    }
-
-    $token = (string)(
-        getenv('GITHUB_TOKEN') ?: ''
-    );
-
-    if ($token === '') {
-        throw new RuntimeException(
-            'Chưa cấu hình GITHUB_TOKEN trên Vercel.'
-        );
-    }
-
-    $repo = (string)(
-        getenv('GITHUB_REPO')
-        ?: 'Nguyen-Nhu-Vu/trekking-public'
-    );
-
-    if (!preg_match(
-        '~^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$~',
-        $repo
-    )) {
-        throw new RuntimeException(
-            'GITHUB_REPO không hợp lệ.'
-        );
-    }
-
-    $branch = (string)(
-        getenv('GITHUB_BRANCH') ?: 'main'
-    );
-
-    $filename = 'leader-' .
-        bin2hex(random_bytes(12)) .
-        '.' . $extension;
-
-    $path = 'assets/images/leaders/' . $filename;
-
-    $content = file_get_contents(
-        $file['tmp_name']
-    );
-
-    $payload = json_encode([
-        'message' => 'Upload Leader photo ' . $filename,
-        'content' => base64_encode($content),
-        'branch' => $branch
-    ]);
-
-    $url = 'https://api.github.com/repos/' .
-        $repo . '/contents/' . $path;
-
-    $ch = curl_init($url);
-
-    curl_setopt_array($ch, [
-        CURLOPT_CUSTOMREQUEST => 'PUT',
-        CURLOPT_POSTFIELDS => $payload,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 40,
-        CURLOPT_HTTPHEADER => [
-            'Accept: application/vnd.github+json',
-            'Authorization: Bearer ' . $token,
-            'X-GitHub-Api-Version: 2022-11-28',
-            'Content-Type: application/json',
-            'User-Agent: VNN-Travel-Leader-Admin'
-        ]
-    ]);
-
-    $result = curl_exec($ch);
-    $status = (int)curl_getinfo(
-        $ch,
-        CURLINFO_HTTP_CODE
-    );
-
-    $curlError = curl_error($ch);
-
-    curl_close($ch);
-
-    if (
-        $result === false ||
-        !in_array($status, [200, 201], true)
-    ) {
         error_log(
-            'GitHub Leader upload HTTP ' .
-            $status . ': ' . $curlError
+            'Load Leader form: ' . $e->getMessage()
         );
 
-        throw new RuntimeException(
-            'Không lưu được ảnh lên GitHub. ' .
-            'Kiểm tra GITHUB_TOKEN và quyền Contents.'
-        );
+        http_response_code(500);
+        exit('Không thể tải hồ sơ Leader.');
     }
-
-    return '/' . $path;
 }
 
 // ==========================================
-// LUU LEADER
+// LUU THONG TIN
 // ==========================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
 
+        $postedCsrf = (string)($_POST['csrf'] ?? '');
+
         if (!hash_equals(
             (string)$_SESSION['leader_csrf'],
-            (string)($_POST['csrf'] ?? '')
+            $postedCsrf
         )) {
             throw new RuntimeException(
                 'Phiên làm việc không hợp lệ.'
@@ -252,9 +204,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $values = [];
 
         foreach ($fields as $field) {
+
             $values[$field] = trim(
                 (string)($_POST[$field] ?? '')
             );
+
         }
 
         $editing = array_merge(
@@ -266,9 +220,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             isset($_POST['status']) ? 1 : 0;
 
         if ($values['fullname'] === '') {
+
             throw new RuntimeException(
                 'Vui lòng nhập họ và tên Leader.'
             );
+
+        }
+
+        if (mb_strlen($values['fullname']) > 255) {
+
+            throw new RuntimeException(
+                'Họ tên quá dài.'
+            );
+
         }
 
         $years = filter_var(
@@ -281,54 +245,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $years < 0 ||
             $years > 80
         ) {
+
             throw new RuntimeException(
                 'Số năm kinh nghiệm phải từ 0 đến 80.'
             );
+
         }
 
         $values['experience_years'] = $years;
 
-        foreach (
-            preg_split(
-                '/\r\n|\n|\r/',
-                $values['gallery']
-            ) as $url
-        ) {
-            $url = trim($url);
+        // ==================================
+        // KIEM TRA ANH DA CHON
+        // ==================================
 
-            if ($url === '') {
-                continue;
-            }
+        $selectedImage = trim(
+            (string)($_POST['image'] ?? '')
+        );
 
-            if (
-                !filter_var($url, FILTER_VALIDATE_URL) ||
-                parse_url($url, PHP_URL_SCHEME) !== 'https'
-            ) {
-                throw new RuntimeException(
-                    'Album ảnh chỉ nhận URL HTTPS.'
-                );
-            }
-        }
+        $allowedImages = array_column(
+            $availableImages,
+            'path'
+        );
 
-        $image = $id > 0
-            ? (string)$record['image']
-            : '';
+        // Chi chap nhan duong dan anh
+        // thuc su ton tai trong thu muc.
 
-        if (
-            !empty($_FILES['avatar']) &&
-            ($_FILES['avatar']['error'] ??
-                UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
-        ) {
-            $image = lfUploadGitHub(
-                $_FILES['avatar']
-            );
-        }
+        if (!in_array(
+            $selectedImage,
+            $allowedImages,
+            true
+        )) {
 
-        if ($id === 0 && $image === '') {
             throw new RuntimeException(
-                'Vui lòng chọn ảnh đại diện từ máy tính.'
+                'Vui lòng chọn một ảnh có sẵn trong thư viện.'
             );
+
         }
+
+        $editing['image'] = $selectedImage;
+
+        // ==================================
+        // LUU DATABASE
+        // ==================================
 
         $status = (int)$editing['status'];
 
@@ -337,40 +295,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $set = implode(
                 ', ',
                 array_map(
-                    static fn($field) =>
-                        "`$field` = ?",
+                    static fn($field) => "`$field` = ?",
                     $fields
                 )
             );
 
             $sql = "
                 UPDATE trekking_leaders
-                SET $set,
+                SET
+                    $set,
                     image = ?,
                     status = ?
                 WHERE id = ?
             ";
 
-            $stmt = $pdo->prepare($sql);
+            $params = array_values($values);
 
-            $stmt->execute([
-                ...array_values($values),
-                $image,
-                $status,
-                $id
-            ]);
+            $params[] = $selectedImage;
+            $params[] = $status;
+            $params[] = $id;
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
 
             $_SESSION['leader_notice'] =
-                'Đã cập nhật Leader.';
+                'Đã cập nhật hồ sơ Leader thành công.';
 
         } else {
 
-            $columns = '`' .
-                implode('`,`', $fields) .
-                '`, `image`, `status`';
+            $columns = '`'
+                . implode('`,`', $fields)
+                . '`, `image`, `status`';
 
-            $marks = implode(
-                ',',
+            $placeholders = implode(
+                ', ',
                 array_fill(
                     0,
                     count($fields) + 2,
@@ -381,19 +339,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $sql = "
                 INSERT INTO trekking_leaders
                 ($columns)
-                VALUES ($marks)
+                VALUES ($placeholders)
             ";
 
-            $stmt = $pdo->prepare($sql);
+            $params = array_values($values);
 
-            $stmt->execute([
-                ...array_values($values),
-                $image,
-                $status
-            ]);
+            $params[] = $selectedImage;
+            $params[] = $status;
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
 
             $_SESSION['leader_notice'] =
-                'Đã thêm Leader mới.';
+                'Đã thêm Leader mới thành công.';
         }
 
         header(
@@ -407,13 +365,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $e) {
 
         error_log(
-            'Save Leader: ' .
-            $e->getMessage()
+            'Save Leader: ' . $e->getMessage()
         );
 
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
-            : 'Không lưu được Leader.';
+            : 'Không lưu được hồ sơ Leader.';
+
     }
 }
 ?>
@@ -421,14 +379,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="vi">
 
 <head>
+
 <meta charset="UTF-8">
+
 <meta name="viewport"
       content="width=device-width, initial-scale=1">
 
-<title><?= lfH($page_title) ?></title>
+<title><?= leaderFormH($page_title) ?></title>
 
 <link rel="stylesheet"
- href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
 <link rel="stylesheet"
  href="../../assets/css/style.css">
@@ -437,57 +397,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
  href="../../assets/css/admin.css">
 
 <style>
+* {
+    box-sizing: border-box;
+}
+
 .lf-page {
     flex: 1;
     min-width: 0;
     min-height: 100vh;
-    background: #f1f5f9;
     padding: 24px;
-    color: #132a4d;
+    background: #f2f5fa;
+    color: #163455;
 }
 
-.lf-panel {
+.lf-header {
+    max-width: 1230px;
+    margin: 0 auto 18px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    flex-wrap: wrap;
+
+    padding: 21px 23px;
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 14px;
-    padding: 23px;
-    max-width: 1200px;
-    margin: 0 auto;
 }
 
-.lf-title {
-    display: flex;
-    gap: 12px;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-}
-
-.lf-title h1 {
-    font-size: 20px;
+.lf-header h1 {
     margin: 0;
-    color: #102c50;
+    color: #102e52;
+    font-size: 20px;
+    font-weight: 850;
 }
 
-.lf-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    border: 0;
-    border-radius: 8px;
-    background: #166534;
-    padding: 11px 17px;
-    color: white !important;
-    font-size: 13px;
-    font-weight: 800;
-    cursor: pointer;
-    text-decoration: none;
+.lf-panel {
+    max-width: 1230px;
+    margin: 0 auto;
+    padding: 24px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
 }
 
-.lf-btn.gray {
-    background: #e2e8f0;
-    color: #102c50 !important;
+.lf-section-title {
+    font-size: 17px;
+    font-weight: 850;
+    color: #102e52;
+    margin: 0 0 19px;
 }
 
 .lf-grid {
@@ -497,308 +456,564 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     gap: 17px;
 }
 
+.lf-field {
+    min-width: 0;
+}
+
 .lf-field.full {
     grid-column: 1 / -1;
 }
 
 .lf-field label {
     display: block;
+    margin-bottom: 8px;
     font-size: 13px;
     font-weight: 800;
-    margin-bottom: 8px;
+    color: #142e50;
 }
 
 .lf-field input:not([type=checkbox]),
 .lf-field textarea {
-    box-sizing: border-box;
+    display: block;
     width: 100%;
-    padding: 12px;
+    padding: 12px 13px;
+
+    background: white;
     border: 1px solid #cbd5e1;
     border-radius: 9px;
+
+    color: #183657;
     font: inherit;
     font-size: 13px;
-    background: white;
+}
+
+.lf-field input:focus,
+.lf-field textarea:focus {
+    outline: none;
+    border-color: #166534;
+    box-shadow: 0 0 0 3px rgba(22,101,52,.09);
 }
 
 .lf-field textarea {
-    min-height: 120px;
+    min-height: 116px;
     resize: vertical;
-}
-
-.lf-note {
-    font-size: 12px;
-    color: #64748b;
     line-height: 1.7;
-    margin: 8px 0;
 }
 
-.lf-error {
-    padding: 12px 15px;
-    border-radius: 9px;
-    background: #fee2e2;
-    color: #991b1b;
-    margin-bottom: 17px;
+.lf-divider {
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 27px 0;
 }
 
-.lf-preview {
+.lf-photo-note {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.7;
+    margin: 0 0 17px;
+}
+
+.lf-gallery {
+    display: grid;
+    grid-template-columns:
+        repeat(5, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.lf-photo-option {
     display: block;
-    width: 180px;
-    height: 210px;
-    object-fit: cover;
-    border-radius: 10px;
-    border: 1px solid #dbe4ef;
-    margin: 12px 0;
-    background: #f8fafc;
+    position: relative;
+    cursor: pointer;
+
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+
+    transition:
+        border-color .2s,
+        background .2s;
 }
 
-.lf-preview[hidden] {
-    display: none;
+.lf-photo-option:hover {
+    border-color: #86efac;
+}
+
+.lf-photo-option:has(input:checked) {
+    border-color: #166534;
+    background: #f0fdf4;
+    box-shadow: 0 0 0 2px rgba(22,101,52,.12);
+}
+
+.lf-photo-option input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.lf-photo-option img {
+    display: block;
+    width: 100%;
+    height: 165px;
+    object-fit: cover;
+    object-position: center;
+    background: #f1f5f9;
+}
+
+.lf-photo-filename {
+    padding: 10px 8px;
+    font-size: 11px;
+    font-weight: 750;
+    color: #334155;
+    text-align: center;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lf-photo-check {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+
+    width: 29px;
+    height: 29px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 50%;
+    background: white;
+    color: #94a3b8;
+    box-shadow: 0 2px 9px rgba(0,0,0,.12);
+}
+
+.lf-photo-option:has(input:checked) .lf-photo-check {
+    background: #166534;
+    color: white;
+}
+
+.lf-gallery-empty {
+    padding: 25px;
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fed7aa;
+    border-radius: 11px;
+    line-height: 1.8;
+    font-size: 13px;
+}
+
+.lf-selected {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+
+    margin-top: 17px;
+    padding: 12px 15px;
+
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 10px;
+
+    color: #166534;
+    font-size: 13px;
+}
+
+.lf-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    font-weight: 750;
+    font-size: 13px;
+    color: #163455;
+}
+
+.lf-status input {
+    width: 17px;
+    height: 17px;
+    accent-color: #166534;
 }
 
 .lf-actions {
     display: flex;
+    align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-    margin-top: 23px;
+    margin-top: 27px;
 }
 
-.lf-check {
-    display: flex;
+.lf-btn {
+    display: inline-flex;
     align-items: center;
-    gap: 9px;
+    justify-content: center;
+    gap: 8px;
+
+    padding: 12px 18px;
+    border: none;
+    border-radius: 9px;
+
+    background: #166534;
+    color: white !important;
+    text-decoration: none;
+
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 850;
+    cursor: pointer;
 }
 
-@media(max-width:700px) {
+.lf-btn:hover {
+    background: #14532d;
+}
+
+.lf-btn.gray {
+    background: #e2e8f0;
+    color: #334155 !important;
+}
+
+.lf-error {
+    padding: 14px 16px;
+    margin-bottom: 18px;
+
+    background: #fee2e2;
+    border-radius: 10px;
+    color: #991b1b;
+    font-size: 13px;
+}
+
+@media(max-width: 1150px) {
+    .lf-gallery {
+        grid-template-columns:
+            repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media(max-width: 850px) {
+    .lf-gallery {
+        grid-template-columns:
+            repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media(max-width: 650px) {
     .lf-page {
-        padding: 10px;
+        padding: 12px;
     }
 
+    .lf-header,
     .lf-panel {
-        padding: 16px;
+        padding: 15px;
+    }
+
+    .lf-header h1 {
+        font-size: 17px;
     }
 
     .lf-grid {
         grid-template-columns: 1fr;
     }
+
+    .lf-gallery {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+
+    .lf-photo-option img {
+        height: 145px;
+    }
 }
 </style>
+
 </head>
 
 <body class="admin-body">
 
-<?php require_once __DIR__ . '/../includes/sidebar.php'; ?>
+<?php
+require_once __DIR__ . '/../includes/sidebar.php';
+?>
 
 <main class="admin-main lf-page">
 
-<section class="lf-panel">
-
-    <div class="lf-title">
+    <div class="lf-header">
 
         <h1>
+
             <i class="fa-solid fa-person-hiking"></i>
 
             <?= $id > 0
                 ? 'CHỈNH SỬA HỒ SƠ LEADER'
                 : 'THÊM HƯỚNG DẪN VIÊN MỚI' ?>
+
         </h1>
 
-        <a class="lf-btn gray" href="index.php">
+        <a href="index.php" class="lf-btn gray">
             <i class="fa-solid fa-arrow-left"></i>
-            Về danh sách
+            Quay lại danh sách
         </a>
 
     </div>
 
-    <?php if ($error): ?>
+    <section class="lf-panel">
 
-        <div class="lf-error" role="alert">
-            <?= lfH($error) ?>
-        </div>
+        <?php if ($error !== ''): ?>
 
-    <?php endif; ?>
+            <div class="lf-error">
+                <?= leaderFormH($error) ?>
+            </div>
 
-    <form method="POST"
-          enctype="multipart/form-data">
+        <?php endif; ?>
 
-        <input
-            type="hidden"
-            name="csrf"
-            value="<?= lfH($_SESSION['leader_csrf']) ?>"
-        >
+        <form method="POST" id="leaderForm">
 
-        <input
-            type="hidden"
-            name="id"
-            value="<?= $id ?>"
-        >
+            <input
+                type="hidden"
+                name="csrf"
+                value="<?= leaderFormH($_SESSION['leader_csrf']) ?>"
+            >
 
-        <div class="lf-grid">
+            <input
+                type="hidden"
+                name="id"
+                value="<?= (int)$id ?>"
+            >
 
-            <?php foreach ($fields as $field): ?>
+            <h2 class="lf-section-title">
+                Thông tin hướng dẫn viên
+            </h2>
 
-                <div class="lf-field <?= in_array(
-                    $field,
-                    $longFields,
-                    true
-                ) ? 'full' : '' ?>">
+            <div class="lf-grid">
 
-                    <label for="lf-<?= lfH($field) ?>">
-                        <?= lfH($labels[$field]) ?>
-                    </label>
+                <?php foreach ($fields as $field): ?>
 
-                    <?php if (in_array(
+                    <div class="lf-field <?= in_array(
                         $field,
                         $longFields,
                         true
-                    )): ?>
+                    ) ? 'full' : '' ?>">
 
-                        <textarea
-                            name="<?= lfH($field) ?>"
-                            id="lf-<?= lfH($field) ?>"
-                            rows="5"
-                        ><?= lfH(
-                            $editing[$field] ?? ''
-                        ) ?></textarea>
+                        <label for="lf-<?= leaderFormH($field) ?>">
+                            <?= leaderFormH($labels[$field]) ?>
+                        </label>
 
-                    <?php else: ?>
+                        <?php if (in_array(
+                            $field,
+                            $longFields,
+                            true
+                        )): ?>
 
-                        <input
-                            name="<?= lfH($field) ?>"
-                            id="lf-<?= lfH($field) ?>"
-                            type="<?= $field === 'experience_years'
-                                ? 'number'
-                                : 'text' ?>"
-                            value="<?= lfH(
+                            <textarea
+                                name="<?= leaderFormH($field) ?>"
+                                id="lf-<?= leaderFormH($field) ?>"
+                                rows="5"
+                            ><?= leaderFormH(
                                 $editing[$field] ?? ''
-                            ) ?>"
-                            <?= $field === 'fullname'
-                                ? 'required'
-                                : '' ?>
-                            <?= $field === 'experience_years'
-                                ? 'min="0" max="80"'
-                                : '' ?>
-                        >
+                            ) ?></textarea>
 
-                    <?php endif; ?>
+                        <?php else: ?>
+
+                            <input
+                                name="<?= leaderFormH($field) ?>"
+                                id="lf-<?= leaderFormH($field) ?>"
+                                type="<?= $field === 'experience_years'
+                                    ? 'number'
+                                    : 'text' ?>"
+                                value="<?= leaderFormH(
+                                    $editing[$field] ?? ''
+                                ) ?>"
+                                <?= $field === 'fullname'
+                                    ? 'required'
+                                    : '' ?>
+                                <?= $field === 'experience_years'
+                                    ? 'min="0" max="80"'
+                                    : '' ?>
+                            >
+
+                        <?php endif; ?>
+
+                    </div>
+
+                <?php endforeach; ?>
+
+            </div>
+
+            <hr class="lf-divider">
+
+            <!-- THU VIEN ANH -->
+
+            <h2 class="lf-section-title">
+                <i class="fa-regular fa-images"></i>
+                Chọn ảnh đại diện Leader
+            </h2>
+
+            <p class="lf-photo-note">
+                Chọn một ảnh bên dưới. Các ảnh được lấy từ thư mục
+                <strong>assets/images/leaders/</strong>
+                mà bạn đã tải lên GitHub.
+                Không cần nhập URL và không cần GitHub Token.
+            </p>
+
+            <?php if ($availableImages): ?>
+
+                <div class="lf-gallery">
+
+                    <?php foreach ($availableImages as $index => $photo): ?>
+
+                        <?php
+                        $checked = (string)(
+                            $editing['image'] ?? ''
+                        ) === $photo['path'];
+                        ?>
+
+                        <label class="lf-photo-option">
+
+                            <input
+                                type="radio"
+                                name="image"
+                                value="<?= leaderFormH($photo['path']) ?>"
+                                <?= $checked ? 'checked' : '' ?>
+                                <?= $index === 0 ? 'required' : '' ?>
+                            >
+
+                            <img
+                                src="<?= leaderFormH($photo['path']) ?>"
+                                alt="<?= leaderFormH($photo['name']) ?>"
+                                loading="lazy"
+                            >
+
+                            <span class="lf-photo-check">
+                                <i class="fa-solid fa-check"></i>
+                            </span>
+
+                            <div class="lf-photo-filename"
+                                 title="<?= leaderFormH($photo['name']) ?>">
+                                <?= leaderFormH($photo['name']) ?>
+                            </div>
+
+                        </label>
+
+                    <?php endforeach; ?>
 
                 </div>
 
-            <?php endforeach; ?>
+                <div class="lf-selected">
 
-            <div class="lf-field full">
+                    <i class="fa-solid fa-image"></i>
 
-                <label for="lf-avatar">
-                    Ảnh đại diện (chọn từ máy tính)
-                    <?= $id === 0 ? '*' : '' ?>
-                </label>
+                    <span>
+                        Ảnh đã chọn:
+                        <strong id="selectedImageName">
+                            <?= $editing['image']
+                                ? leaderFormH(
+                                    basename($editing['image'])
+                                )
+                                : 'Chưa chọn ảnh' ?>
+                        </strong>
+                    </span>
+
+                </div>
+
+            <?php else: ?>
+
+                <div class="lf-gallery-empty">
+
+                    <strong>Chưa tìm thấy ảnh trong thư viện.</strong>
+
+                    <p>
+                        Bạn hãy tải các ảnh lên thư mục
+                        <code>assets/images/leaders/</code>
+                        trong GitHub.
+                    </p>
+
+                    <p>
+                        Sau khi Vercel triển khai xong phiên bản mới,
+                        tải lại trang này để chọn ảnh.
+                    </p>
+
+                </div>
+
+            <?php endif; ?>
+
+            <hr class="lf-divider">
+
+            <!-- TRANG THAI -->
+
+            <label class="lf-status">
 
                 <input
-                    type="file"
-                    name="avatar"
-                    id="lf-avatar"
-                    accept="image/jpeg,image/png,image/webp"
-                    <?= $id === 0 ? 'required' : '' ?>
+                    type="checkbox"
+                    name="status"
+                    value="1"
+                    <?= (int)($editing['status'] ?? 1) === 1
+                        ? 'checked'
+                        : '' ?>
                 >
 
-                <p class="lf-note">
-                    Chọn ảnh JPG, PNG hoặc WebP,
-                    dung lượng tối đa 4 MB.
-                    Ảnh được lưu vào GitHub.
+                Hiển thị hồ sơ Leader trên website
+
+            </label>
+
+            <!-- NUT LUU -->
+
+            <div class="lf-actions">
+
+                <button
+                    type="submit"
+                    class="lf-btn"
+                    <?= !$availableImages ? 'disabled' : '' ?>
+                >
+
+                    <i class="fa-solid fa-floppy-disk"></i>
+
                     <?= $id > 0
-                        ? 'Bỏ trống để giữ ảnh hiện tại.'
-                        : '' ?>
-                </p>
+                        ? 'Lưu thay đổi'
+                        : 'Thêm Leader' ?>
 
-                <img
-                    id="lf-preview"
-                    class="lf-preview"
-                    src="<?= lfH(
-                        $editing['image'] ?: ''
-                    ) ?>"
-                    alt="Ảnh Leader"
-                    <?= empty($editing['image'])
-                        ? 'hidden'
-                        : '' ?>
-                >
+                </button>
+
+                <a href="index.php" class="lf-btn gray">
+                    Hủy
+                </a>
 
             </div>
 
-            <div class="lf-field full">
+        </form>
 
-                <label class="lf-check">
-
-                    <input
-                        type="checkbox"
-                        name="status"
-                        value="1"
-                        <?= (int)$editing['status'] === 1
-                            ? 'checked'
-                            : '' ?>
-                    >
-
-                    Hiển thị hồ sơ Leader trên website
-
-                </label>
-
-            </div>
-
-        </div>
-
-        <div class="lf-actions">
-
-            <button type="submit" class="lf-btn">
-                <i class="fa-solid fa-floppy-disk"></i>
-                Lưu hồ sơ
-            </button>
-
-            <a class="lf-btn gray" href="index.php">
-                Hủy
-            </a>
-
-        </div>
-
-    </form>
-
-</section>
+    </section>
 
 </main>
 
 <script>
-const leaderFile = document.getElementById('lf-avatar');
-const leaderPreview = document.getElementById('lf-preview');
+(function() {
 
-leaderFile?.addEventListener('change', function() {
+    const radios = document.querySelectorAll(
+        'input[name="image"]'
+    );
 
-    const file = leaderFile.files?.[0];
+    const selectedName = document.getElementById(
+        'selectedImageName'
+    );
 
-    if (!file) {
-        return;
-    }
+    radios.forEach(function(radio) {
 
-    const allowed = [
-        'image/jpeg',
-        'image/png',
-        'image/webp'
-    ];
+        radio.addEventListener('change', function() {
 
-    if (
-        !allowed.includes(file.type) ||
-        file.size > 4194304
-    ) {
-        alert(
-            'Chỉ chọn ảnh JPG, PNG, WebP dưới 4 MB.'
-        );
+            if (!radio.checked || !selectedName) {
+                return;
+            }
 
-        leaderFile.value = '';
-        return;
-    }
+            const path = radio.value;
 
-    leaderPreview.src = URL.createObjectURL(file);
-    leaderPreview.hidden = false;
+            const filename = path.split('/').pop();
 
-});
+            selectedName.textContent = filename;
+
+        });
+
+    });
+
+})();
 </script>
 
 </body>
