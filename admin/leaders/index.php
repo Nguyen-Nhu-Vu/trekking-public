@@ -9,12 +9,18 @@ requireManager();
 $current_page = 'leaders';
 $page_title = 'Quản lý đội ngũ Leader - VNN Travel';
 
-function leaderH($value) {
-    return htmlspecialchars(
-        (string)($value ?? ''),
-        ENT_QUOTES,
-        'UTF-8'
-    );
+if (!function_exists('leaderListH')) {
+    function leaderListH($value) {
+        return htmlspecialchars(
+            (string)($value ?? ''),
+            ENT_QUOTES,
+            'UTF-8'
+        );
+    }
+}
+
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    session_start();
 }
 
 if (empty($_SESSION['leader_csrf'])) {
@@ -22,19 +28,29 @@ if (empty($_SESSION['leader_csrf'])) {
 }
 
 $error = '';
+$notice = $_SESSION['leader_notice'] ?? '';
+unset($_SESSION['leader_notice']);
+
+// =====================================
+// XOA LEADER
+// =====================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
+        $csrf = (string)($_POST['csrf'] ?? '');
+
         if (!hash_equals(
-            $_SESSION['leader_csrf'],
-            (string)($_POST['csrf'] ?? '')
+            (string)$_SESSION['leader_csrf'],
+            $csrf
         )) {
             throw new RuntimeException(
                 'Phiên làm việc không hợp lệ.'
             );
         }
 
-        if (($_POST['action'] ?? '') !== 'delete') {
+        $action = (string)($_POST['action'] ?? '');
+
+        if ($action !== 'delete') {
             throw new RuntimeException(
                 'Thao tác không hợp lệ.'
             );
@@ -45,14 +61,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FILTER_VALIDATE_INT
         );
 
-        if (!$id || $id < 1) {
+        if (!$id || $id <= 0) {
             throw new RuntimeException(
-                'Leader không hợp lệ.'
+                'Hướng dẫn viên không hợp lệ.'
             );
         }
 
         $pdo->beginTransaction();
 
+        // Khong cho xoa leader dang phu trach tour.
         $check = $pdo->prepare("
             SELECT COUNT(*)
             FROM tours
@@ -64,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ((int)$check->fetchColumn() > 0) {
             throw new RuntimeException(
                 'Leader đang phụ trách tour. ' .
-                'Hãy đổi Leader của tour trước khi xóa.'
+                'Vui lòng đổi Leader của tour trước khi xóa.'
             );
         }
 
@@ -77,14 +94,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($delete->rowCount() !== 1) {
             throw new RuntimeException(
-                'Không tìm thấy Leader.'
+                'Không tìm thấy hướng dẫn viên.'
             );
         }
 
         $pdo->commit();
 
         $_SESSION['leader_notice'] =
-            'Đã xóa hồ sơ Leader.';
+            'Đã xóa hướng dẫn viên thành công.';
 
         header('Location: index.php', true, 303);
         exit;
@@ -95,199 +112,365 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         error_log(
-            'Leader delete: ' . $e->getMessage()
+            'Delete Leader: ' . $e->getMessage()
         );
 
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
-            : 'Không thể xóa hồ sơ.';
+            : 'Không thể xóa hướng dẫn viên.';
     }
 }
 
+// =====================================
+// DANH SACH LEADER
+// =====================================
+
+$leaders = [];
+
 try {
-    $leaders = $pdo->query("
+    $stmt = $pdo->query("
         SELECT
-            l.*,
+            l.id,
+            l.fullname,
+            l.nickname,
+            l.image,
+            l.hometown,
+            l.experience_years,
+            l.status,
             (
                 SELECT COUNT(*)
                 FROM tours t
                 WHERE t.leader_id = l.id
             ) AS tour_count
         FROM trekking_leaders l
-        ORDER BY l.id DESC
-    ")->fetchAll(PDO::FETCH_ASSOC);
+        ORDER BY l.id ASC
+    ");
+
+    $leaders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Throwable $e) {
-    $leaders = [];
-    $error = 'Không thể tải danh sách Leader.';
-    error_log($e->getMessage());
+    error_log(
+        'Load Leaders: ' . $e->getMessage()
+    );
+
+    $error = 'Không thể tải danh sách hướng dẫn viên.';
 }
 
-$notice = $_SESSION['leader_notice'] ?? '';
+$totalLeaders = count($leaders);
+$activeLeaders = 0;
 
-unset($_SESSION['leader_notice']);
+foreach ($leaders as $leader) {
+    if ((int)$leader['status'] === 1) {
+        $activeLeaders++;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title><?= leaderH($page_title) ?></title>
-
-<link rel="stylesheet"
- href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<title><?= leaderListH($page_title) ?></title>
 
 <link rel="stylesheet"
- href="../../assets/css/style.css">
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
-<link rel="stylesheet"
- href="../../assets/css/admin.css">
+<link rel="stylesheet" href="../../assets/css/style.css">
+<link rel="stylesheet" href="../../assets/css/admin.css">
 
 <style>
-.leader-page {
+* {
+    box-sizing: border-box;
+}
+
+.ll-page {
     flex: 1;
     min-width: 0;
     min-height: 100vh;
-    background: #f1f5f9;
+    background: #f2f5fa;
     padding: 25px;
-    color: #132a4d;
+    color: #18314f;
+    font-size: 14px;
 }
 
-.leader-bar,
-.leader-panel {
-    background: white;
-    border: 1px solid #e2e8f0;
+.ll-header {
+    background: #fff;
+    border: 1px solid #e0e8f0;
     border-radius: 14px;
-    padding: 21px;
+    padding: 22px;
     margin-bottom: 18px;
-}
 
-.leader-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 15px;
     flex-wrap: wrap;
+    gap: 16px;
 }
 
-.leader-bar h1 {
-    font-size: 19px;
+.ll-header h1 {
     margin: 0;
-    color: #102c50;
+    font-size: 20px;
+    font-weight: 850;
+    color: #102e52;
 }
 
-.leader-btn {
+.ll-header p {
+    margin: 8px 0 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.ll-btn {
     display: inline-flex;
-    align-items: center;
     justify-content: center;
-    gap: 7px;
-    padding: 10px 15px;
-    border: none;
-    border-radius: 8px;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 16px;
+
     background: #166534;
     color: white !important;
+    border: none;
+    border-radius: 9px;
     text-decoration: none;
     font-size: 13px;
     font-weight: 800;
     cursor: pointer;
-}
-
-.leader-btn.secondary {
-    background: #e8f1fb;
-    color: #174a79 !important;
-}
-
-.leader-btn.red {
-    background: #dc2626;
-}
-
-.leader-panel h2 {
-    margin: 0 0 17px;
-    font-size: 18px;
-}
-
-.leader-tablewrap {
-    overflow-x: auto;
-}
-
-.leader-table {
-    width: 100%;
-    min-width: 780px;
-    border-collapse: collapse;
-}
-
-.leader-table th,
-.leader-table td {
-    padding: 13px;
-    text-align: left;
-    border-bottom: 1px solid #e5ebf3;
-    font-size: 13px;
-    vertical-align: middle;
-}
-
-.leader-table th {
-    background: #f8fafc;
-    font-weight: 800;
-    color: #102c50;
-}
-
-.leader-table img {
-    width: 65px;
-    height: 77px;
-    border-radius: 9px;
-    object-fit: cover;
-    background: #e2e8f0;
-}
-
-.leader-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.leader-actions form {
-    margin: 0;
-}
-
-.leader-badge {
-    display: inline-block;
-    background: #dcfce7;
-    color: #166534;
-    border-radius: 20px;
-    padding: 7px 11px;
-    font-size: 12px;
-    font-weight: 700;
     white-space: nowrap;
 }
 
-.leader-badge.off {
+.ll-btn:hover {
+    background: #14532d;
+}
+
+.ll-btn.edit {
+    background: #eff6ff;
+    color: #1d4ed8 !important;
+}
+
+.ll-btn.edit:hover {
+    background: #dbeafe;
+}
+
+.ll-btn.delete {
+    background: #fef2f2;
+    color: #dc2626 !important;
+}
+
+.ll-btn.delete:hover {
+    background: #fee2e2;
+}
+
+.ll-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 19px;
+}
+
+.ll-stat {
+    background: white;
+    border: 1px solid #e0e8f0;
+    border-radius: 13px;
+    padding: 19px;
+}
+
+.ll-stat-label {
+    font-size: 12px;
+    font-weight: 750;
+    color: #64748b;
+}
+
+.ll-stat-value {
+    margin-top: 10px;
+    color: #102e52;
+    font-size: 26px;
+    font-weight: 900;
+}
+
+.ll-panel {
+    background: white;
+    border: 1px solid #e0e8f0;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.ll-panel-title {
+    padding: 20px 23px;
+    border-bottom: 1px solid #e2e8f0;
+
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.ll-panel-title h2 {
+    margin: 0;
+    color: #102e52;
+    font-size: 18px;
+    font-weight: 850;
+}
+
+.ll-search {
+    width: min(100%, 295px);
+    height: 41px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 0 13px;
+    background: white;
+    color: #102e52;
+    font-size: 13px;
+}
+
+.ll-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.ll-table {
+    width: 100%;
+    min-width: 850px;
+    border-collapse: collapse;
+}
+
+.ll-table th {
+    padding: 14px 16px;
+    background: #f8fafc;
+    color: #102e52;
+    font-size: 13px;
+    font-weight: 850;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.ll-table td {
+    padding: 13px 16px;
+    border-top: 1px solid #e2e8f0;
+    vertical-align: middle;
+    font-size: 13px;
+}
+
+.ll-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.ll-avatar {
+    width: 68px;
+    height: 76px;
+    object-fit: cover;
+    object-position: center;
+    border-radius: 10px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+}
+
+.ll-avatar-empty {
+    width: 68px;
+    height: 76px;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #94a3b8;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 22px;
+}
+
+.ll-name {
+    color: #0f2d52;
+    font-size: 14px;
+    font-weight: 850;
+}
+
+.ll-sub {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.ll-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 20px;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.ll-status.off {
     background: #f1f5f9;
     color: #64748b;
 }
 
-.leader-msg {
-    padding: 13px 17px;
-    margin-bottom: 15px;
-    border-radius: 10px;
+.ll-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ll-actions form {
+    margin: 0;
+}
+
+.ll-notice {
+    padding: 15px 18px;
+    margin-bottom: 18px;
+    border-radius: 11px;
+    background: #dcfce7;
+    color: #166534;
+    font-weight: 700;
+}
+
+.ll-error {
+    padding: 15px 18px;
+    margin-bottom: 18px;
+    border-radius: 11px;
     background: #fee2e2;
     color: #991b1b;
 }
 
-.leader-msg.ok {
-    background: #dcfce7;
-    color: #166534;
+.ll-empty {
+    padding: 30px;
+    color: #64748b;
+    text-align: center;
 }
 
-@media(max-width:700px) {
-    .leader-page {
+.ll-footer {
+    padding: 14px 23px;
+    border-top: 1px solid #e2e8f0;
+    color: #64748b;
+    font-size: 12px;
+}
+
+@media (max-width: 900px) {
+    .ll-stats {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 650px) {
+    .ll-page {
         padding: 12px;
     }
 
-    .leader-bar,
-    .leader-panel {
+    .ll-header,
+    .ll-panel-title {
         padding: 15px;
+    }
+
+    .ll-header h1 {
+        font-size: 17px;
+    }
+
+    .ll-stats {
+        grid-template-columns: 1fr;
     }
 }
 </style>
@@ -299,49 +482,98 @@ unset($_SESSION['leader_notice']);
 require_once __DIR__ . '/../includes/sidebar.php';
 ?>
 
-<main class="admin-main leader-page">
+<main class="admin-main ll-page">
 
-    <div class="leader-bar">
+    <div class="ll-header">
 
-        <h1>
-            <i class="fa-solid fa-person-hiking"></i>
-            QUẢN LÝ ĐỘI NGŨ LEADER
-        </h1>
+        <div>
+            <h1>
+                <i class="fa-solid fa-person-hiking"></i>
+                QUẢN LÝ ĐỘI NGŨ LEADER
+            </h1>
 
-        <a href="form.php" class="leader-btn">
+            <p>
+                Quản lý hồ sơ hướng dẫn viên
+                và Leader phụ trách tour trekking.
+            </p>
+        </div>
+
+        <a href="form.php" class="ll-btn">
             <i class="fa-solid fa-plus"></i>
             Thêm Leader mới
         </a>
 
     </div>
 
-    <?php if ($error): ?>
-        <div class="leader-msg" role="alert">
-            <?= leaderH($error) ?>
+    <?php if ($error !== ''): ?>
+        <div class="ll-error">
+            <?= leaderListH($error) ?>
         </div>
     <?php endif; ?>
 
-    <?php if ($notice): ?>
-        <div class="leader-msg ok" role="status">
-            <?= leaderH($notice) ?>
+    <?php if ($notice !== ''): ?>
+        <div class="ll-notice">
+            <i class="fa-solid fa-circle-check"></i>
+            <?= leaderListH($notice) ?>
         </div>
     <?php endif; ?>
 
-    <section class="leader-panel">
+    <div class="ll-stats">
 
-        <h2>
-            Danh sách hướng dẫn viên
-            (<?= count($leaders) ?>)
-        </h2>
+        <div class="ll-stat">
+            <div class="ll-stat-label">
+                Tổng số Leader
+            </div>
 
-        <div class="leader-tablewrap">
+            <div class="ll-stat-value">
+                <?= $totalLeaders ?>
+            </div>
+        </div>
 
-            <table class="leader-table">
+        <div class="ll-stat">
+            <div class="ll-stat-label">
+                Leader đang hiển thị
+            </div>
+
+            <div class="ll-stat-value">
+                <?= $activeLeaders ?>
+            </div>
+        </div>
+
+        <div class="ll-stat">
+            <div class="ll-stat-label">
+                Leader đang ẩn
+            </div>
+
+            <div class="ll-stat-value">
+                <?= $totalLeaders - $activeLeaders ?>
+            </div>
+        </div>
+
+    </div>
+
+    <section class="ll-panel">
+
+        <div class="ll-panel-title">
+            <h2>Danh sách Leader</h2>
+
+            <input
+                class="ll-search"
+                id="leaderSearch"
+                type="search"
+                placeholder="Tìm tên, biệt danh, quê quán..."
+            >
+        </div>
+
+        <div class="ll-table-wrap">
+
+            <table class="ll-table" id="leadersTable">
 
                 <thead>
                     <tr>
-                        <th>Ảnh</th>
-                        <th>Họ tên</th>
+                        <th>Ảnh đại diện</th>
+                        <th>Họ và tên</th>
+                        <th>Quê quán</th>
                         <th>Kinh nghiệm</th>
                         <th>Tour phụ trách</th>
                         <th>Trạng thái</th>
@@ -353,32 +585,52 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                 <?php foreach ($leaders as $leader): ?>
 
-                    <tr>
+                    <tr class="leader-row">
 
                         <td>
+
                             <?php if (!empty($leader['image'])): ?>
 
                                 <img
-                                    src="<?= leaderH($leader['image']) ?>"
-                                    alt="<?= leaderH($leader['fullname']) ?>"
+                                    class="ll-avatar"
+                                    src="<?= leaderListH($leader['image']) ?>"
+                                    alt="<?= leaderListH($leader['fullname']) ?>"
                                     loading="lazy"
+                                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
                                 >
 
+                                <div class="ll-avatar-empty" style="display:none">
+                                    <i class="fa-solid fa-user"></i>
+                                </div>
+
                             <?php else: ?>
-                                —
+
+                                <div class="ll-avatar-empty">
+                                    <i class="fa-solid fa-user"></i>
+                                </div>
+
                             <?php endif; ?>
+
                         </td>
 
                         <td>
-                            <strong>
-                                <?= leaderH($leader['fullname']) ?>
-                            </strong>
+
+                            <div class="ll-name">
+                                <?= leaderListH($leader['fullname']) ?>
+                            </div>
 
                             <?php if (!empty($leader['nickname'])): ?>
-                                <div style="color:#64748b;font-size:12px">
-                                    <?= leaderH($leader['nickname']) ?>
+
+                                <div class="ll-sub">
+                                    <?= leaderListH($leader['nickname']) ?>
                                 </div>
+
                             <?php endif; ?>
+
+                        </td>
+
+                        <td>
+                            <?= leaderListH($leader['hometown'] ?: '—') ?>
                         </td>
 
                         <td>
@@ -390,19 +642,22 @@ require_once __DIR__ . '/../includes/sidebar.php';
                         </td>
 
                         <td>
-                            <span class="leader-badge <?= (int)$leader['status'] === 1 ? '' : 'off' ?>">
+
+                            <span class="ll-status <?= (int)$leader['status'] === 1 ? '' : 'off' ?>">
                                 <?= (int)$leader['status'] === 1
                                     ? 'Đang hiển thị'
                                     : 'Đang ẩn' ?>
                             </span>
+
                         </td>
 
                         <td>
-                            <div class="leader-actions">
+
+                            <div class="ll-actions">
 
                                 <a
-                                    class="leader-btn secondary"
                                     href="form.php?id=<?= (int)$leader['id'] ?>"
+                                    class="ll-btn edit"
                                 >
                                     <i class="fa-solid fa-pen"></i>
                                     Sửa
@@ -410,13 +665,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                                 <form
                                     method="POST"
-                                    onsubmit="return confirm('Xóa Leader này?');"
+                                    onsubmit="return confirm('Bạn có chắc muốn xóa hồ sơ Leader này?');"
                                 >
 
                                     <input
                                         type="hidden"
                                         name="csrf"
-                                        value="<?= leaderH($_SESSION['leader_csrf']) ?>"
+                                        value="<?= leaderListH($_SESSION['leader_csrf']) ?>"
                                     >
 
                                     <input
@@ -427,9 +682,9 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                                     <button
                                         type="submit"
+                                        class="ll-btn delete"
                                         name="action"
                                         value="delete"
-                                        class="leader-btn red"
                                     >
                                         <i class="fa-solid fa-trash"></i>
                                         Xóa
@@ -438,6 +693,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                 </form>
 
                             </div>
+
                         </td>
 
                     </tr>
@@ -445,11 +701,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 <?php endforeach; ?>
 
                 <?php if (!$leaders): ?>
+
                     <tr>
-                        <td colspan="6">
-                            Chưa có hướng dẫn viên.
+                        <td colspan="7" class="ll-empty">
+                            Chưa có Leader nào trong hệ thống.
                         </td>
                     </tr>
+
                 <?php endif; ?>
 
                 </tbody>
@@ -458,9 +716,42 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
         </div>
 
+        <div class="ll-footer">
+            Danh sách hướng dẫn viên của VNN Travel.
+        </div>
+
     </section>
 
 </main>
+
+<script>
+(function() {
+
+    const input = document.getElementById('leaderSearch');
+    const rows = document.querySelectorAll('.leader-row');
+
+    if (!input) return;
+
+    input.addEventListener('input', function() {
+
+        const keyword = input.value
+            .trim()
+            .toLocaleLowerCase('vi');
+
+        rows.forEach(function(row) {
+
+            const content = row.textContent
+                .toLocaleLowerCase('vi');
+
+            row.style.display =
+                content.includes(keyword) ? '' : 'none';
+
+        });
+
+    });
+
+})();
+</script>
 
 </body>
 </html>
