@@ -6,6 +6,10 @@ require_once __DIR__ . '/../../includes/functions.php';
 
 requireManager();
 
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    session_start();
+}
+
 $current_page = 'leaders';
 $page_title = 'Quản lý đội ngũ Leader - VNN Travel';
 
@@ -19,17 +23,18 @@ if (!function_exists('leaderListH')) {
     }
 }
 
-if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
-    session_start();
-}
-
 if (empty($_SESSION['leader_csrf'])) {
     $_SESSION['leader_csrf'] = bin2hex(random_bytes(32));
 }
 
-$error = '';
-$notice = $_SESSION['leader_notice'] ?? '';
-unset($_SESSION['leader_notice']);
+$popupMessage = '';
+$popupType = 'success';
+
+// Nhan thong bao tu trang Them/Sua.
+if (!empty($_SESSION['leader_notice'])) {
+    $popupMessage = (string)$_SESSION['leader_notice'];
+    unset($_SESSION['leader_notice']);
+}
 
 // =====================================
 // XOA LEADER
@@ -48,9 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        $action = (string)($_POST['action'] ?? '');
-
-        if ($action !== 'delete') {
+        if (($_POST['action'] ?? '') !== 'delete') {
             throw new RuntimeException(
                 'Thao tác không hợp lệ.'
             );
@@ -69,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo->beginTransaction();
 
-        // Khong cho xoa leader dang phu trach tour.
+        // Khong xoa Leader dang phu trach tour.
         $check = $pdo->prepare("
             SELECT COUNT(*)
             FROM tours
@@ -101,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->commit();
 
         $_SESSION['leader_notice'] =
-            'Đã xóa hướng dẫn viên thành công.';
+            'Đã xóa hồ sơ Leader thành công.';
 
         header('Location: index.php', true, 303);
         exit;
@@ -111,11 +114,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->rollBack();
         }
 
-        error_log(
-            'Delete Leader: ' . $e->getMessage()
-        );
+        error_log('Delete Leader: ' . $e->getMessage());
 
-        $error = $e instanceof RuntimeException
+        $popupType = 'error';
+        $popupMessage = $e instanceof RuntimeException
             ? $e->getMessage()
             : 'Không thể xóa hướng dẫn viên.';
     }
@@ -149,11 +151,10 @@ try {
     $leaders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Throwable $e) {
-    error_log(
-        'Load Leaders: ' . $e->getMessage()
-    );
+    error_log('Load Leaders: ' . $e->getMessage());
 
-    $error = 'Không thể tải danh sách hướng dẫn viên.';
+    $popupMessage = 'Không thể tải danh sách hướng dẫn viên.';
+    $popupType = 'error';
 }
 
 $totalLeaders = count($leaders);
@@ -169,15 +170,20 @@ foreach ($leaders as $leader) {
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1">
 
 <title><?= leaderListH($page_title) ?></title>
 
 <link rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
-<link rel="stylesheet" href="../../assets/css/style.css">
-<link rel="stylesheet" href="../../assets/css/admin.css">
+<link rel="stylesheet"
+ href="../../assets/css/style.css">
+
+<link rel="stylesheet"
+ href="../../assets/css/admin.css">
 
 <style>
 * {
@@ -188,8 +194,8 @@ foreach ($leaders as $leader) {
     flex: 1;
     min-width: 0;
     min-height: 100vh;
-    background: #f2f5fa;
     padding: 25px;
+    background: #f2f5fa;
     color: #18314f;
     font-size: 14px;
 }
@@ -211,7 +217,7 @@ foreach ($leaders as $leader) {
 .ll-header h1 {
     margin: 0;
     font-size: 20px;
-    font-weight: 850;
+    font-weight: 800;
     color: #102e52;
 }
 
@@ -227,7 +233,6 @@ foreach ($leaders as $leader) {
     align-items: center;
     gap: 8px;
     padding: 11px 16px;
-
     background: #166534;
     color: white !important;
     border: none;
@@ -269,7 +274,7 @@ foreach ($leaders as $leader) {
 }
 
 .ll-stat {
-    background: white;
+    background: #fff;
     border: 1px solid #e0e8f0;
     border-radius: 13px;
     padding: 19px;
@@ -289,7 +294,7 @@ foreach ($leaders as $leader) {
 }
 
 .ll-panel {
-    background: white;
+    background: #fff;
     border: 1px solid #e0e8f0;
     border-radius: 14px;
     overflow: hidden;
@@ -298,7 +303,6 @@ foreach ($leaders as $leader) {
 .ll-panel-title {
     padding: 20px 23px;
     border-bottom: 1px solid #e2e8f0;
-
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -310,7 +314,7 @@ foreach ($leaders as $leader) {
     margin: 0;
     color: #102e52;
     font-size: 18px;
-    font-weight: 850;
+    font-weight: 800;
 }
 
 .ll-search {
@@ -319,7 +323,7 @@ foreach ($leaders as $leader) {
     border: 1px solid #cbd5e1;
     border-radius: 9px;
     padding: 0 13px;
-    background: white;
+    background: #fff;
     color: #102e52;
     font-size: 13px;
 }
@@ -340,7 +344,7 @@ foreach ($leaders as $leader) {
     background: #f8fafc;
     color: #102e52;
     font-size: 13px;
-    font-weight: 850;
+    font-weight: 800;
     text-align: left;
     white-space: nowrap;
 }
@@ -360,7 +364,6 @@ foreach ($leaders as $leader) {
     width: 68px;
     height: 76px;
     object-fit: cover;
-    object-position: center;
     border-radius: 10px;
     background: #f1f5f9;
     border: 1px solid #e2e8f0;
@@ -372,7 +375,6 @@ foreach ($leaders as $leader) {
     border-radius: 10px;
     background: #f1f5f9;
     color: #94a3b8;
-
     display: flex;
     justify-content: center;
     align-items: center;
@@ -382,7 +384,7 @@ foreach ($leaders as $leader) {
 .ll-name {
     color: #0f2d52;
     font-size: 14px;
-    font-weight: 850;
+    font-weight: 800;
 }
 
 .ll-sub {
@@ -419,23 +421,6 @@ foreach ($leaders as $leader) {
     margin: 0;
 }
 
-.ll-notice {
-    padding: 15px 18px;
-    margin-bottom: 18px;
-    border-radius: 11px;
-    background: #dcfce7;
-    color: #166534;
-    font-weight: 700;
-}
-
-.ll-error {
-    padding: 15px 18px;
-    margin-bottom: 18px;
-    border-radius: 11px;
-    background: #fee2e2;
-    color: #991b1b;
-}
-
 .ll-empty {
     padding: 30px;
     color: #64748b;
@@ -447,6 +432,115 @@ foreach ($leaders as $leader) {
     border-top: 1px solid #e2e8f0;
     color: #64748b;
     font-size: 12px;
+}
+
+/* =======================================
+   POPUP DUNG CHUNG
+   ======================================= */
+
+.vnn-popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, .56);
+    backdrop-filter: blur(3px);
+}
+
+.vnn-popup-overlay[hidden] {
+    display: none !important;
+}
+
+.vnn-popup-box {
+    width: 100%;
+    max-width: 420px;
+    padding: 30px 26px;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 25px 80px rgba(0,0,0,.2);
+    text-align: center;
+    animation: vnnPopupIn .2s ease-out;
+}
+
+@keyframes vnnPopupIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(.97);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.vnn-popup-icon {
+    width: 67px;
+    height: 67px;
+    margin: 0 auto 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 32px;
+}
+
+.vnn-popup-icon.error {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.vnn-popup-icon.warning {
+    background: #fff7ed;
+    color: #ea580c;
+}
+
+.vnn-popup-title {
+    margin: 0 0 10px;
+    color: #102e52;
+    font-size: 21px;
+    font-weight: 850;
+}
+
+.vnn-popup-message {
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.8;
+    margin: 0 0 23px;
+    overflow-wrap: anywhere;
+}
+
+.vnn-popup-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 11px;
+}
+
+.vnn-popup-button {
+    min-width: 105px;
+    padding: 12px 19px;
+    border: none;
+    border-radius: 9px;
+    background: #166534;
+    color: white;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.vnn-popup-button.cancel {
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.vnn-popup-button.danger {
+    background: #dc2626;
+    color: white;
 }
 
 @media (max-width: 900px) {
@@ -485,7 +579,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
 <main class="admin-main ll-page">
 
     <div class="ll-header">
-
         <div>
             <h1>
                 <i class="fa-solid fa-person-hiking"></i>
@@ -493,8 +586,8 @@ require_once __DIR__ . '/../includes/sidebar.php';
             </h1>
 
             <p>
-                Quản lý hồ sơ hướng dẫn viên
-                và Leader phụ trách tour trekking.
+                Quản lý hồ sơ hướng dẫn viên và
+                Leader phụ trách tour trekking.
             </p>
         </div>
 
@@ -502,29 +595,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
             <i class="fa-solid fa-plus"></i>
             Thêm Leader mới
         </a>
-
     </div>
 
-    <?php if ($error !== ''): ?>
-        <div class="ll-error">
-            <?= leaderListH($error) ?>
-        </div>
-    <?php endif; ?>
-
-    <?php if ($notice !== ''): ?>
-        <div class="ll-notice">
-            <i class="fa-solid fa-circle-check"></i>
-            <?= leaderListH($notice) ?>
-        </div>
-    <?php endif; ?>
-
     <div class="ll-stats">
-
         <div class="ll-stat">
             <div class="ll-stat-label">
                 Tổng số Leader
             </div>
-
             <div class="ll-stat-value">
                 <?= $totalLeaders ?>
             </div>
@@ -534,7 +611,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
             <div class="ll-stat-label">
                 Leader đang hiển thị
             </div>
-
             <div class="ll-stat-value">
                 <?= $activeLeaders ?>
             </div>
@@ -544,16 +620,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
             <div class="ll-stat-label">
                 Leader đang ẩn
             </div>
-
             <div class="ll-stat-value">
                 <?= $totalLeaders - $activeLeaders ?>
             </div>
         </div>
-
     </div>
 
     <section class="ll-panel">
-
         <div class="ll-panel-title">
             <h2>Danh sách Leader</h2>
 
@@ -568,7 +641,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
         <div class="ll-table-wrap">
 
             <table class="ll-table" id="leadersTable">
-
                 <thead>
                     <tr>
                         <th>Ảnh đại diện</th>
@@ -588,7 +660,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     <tr class="leader-row">
 
                         <td>
-
                             <?php if (!empty($leader['image'])): ?>
 
                                 <img
@@ -610,27 +681,24 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                 </div>
 
                             <?php endif; ?>
-
                         </td>
 
                         <td>
-
                             <div class="ll-name">
                                 <?= leaderListH($leader['fullname']) ?>
                             </div>
 
                             <?php if (!empty($leader['nickname'])): ?>
-
                                 <div class="ll-sub">
                                     <?= leaderListH($leader['nickname']) ?>
                                 </div>
-
                             <?php endif; ?>
-
                         </td>
 
                         <td>
-                            <?= leaderListH($leader['hometown'] ?: '—') ?>
+                            <?= leaderListH(
+                                $leader['hometown'] ?: '—'
+                            ) ?>
                         </td>
 
                         <td>
@@ -642,17 +710,14 @@ require_once __DIR__ . '/../includes/sidebar.php';
                         </td>
 
                         <td>
-
                             <span class="ll-status <?= (int)$leader['status'] === 1 ? '' : 'off' ?>">
                                 <?= (int)$leader['status'] === 1
                                     ? 'Đang hiển thị'
                                     : 'Đang ẩn' ?>
                             </span>
-
                         </td>
 
                         <td>
-
                             <div class="ll-actions">
 
                                 <a
@@ -665,7 +730,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                                 <form
                                     method="POST"
-                                    onsubmit="return confirm('Bạn có chắc muốn xóa hồ sơ Leader này?');"
+                                    class="leader-delete-form"
                                 >
 
                                     <input
@@ -693,7 +758,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                 </form>
 
                             </div>
-
                         </td>
 
                     </tr>
@@ -701,17 +765,14 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 <?php endforeach; ?>
 
                 <?php if (!$leaders): ?>
-
                     <tr>
                         <td colspan="7" class="ll-empty">
                             Chưa có Leader nào trong hệ thống.
                         </td>
                     </tr>
-
                 <?php endif; ?>
 
                 </tbody>
-
             </table>
 
         </div>
@@ -719,34 +780,271 @@ require_once __DIR__ . '/../includes/sidebar.php';
         <div class="ll-footer">
             Danh sách hướng dẫn viên của VNN Travel.
         </div>
-
     </section>
 
 </main>
 
+<!-- =======================================
+     POPUP THONG BAO KET QUA
+     ======================================= -->
+
+<div
+    class="vnn-popup-overlay"
+    id="resultPopup"
+    <?= $popupMessage === '' ? 'hidden' : '' ?>
+>
+    <div
+        class="vnn-popup-box"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resultPopupTitle"
+    >
+
+        <div class="vnn-popup-icon <?= $popupType === 'error' ? 'error' : '' ?>">
+            <i class="fa-solid <?= $popupType === 'error'
+                ? 'fa-circle-xmark'
+                : 'fa-circle-check' ?>"></i>
+        </div>
+
+        <h2 class="vnn-popup-title" id="resultPopupTitle">
+            <?= $popupType === 'error'
+                ? 'Không thành công'
+                : 'Thành công!' ?>
+        </h2>
+
+        <p class="vnn-popup-message">
+            <?= leaderListH($popupMessage) ?>
+        </p>
+
+        <div class="vnn-popup-buttons">
+            <button
+                class="vnn-popup-button"
+                type="button"
+                id="closeResultPopup"
+            >
+                Đồng ý
+            </button>
+        </div>
+
+    </div>
+</div>
+
+<!-- =======================================
+     POPUP XAC NHAN XOA
+     ======================================= -->
+
+<div
+    class="vnn-popup-overlay"
+    id="deletePopup"
+    hidden
+>
+    <div
+        class="vnn-popup-box"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="deletePopupTitle"
+    >
+
+        <div class="vnn-popup-icon warning">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+
+        <h2 class="vnn-popup-title" id="deletePopupTitle">
+            Xác nhận xóa Leader
+        </h2>
+
+        <p class="vnn-popup-message">
+            Bạn có chắc chắn muốn xóa hồ sơ Leader này?
+            Hành động này không thể hoàn tác.
+        </p>
+
+        <div class="vnn-popup-buttons">
+
+            <button
+                class="vnn-popup-button cancel"
+                type="button"
+                id="cancelDelete"
+            >
+                Quay lại
+            </button>
+
+            <button
+                class="vnn-popup-button danger"
+                type="button"
+                id="confirmDelete"
+            >
+                Xác nhận xóa
+            </button>
+
+        </div>
+    </div>
+</div>
+
 <script>
 (function() {
 
-    const input = document.getElementById('leaderSearch');
-    const rows = document.querySelectorAll('.leader-row');
+    // ==================================
+    // TIM KIEM LEADER
+    // ==================================
 
-    if (!input) return;
+    const searchInput = document.getElementById(
+        'leaderSearch'
+    );
 
-    input.addEventListener('input', function() {
+    const rows = document.querySelectorAll(
+        '.leader-row'
+    );
 
-        const keyword = input.value
+    searchInput?.addEventListener('input', function() {
+
+        const keyword = searchInput.value
             .trim()
             .toLocaleLowerCase('vi');
 
         rows.forEach(function(row) {
 
-            const content = row.textContent
+            const text = row.textContent
                 .toLocaleLowerCase('vi');
 
             row.style.display =
-                content.includes(keyword) ? '' : 'none';
+                text.includes(keyword) ? '' : 'none';
 
         });
+    });
+
+    // ==================================
+    // POPUP THONG BAO
+    // ==================================
+
+    const resultPopup = document.getElementById(
+        'resultPopup'
+    );
+
+    const closeResultPopup = document.getElementById(
+        'closeResultPopup'
+    );
+
+    function hideResultPopup() {
+        if (resultPopup) {
+            resultPopup.hidden = true;
+        }
+    }
+
+    closeResultPopup?.addEventListener(
+        'click',
+        hideResultPopup
+    );
+
+    // ==================================
+    // POPUP XAC NHAN XOA
+    // ==================================
+
+    const deletePopup = document.getElementById(
+        'deletePopup'
+    );
+
+    const cancelDelete = document.getElementById(
+        'cancelDelete'
+    );
+
+    const confirmDelete = document.getElementById(
+        'confirmDelete'
+    );
+
+    let pendingDeleteForm = null;
+
+    document.querySelectorAll(
+        '.leader-delete-form'
+    ).forEach(function(form) {
+
+        form.addEventListener('submit', function(event) {
+
+            event.preventDefault();
+
+            pendingDeleteForm = form;
+
+            deletePopup.hidden = false;
+
+        });
+
+    });
+
+    cancelDelete?.addEventListener('click', function() {
+
+        deletePopup.hidden = true;
+        pendingDeleteForm = null;
+
+    });
+
+    confirmDelete?.addEventListener('click', function() {
+
+        if (!pendingDeleteForm) {
+            return;
+        }
+
+        confirmDelete.disabled = true;
+        confirmDelete.textContent = 'Đang xóa...';
+
+        // requestSubmit() gui lai su kien submit.
+        // De tranh mo popup lan 2, dung form.submit().
+        //
+        // Nut action=delete la submit button,
+        // form.submit() khong gui gia tri cua nut do.
+        // Bo sung hidden input action truoc khi gui.
+
+        let actionInput = pendingDeleteForm.querySelector(
+            'input[name="action"]'
+        );
+
+        if (!actionInput) {
+
+            actionInput = document.createElement('input');
+
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+
+            pendingDeleteForm.appendChild(actionInput);
+        }
+
+        actionInput.value = 'delete';
+
+        pendingDeleteForm.submit();
+
+    });
+
+    // ==================================
+    // DONG POPUP
+    // ==================================
+
+    resultPopup?.addEventListener('click', function(event) {
+
+        if (event.target === resultPopup) {
+            hideResultPopup();
+        }
+
+    });
+
+    deletePopup?.addEventListener('click', function(event) {
+
+        if (event.target === deletePopup) {
+            deletePopup.hidden = true;
+            pendingDeleteForm = null;
+        }
+
+    });
+
+    document.addEventListener('keydown', function(event) {
+
+        if (event.key !== 'Escape') {
+            return;
+        }
+
+        hideResultPopup();
+
+        if (deletePopup) {
+            deletePopup.hidden = true;
+            pendingDeleteForm = null;
+        }
 
     });
 
