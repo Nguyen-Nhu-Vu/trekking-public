@@ -14,7 +14,7 @@ $current_page = 'leaders';
 $page_title = 'Thêm / Sửa Leader - VNN Travel';
 
 if (!function_exists('leaderFormH')) {
-    function leaderFormH($value) {
+    function leaderFormH($value): string {
         return htmlspecialchars(
             (string)($value ?? ''),
             ENT_QUOTES,
@@ -78,7 +78,6 @@ $id = filter_var(
 ) ?: 0;
 
 $editing = array_fill_keys($fields, '');
-
 $editing['image'] = '';
 $editing['status'] = 1;
 $editing['experience_years'] = 0;
@@ -87,12 +86,8 @@ $error = '';
 $record = null;
 
 // ==========================================
-// QUET ANH CO SAN TRONG GITHUB
+// DOC THU VIEN ANH TU SOURCE GITHUB
 // ==========================================
-
-// Thu muc nay nam trong source code da deploy.
-// Vercel chi can deploy lai sau khi ban
-// tai anh thu cong len GitHub.
 
 $imageDirectory = dirname(__DIR__, 2)
     . '/assets/images/leaders';
@@ -128,7 +123,8 @@ if (is_dir($imageDirectory)) {
 
             $availableImages[] = [
                 'name' => $filename,
-                'path' => '/assets/images/leaders/' . $filename
+                'path' => '/assets/images/leaders/'
+                    . rawurlencode($filename)
             ];
         }
 
@@ -141,12 +137,16 @@ if (is_dir($imageDirectory)) {
                 );
             }
         );
-
     }
 }
 
+$allowedImages = array_column(
+    $availableImages,
+    'path'
+);
+
 // ==========================================
-// LAY LEADER NEU DANG SUA
+// LAY THONG TIN KHI SUA LEADER
 // ==========================================
 
 if ($id > 0) {
@@ -169,7 +169,10 @@ if ($id > 0) {
             exit('Không tìm thấy hồ sơ Leader.');
         }
 
-        $editing = $record;
+        $editing = array_merge(
+            $editing,
+            $record
+        );
 
     } catch (Throwable $e) {
 
@@ -183,14 +186,16 @@ if ($id > 0) {
 }
 
 // ==========================================
-// LUU THONG TIN
+// LUU THONG TIN LEADER
 // ==========================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
 
-        $postedCsrf = (string)($_POST['csrf'] ?? '');
+        $postedCsrf = (string)(
+            $_POST['csrf'] ?? ''
+        );
 
         if (!hash_equals(
             (string)$_SESSION['leader_csrf'],
@@ -220,19 +225,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             isset($_POST['status']) ? 1 : 0;
 
         if ($values['fullname'] === '') {
-
             throw new RuntimeException(
                 'Vui lòng nhập họ và tên Leader.'
             );
-
         }
 
         if (mb_strlen($values['fullname']) > 255) {
-
             throw new RuntimeException(
                 'Họ tên quá dài.'
             );
-
         }
 
         $years = filter_var(
@@ -245,41 +246,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $years < 0 ||
             $years > 80
         ) {
-
             throw new RuntimeException(
                 'Số năm kinh nghiệm phải từ 0 đến 80.'
             );
-
         }
 
         $values['experience_years'] = $years;
 
         // ==================================
-        // KIEM TRA ANH DA CHON
+        // KIEM TRA ANH
         // ==================================
 
         $selectedImage = trim(
             (string)($_POST['image'] ?? '')
         );
 
-        $allowedImages = array_column(
-            $availableImages,
-            'path'
-        );
+        // Khi them moi bat buoc chon anh.
+        // Khi sua, neu khong chon anh khac
+        // thi giu nguyen anh hien tai.
 
-        // Chi chap nhan duong dan anh
-        // thuc su ton tai trong thu muc.
+        $currentImage = $id > 0
+            ? (string)($record['image'] ?? '')
+            : '';
 
-        if (!in_array(
+        if ($selectedImage === '' && $id > 0) {
+            $selectedImage = $currentImage;
+        }
+
+        if ($selectedImage === '') {
+            throw new RuntimeException(
+                'Vui lòng chọn ảnh đại diện Leader.'
+            );
+        }
+
+        // Anh moi phai co trong thu vien.
+        // Anh cu co the nam o duong dan cu
+        // nen cho phep giu nguyen khi sua.
+
+        $isAvailableImage = in_array(
             $selectedImage,
             $allowedImages,
             true
-        )) {
+        );
 
+        $isUnchangedImage = (
+            $id > 0 &&
+            $currentImage !== '' &&
+            hash_equals(
+                $currentImage,
+                $selectedImage
+            )
+        );
+
+        if (!$isAvailableImage && !$isUnchangedImage) {
             throw new RuntimeException(
-                'Vui lòng chọn một ảnh có sẵn trong thư viện.'
+                'Ảnh được chọn không có trong thư viện.'
             );
-
         }
 
         $editing['image'] = $selectedImage;
@@ -310,7 +332,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ";
 
             $params = array_values($values);
-
             $params[] = $selectedImage;
             $params[] = $status;
             $params[] = $id;
@@ -343,7 +364,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ";
 
             $params = array_values($values);
-
             $params[] = $selectedImage;
             $params[] = $status;
 
@@ -371,9 +391,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
             : 'Không lưu được hồ sơ Leader.';
-
     }
 }
+
+// Xac dinh anh da chon de hien thi.
+$selectedImage = (string)(
+    $editing['image'] ?? ''
+);
+
+$selectedFilename = $selectedImage !== ''
+    ? basename(rawurldecode($selectedImage))
+    : 'Chưa chọn ảnh';
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -413,13 +441,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 .lf-header {
     max-width: 1230px;
     margin: 0 auto 18px;
-
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 15px;
     flex-wrap: wrap;
-
     padding: 21px 23px;
     background: white;
     border: 1px solid #e2e8f0;
@@ -430,7 +456,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     margin: 0;
     color: #102e52;
     font-size: 20px;
-    font-weight: 850;
+    font-weight: 800;
 }
 
 .lf-panel {
@@ -444,7 +470,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 .lf-section-title {
     font-size: 17px;
-    font-weight: 850;
+    font-weight: 800;
     color: #102e52;
     margin: 0 0 19px;
 }
@@ -477,11 +503,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     display: block;
     width: 100%;
     padding: 12px 13px;
-
     background: white;
     border: 1px solid #cbd5e1;
     border-radius: 9px;
-
     color: #183657;
     font: inherit;
     font-size: 13px;
@@ -491,7 +515,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 .lf-field textarea:focus {
     outline: none;
     border-color: #166534;
-    box-shadow: 0 0 0 3px rgba(22,101,52,.09);
+    box-shadow:
+        0 0 0 3px rgba(22,101,52,.09);
 }
 
 .lf-field textarea {
@@ -513,10 +538,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     margin: 0 0 17px;
 }
 
+/* ================================
+   TIM KIEM VA LOC ANH
+   ================================ */
+
+.lf-photo-tools {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.lf-photo-search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 220px;
+}
+
+.lf-photo-search-wrap i {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #64748b;
+    pointer-events: none;
+}
+
+.lf-photo-search {
+    width: 100%;
+    height: 44px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 0 13px 0 40px;
+    background: white;
+    color: #163455;
+    font: inherit;
+    font-size: 13px;
+}
+
+.lf-photo-search:focus {
+    outline: none;
+    border-color: #166534;
+    box-shadow:
+        0 0 0 3px rgba(22,101,52,.09);
+}
+
 .lf-gallery {
     display: grid;
     grid-template-columns:
-        repeat(5, minmax(0, 1fr));
+        repeat(3, minmax(0, 1fr));
     gap: 14px;
 }
 
@@ -524,15 +595,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     display: block;
     position: relative;
     cursor: pointer;
-
     border: 2px solid #e2e8f0;
     border-radius: 12px;
     overflow: hidden;
-    background: #fff;
-
+    background: white;
     transition:
         border-color .2s,
         background .2s;
+}
+
+.lf-photo-option[hidden] {
+    display: none !important;
 }
 
 .lf-photo-option:hover {
@@ -542,7 +615,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 .lf-photo-option:has(input:checked) {
     border-color: #166534;
     background: #f0fdf4;
-    box-shadow: 0 0 0 2px rgba(22,101,52,.12);
+    box-shadow:
+        0 0 0 2px rgba(22,101,52,.12);
 }
 
 .lf-photo-option input {
@@ -555,19 +629,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 .lf-photo-option img {
     display: block;
     width: 100%;
-    height: 165px;
+    height: 175px;
     object-fit: cover;
     object-position: center;
     background: #f1f5f9;
 }
 
 .lf-photo-filename {
-    padding: 10px 8px;
-    font-size: 11px;
+    padding: 11px 9px;
+    font-size: 12px;
     font-weight: 750;
     color: #334155;
     text-align: center;
-
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -577,22 +650,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     position: absolute;
     top: 9px;
     right: 9px;
-
     width: 29px;
     height: 29px;
     display: flex;
     align-items: center;
     justify-content: center;
-
     border-radius: 50%;
     background: white;
     color: #94a3b8;
-    box-shadow: 0 2px 9px rgba(0,0,0,.12);
+    box-shadow:
+        0 2px 9px rgba(0,0,0,.12);
 }
 
-.lf-photo-option:has(input:checked) .lf-photo-check {
+.lf-photo-option:has(input:checked)
+.lf-photo-check {
     background: #166534;
     color: white;
+}
+
+.lf-photo-count {
+    margin: 14px 0 0;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.lf-no-results {
+    padding: 22px;
+    border-radius: 10px;
+    background: #f8fafc;
+    color: #64748b;
+    text-align: center;
+    font-size: 13px;
+}
+
+.lf-no-results[hidden] {
+    display: none !important;
 }
 
 .lf-gallery-empty {
@@ -609,23 +701,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     display: flex;
     align-items: center;
     gap: 9px;
-
     margin-top: 17px;
     padding: 12px 15px;
-
     background: #f0fdf4;
     border: 1px solid #bbf7d0;
     border-radius: 10px;
-
     color: #166534;
     font-size: 13px;
+    overflow-wrap: anywhere;
 }
+
+/* ================================
+   TRANG THAI VA NUT
+   ================================ */
 
 .lf-status {
     display: flex;
     align-items: center;
     gap: 10px;
-
     font-weight: 750;
     font-size: 13px;
     color: #163455;
@@ -650,17 +743,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     align-items: center;
     justify-content: center;
     gap: 8px;
-
-    padding: 12px 18px;
+    min-height: 43px;
+    padding: 11px 17px;
     border: none;
     border-radius: 9px;
-
     background: #166534;
     color: white !important;
     text-decoration: none;
-
     font-size: 13px;
-    font-weight: 850;
+    font-weight: 800;
     cursor: pointer;
 }
 
@@ -668,32 +759,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     background: #14532d;
 }
 
+.lf-btn.blue {
+    background: #1d4ed8;
+}
+
+.lf-btn.blue:hover {
+    background: #1e40af;
+}
+
 .lf-btn.gray {
     background: #e2e8f0;
     color: #334155 !important;
 }
 
+.lf-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
 .lf-error {
     padding: 14px 16px;
     margin-bottom: 18px;
-
     background: #fee2e2;
     border-radius: 10px;
     color: #991b1b;
     font-size: 13px;
 }
 
-@media(max-width: 1150px) {
-    .lf-gallery {
-        grid-template-columns:
-            repeat(4, minmax(0, 1fr));
-    }
-}
+/* ================================
+   RESPONSIVE
+   ================================ */
 
 @media(max-width: 850px) {
     .lf-gallery {
         grid-template-columns:
-            repeat(3, minmax(0, 1fr));
+            repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -723,6 +823,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     .lf-photo-option img {
         height: 145px;
     }
+
+    .lf-photo-search-wrap {
+        width: 100%;
+    }
 }
 </style>
 
@@ -739,13 +843,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
     <div class="lf-header">
 
         <h1>
-
             <i class="fa-solid fa-person-hiking"></i>
 
             <?= $id > 0
                 ? 'CHỈNH SỬA HỒ SƠ LEADER'
                 : 'THÊM HƯỚNG DẪN VIÊN MỚI' ?>
-
         </h1>
 
         <a href="index.php" class="lf-btn gray">
@@ -758,11 +860,10 @@ require_once __DIR__ . '/../includes/sidebar.php';
     <section class="lf-panel">
 
         <?php if ($error !== ''): ?>
-
-            <div class="lf-error">
+            <div class="lf-error" role="alert">
+                <i class="fa-solid fa-circle-exclamation"></i>
                 <?= leaderFormH($error) ?>
             </div>
-
         <?php endif; ?>
 
         <form method="POST" id="leaderForm">
@@ -840,7 +941,9 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             <hr class="lf-divider">
 
-            <!-- THU VIEN ANH -->
+            <!-- ====================================
+                 TIM KIEM VA CHON ANH LEADER
+                 ==================================== -->
 
             <h2 class="lf-section-title">
                 <i class="fa-regular fa-images"></i>
@@ -848,32 +951,98 @@ require_once __DIR__ . '/../includes/sidebar.php';
             </h2>
 
             <p class="lf-photo-note">
-                Chọn một ảnh bên dưới. Các ảnh được lấy từ thư mục
+                Các ảnh được lấy từ thư mục
                 <strong>assets/images/leaders/</strong>
-                mà bạn đã tải lên GitHub.
-                Không cần nhập URL và không cần GitHub Token.
+                trên GitHub. Mặc định chỉ hiện tối đa
+                <strong>6 ảnh</strong>.
+                Bạn có thể tìm kiếm theo tên ảnh
+                hoặc chọn Xem tất cả ảnh.
             </p>
+
+            <?php if ($id > 0 && $selectedImage !== ''): ?>
+
+                <div style="margin-bottom:18px">
+
+                    <div style="
+                        font-size:13px;
+                        font-weight:800;
+                        margin-bottom:9px;
+                    ">
+                        Ảnh đại diện hiện tại
+                    </div>
+
+                    <img
+                        src="<?= leaderFormH($selectedImage) ?>"
+                        alt="Ảnh Leader hiện tại"
+                        style="
+                            display:block;
+                            width:155px;
+                            height:175px;
+                            object-fit:cover;
+                            border-radius:10px;
+                            border:1px solid #e2e8f0;
+                        "
+                        onerror="this.style.display='none'"
+                    >
+
+                </div>
+
+            <?php endif; ?>
 
             <?php if ($availableImages): ?>
 
-                <div class="lf-gallery">
+                <!-- BO TIM KIEM -->
 
-                    <?php foreach ($availableImages as $index => $photo): ?>
+                <div class="lf-photo-tools">
+
+                    <div class="lf-photo-search-wrap">
+
+                        <i class="fa-solid fa-magnifying-glass"></i>
+
+                        <input
+                            type="search"
+                            class="lf-photo-search"
+                            id="leaderPhotoSearch"
+                            placeholder="Tìm tên ảnh... Ví dụ: nguyen-van-hung"
+                            autocomplete="off"
+                        >
+
+                    </div>
+
+                    <button
+                        type="button"
+                        class="lf-btn blue"
+                        id="toggleLeaderImages"
+                    >
+                        <i class="fa-solid fa-images"></i>
+                        <span id="toggleLeaderText">
+                            Xem tất cả ảnh
+                        </span>
+                    </button>
+
+                </div>
+
+                <!-- DANH SACH ANH -->
+
+                <div class="lf-gallery" id="leaderPhotoGallery">
+
+                    <?php foreach ($availableImages as $photo): ?>
 
                         <?php
-                        $checked = (string)(
-                            $editing['image'] ?? ''
-                        ) === $photo['path'];
+                        $checked =
+                            $selectedImage === $photo['path'];
                         ?>
 
-                        <label class="lf-photo-option">
+                        <label
+                            class="lf-photo-option"
+                            data-filename="<?= leaderFormH($photo['name']) ?>"
+                        >
 
                             <input
                                 type="radio"
                                 name="image"
                                 value="<?= leaderFormH($photo['path']) ?>"
                                 <?= $checked ? 'checked' : '' ?>
-                                <?= $index === 0 ? 'required' : '' ?>
                             >
 
                             <img
@@ -886,8 +1055,10 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                 <i class="fa-solid fa-check"></i>
                             </span>
 
-                            <div class="lf-photo-filename"
-                                 title="<?= leaderFormH($photo['name']) ?>">
+                            <div
+                                class="lf-photo-filename"
+                                title="<?= leaderFormH($photo['name']) ?>"
+                            >
                                 <?= leaderFormH($photo['name']) ?>
                             </div>
 
@@ -897,18 +1068,29 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                 </div>
 
+                <div
+                    class="lf-no-results"
+                    id="leaderPhotoNoResults"
+                    hidden
+                >
+                    <i class="fa-regular fa-image"></i>
+                    Không tìm thấy ảnh phù hợp.
+                    Hãy thử tên khác.
+                </div>
+
+                <p
+                    class="lf-photo-count"
+                    id="leaderPhotoCount"
+                ></p>
+
                 <div class="lf-selected">
 
-                    <i class="fa-solid fa-image"></i>
+                    <i class="fa-solid fa-circle-check"></i>
 
                     <span>
                         Ảnh đã chọn:
                         <strong id="selectedImageName">
-                            <?= $editing['image']
-                                ? leaderFormH(
-                                    basename($editing['image'])
-                                )
-                                : 'Chưa chọn ảnh' ?>
+                            <?= leaderFormH($selectedFilename) ?>
                         </strong>
                     </span>
 
@@ -918,18 +1100,28 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                 <div class="lf-gallery-empty">
 
-                    <strong>Chưa tìm thấy ảnh trong thư viện.</strong>
+                    <strong>
+                        Chưa tìm thấy ảnh trong thư viện.
+                    </strong>
 
                     <p>
-                        Bạn hãy tải các ảnh lên thư mục
+                        Bạn hãy tải ảnh JPG, PNG hoặc WebP
+                        lên thư mục
                         <code>assets/images/leaders/</code>
-                        trong GitHub.
+                        trên GitHub.
                     </p>
 
                     <p>
-                        Sau khi Vercel triển khai xong phiên bản mới,
-                        tải lại trang này để chọn ảnh.
+                        Sau khi Vercel triển khai xong,
+                        tải lại trang để chọn ảnh.
                     </p>
+
+                    <?php if ($id > 0 && $selectedImage !== ''): ?>
+                        <p>
+                            Bạn vẫn có thể lưu các thông tin khác
+                            và giữ nguyên ảnh hiện tại.
+                        </p>
+                    <?php endif; ?>
 
                 </div>
 
@@ -937,7 +1129,9 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             <hr class="lf-divider">
 
-            <!-- TRANG THAI -->
+            <!-- ====================================
+                 TRANG THAI HIEN THI
+                 ==================================== -->
 
             <label class="lf-status">
 
@@ -954,14 +1148,19 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             </label>
 
-            <!-- NUT LUU -->
+            <!-- ====================================
+                 NUT LUU
+                 ==================================== -->
 
             <div class="lf-actions">
 
                 <button
                     type="submit"
                     class="lf-btn"
-                    <?= !$availableImages ? 'disabled' : '' ?>
+                    id="saveLeaderBtn"
+                    <?= !$availableImages && $selectedImage === ''
+                        ? 'disabled'
+                        : '' ?>
                 >
 
                     <i class="fa-solid fa-floppy-disk"></i>
@@ -987,31 +1186,258 @@ require_once __DIR__ . '/../includes/sidebar.php';
 <script>
 (function() {
 
-    const radios = document.querySelectorAll(
-        'input[name="image"]'
+    // ======================================
+    // TIM KIEM ANH CO DAU / KHONG DAU
+    // ======================================
+
+    const searchInput = document.getElementById(
+        'leaderPhotoSearch'
+    );
+
+    const gallery = document.getElementById(
+        'leaderPhotoGallery'
+    );
+
+    const toggleButton = document.getElementById(
+        'toggleLeaderImages'
+    );
+
+    const toggleText = document.getElementById(
+        'toggleLeaderText'
+    );
+
+    const photoCount = document.getElementById(
+        'leaderPhotoCount'
+    );
+
+    const noResults = document.getElementById(
+        'leaderPhotoNoResults'
     );
 
     const selectedName = document.getElementById(
         'selectedImageName'
     );
 
-    radios.forEach(function(radio) {
+    const cards = gallery
+        ? Array.from(
+            gallery.querySelectorAll(
+                '.lf-photo-option'
+            )
+        )
+        : [];
 
-        radio.addEventListener('change', function() {
+    const defaultLimit = 6;
 
-            if (!radio.checked || !selectedName) {
-                return;
-            }
+    let showAll = false;
 
-            const path = radio.value;
+    function normalize(text) {
+        return String(text || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/đ/g, 'd')
+            .replace(/Đ/g, 'd')
+            .toLocaleLowerCase('vi');
+    }
 
-            const filename = path.split('/').pop();
+    // ======================================
+    // CAP NHAT DANH SACH ANH
+    // ======================================
 
-            selectedName.textContent = filename;
+    function updateGallery() {
+
+        const keyword = normalize(
+            searchInput?.value.trim() || ''
+        );
+
+        const matching = cards.filter(function(card) {
+
+            const filename = normalize(
+                card.dataset.filename || ''
+            );
+
+            return filename.includes(keyword);
 
         });
 
+        const limit = keyword !== '' || showAll
+            ? matching.length
+            : defaultLimit;
+
+        let visible = 0;
+
+        cards.forEach(function(card) {
+
+            const index = matching.indexOf(card);
+
+            const shouldShow =
+                index >= 0 &&
+                index < limit;
+
+            card.hidden = !shouldShow;
+
+            if (shouldShow) {
+                visible++;
+            }
+
+        });
+
+        if (photoCount) {
+
+            if (keyword !== '') {
+                photoCount.textContent =
+                    'Tìm thấy ' +
+                    matching.length +
+                    ' ảnh phù hợp.';
+            } else {
+                photoCount.textContent =
+                    'Đang hiển thị ' +
+                    visible +
+                    '/' +
+                    cards.length +
+                    ' ảnh.';
+            }
+
+        }
+
+        if (noResults) {
+            noResults.hidden =
+                matching.length !== 0;
+        }
+
+        if (toggleButton) {
+
+            toggleButton.style.display =
+                keyword !== ''
+                    ? 'none'
+                    : '';
+
+        }
+
+        if (toggleText) {
+
+            toggleText.textContent =
+                showAll
+                    ? 'Thu gọn ảnh'
+                    : 'Xem tất cả ảnh';
+
+        }
+
+    }
+
+    // ======================================
+    // SU KIEN TIM KIEM
+    // ======================================
+
+    searchInput?.addEventListener(
+        'input',
+        updateGallery
+    );
+
+    // ======================================
+    // XEM TAT CA / THU GON
+    // ======================================
+
+    toggleButton?.addEventListener(
+        'click',
+        function() {
+
+            showAll = !showAll;
+
+            updateGallery();
+
+        }
+    );
+
+    // ======================================
+    // CHON ANH
+    // ======================================
+
+    const imageRadios = document.querySelectorAll(
+        'input[name="image"]'
+    );
+
+    imageRadios.forEach(function(radio) {
+
+        radio.addEventListener(
+            'change',
+            function() {
+
+                if (!radio.checked) {
+                    return;
+                }
+
+                const path = radio.value;
+
+                const filename = decodeURIComponent(
+                    path.split('/').pop() || ''
+                );
+
+                if (selectedName) {
+                    selectedName.textContent = filename;
+                }
+
+            }
+        );
+
     });
+
+    // ======================================
+    // CHAN BAM LUU LIEN TUC
+    // ======================================
+
+    const form = document.getElementById(
+        'leaderForm'
+    );
+
+    const saveButton = document.getElementById(
+        'saveLeaderBtn'
+    );
+
+    form?.addEventListener('submit', function(event) {
+
+        if (!form.checkValidity()) {
+            return;
+        }
+
+        const checkedImage = form.querySelector(
+            'input[name="image"]:checked'
+        );
+
+        const existingImage = <?=
+            json_encode(
+                $id > 0 ? $selectedImage : '',
+                JSON_UNESCAPED_UNICODE |
+                JSON_HEX_TAG |
+                JSON_HEX_AMP |
+                JSON_HEX_APOS |
+                JSON_HEX_QUOT
+            )
+        ?>;
+
+        if (!checkedImage && !existingImage) {
+
+            event.preventDefault();
+
+            alert(
+                'Vui lòng chọn ảnh đại diện Leader.'
+            );
+
+            return;
+        }
+
+        if (saveButton) {
+
+            saveButton.disabled = true;
+
+            saveButton.innerHTML =
+                '<i class="fa-solid fa-spinner fa-spin"></i> ĐANG LƯU...';
+
+        }
+
+    });
+
+    // KHOI TAO THU VIEN
+    updateGallery();
 
 })();
 </script>
