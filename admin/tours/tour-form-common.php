@@ -22,18 +22,6 @@ if (!function_exists('tfH')) {
     }
 }
 
-if (!function_exists('tfAjaxResponse')) {
-    function tfAjaxResponse(bool $ok, string $message): void {
-        while (ob_get_level() > 0) ob_end_clean();
-        if (!headers_sent()) {
-            header('Content-Type: application/json; charset=utf-8');
-            http_response_code($ok ? 200 : 422);
-        }
-        echo json_encode(['success' => $ok, 'message' => $message], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-}
-
 if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
@@ -50,40 +38,6 @@ $today = date('Y-m-d');
 
 $error = '';
 $success = '';
-
-/* ======================================
-   THU VIEN ANH CO SAN TREN GITHUB
-   ====================================== */
-
-$imageDirectory = dirname(__DIR__, 2) . '/assets/images/tours';
-$availableImages = [];
-
-if (is_dir($imageDirectory)) {
-    $files = scandir($imageDirectory);
-
-    foreach ($files ?: [] as $file) {
-        if (!preg_match('/\.(jpg|jpeg|png|webp)$/i', $file)) {
-            continue;
-        }
-
-        if (!is_file($imageDirectory . '/' . $file)) {
-            continue;
-        }
-
-        $availableImages[] = [
-            'name' => $file,
-            'path' => '/assets/images/tours/' . rawurlencode($file)
-        ];
-    }
-
-    usort(
-        $availableImages,
-        static fn($a, $b) =>
-            strnatcasecmp($a['name'], $b['name'])
-    );
-}
-
-$allowedImages = array_column($availableImages, 'path');
 
 /* ======================================
    DU LIEU DANH MUC
@@ -167,7 +121,16 @@ if ($isEdit) {
                 FROM tour_bookings b
                 WHERE b.tour_id = d.tour_id
                   AND b.departure_date = d.departure_date
-                  AND LOWER(TRIM(b.status)) IN ('đã xác nhận', 'đã thanh toán', 'đã hoàn thành', 'confirmed', 'paid', 'completed')
+                  AND LOWER(TRIM(b.status)) NOT IN (
+                      'đã hủy',
+                      'đã huỷ',
+                      'hủy',
+                      'huỷ',
+                      'cancelled',
+                      'canceled',
+                      'rejected',
+                      'từ chối'
+                  )
             ), 0) AS booked
         FROM tour_departures d
         WHERE d.tour_id = ?
@@ -192,6 +155,7 @@ $fields = [
     'altitude',
     'distance',
     'max_slots',
+    'available_slots',
     'meeting_point',
     'transport',
     'description',
@@ -212,6 +176,7 @@ $labels = [
     'altitude' => 'Độ cao',
     'distance' => 'Quãng đường',
     'max_slots' => 'Tổng số chỗ',
+    'available_slots' => 'Số chỗ trống hiển thị',
     'meeting_point' => 'Điểm đón',
     'transport' => 'Phương tiện đưa đón',
     'description' => 'Mô tả giới thiệu tour',
@@ -281,7 +246,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FILTER_VALIDATE_INT
         );
 
-        $availableSlots = $maxSlots; // Khong nhap tay: suc chua tu tong so cho
+        $availableSlots = filter_var(
+            $tour['available_slots'],
+            FILTER_VALIDATE_INT
+        );
 
         $price = filter_var(
             $tour['price'],
@@ -308,26 +276,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Tổng số chỗ phải lớn hơn 0.');
         }
 
+        if (
+            $availableSlots === false ||
+            $availableSlots < 0 ||
+            $availableSlots > $maxSlots
+        ) {
+            throw new RuntimeException(
+                'Số chỗ trống phải từ 0 đến tổng số chỗ.'
+            );
+        }
 
         if (!in_array($tour['difficulty'], $difficulties, true)) {
             throw new RuntimeException('Độ khó không hợp lệ.');
         }
 
-        // Khong cho luu anh khong co trong thu vien.
-        // Khi sua tour, van chap nhan giu anh cu.
-        if ($selectedImage !== '' &&
-            !in_array($selectedImage, $allowedImages, true)) {
-            throw new RuntimeException(
-                'Ảnh được chọn không có trong thư viện.'
-            );
+        $selectedImage = trim((string)($tour['image'] ?? ''));
+        if ($selectedImage === '') {
+            throw new RuntimeException('Vui lòng nhập URL ảnh.');
         }
-
-        if (!$isEdit && $selectedImage === '') {
-            throw new RuntimeException(
-                'Vui lòng chọn ảnh đại diện tour.'
-            );
+        if (!filter_var($selectedImage, FILTER_VALIDATE_URL) ||
+            !in_array(strtolower((string)parse_url($selectedImage, PHP_URL_SCHEME)), ['http','https'], true)) {
+            throw new RuntimeException('URL ảnh phải bắt đầu bằng http:// hoặc https:// và hợp lệ.');
         }
-
+        if (strlen($selectedImage) > 2000) {
+            throw new RuntimeException('URL ảnh quá dài.');
+        }
         $checkLeader = $pdo->prepare("
             SELECT fullname
             FROM trekking_leaders
@@ -381,8 +354,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
            ================================== */
 
         $newDates = $_POST['new_departure_date'] ?? [];
+        $newCapacities = $_POST['new_departure_capacity'] ?? [];
 
-        if (!is_array($newDates)) {
+        if (!is_array($newDates) || !is_array($newCapacities)) {
             throw new RuntimeException('Dữ liệu lịch khởi hành không hợp lệ.');
         }
 
@@ -428,7 +402,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $seenDates[$date] = true;
 
-            $capacity = $maxSlots;
+            $capacity = filter_var(
+                $newCapacities[$index] ?? null,
+                FILTER_VALIDATE_INT
+            );
+
+            if ($capacity === false || $capacity < 1) {
+                throw new RuntimeException(
+                    'Số chỗ của mỗi ngày khởi hành phải lớn hơn 0.'
+                );
+            }
 
             $newDepartures[] = [
                 'date' => $date,
@@ -551,9 +534,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
            ================================== */
 
         if ($isEdit) {
+            $postedCaps = $_POST['departure_capacity'] ?? [];
             $postedStatuses = $_POST['departure_status'] ?? [];
 
-            if (!is_array($postedStatuses)) {
+            if (!is_array($postedCaps) || !is_array($postedStatuses)) {
                 throw new RuntimeException(
                     'Dữ liệu đợt khởi hành không hợp lệ.'
                 );
@@ -576,7 +560,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 FROM tour_bookings
                 WHERE tour_id = ?
                   AND departure_date = ?
-                  AND LOWER(TRIM(status)) IN ('đã xác nhận', 'đã thanh toán', 'đã hoàn thành', 'confirmed', 'paid', 'completed')
+                  AND LOWER(TRIM(status)) NOT IN (
+                    'đã hủy', 'đã huỷ',
+                    'hủy', 'huỷ',
+                    'cancelled', 'canceled',
+                    'rejected', 'từ chối'
+                  )
             ");
 
             $updateDeparture = $pdo->prepare("
@@ -589,6 +578,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $depId = (int)$departure['id'];
 
                 if (
+                    !array_key_exists($depId, $postedCaps) ||
                     !array_key_exists($depId, $postedStatuses)
                 ) {
                     throw new RuntimeException(
@@ -596,10 +586,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     );
                 }
 
-                $capacity = $maxSlots;
+                $capacity = filter_var(
+                    $postedCaps[$depId],
+                    FILTER_VALIDATE_INT
+                );
 
                 $status = (string)$postedStatuses[$depId];
 
+                if ($capacity === false || $capacity < 0) {
+                    throw new RuntimeException(
+                        'Số chỗ của đợt khởi hành không hợp lệ.'
+                    );
+                }
 
                 if (!in_array($status, ['0', '1'], true)) {
                     throw new RuntimeException(
@@ -680,9 +678,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo->commit();
 
-        tfAjaxResponse(true, $isEdit
+        $_SESSION['tour_form_notice'] = $isEdit
             ? 'Đã lưu thay đổi tour và lịch khởi hành.'
-            : 'Đã tạo tour và lịch khởi hành thành công.');
+            : 'Đã tạo tour và lịch khởi hành thành công.';
+
+        header('Location: index.php', true, 303);
+        exit;
 
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -694,7 +695,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
             : 'Không thể lưu tour. Vui lòng thử lại.';
-        tfAjaxResponse(false, $error);
     }
 }
 
@@ -1263,6 +1263,16 @@ textarea.tf-input {
                 </div>
 
                 <div class="tf-field">
+                    <label>Số chỗ trống hiển thị</label>
+                    <input class="tf-input"
+                           type="number"
+                           name="available_slots"
+                           min="0"
+                           required
+                           value="<?= tfH($tour['available_slots']) ?>">
+                </div>
+
+                <div class="tf-field">
                     <label>Điểm đón</label>
                     <input class="tf-input"
                            name="meeting_point"
@@ -1284,109 +1294,16 @@ textarea.tf-input {
              ================================= -->
 
         <section class="tf-section">
-
-            <h2>
-                <i class="fa-regular fa-images"></i>
-                Ảnh đại diện tour
-            </h2>
-
-            <p class="tf-note">
-                Ảnh được lấy từ thư mục
-                <strong>assets/images/tours/</strong>
-                trên GitHub. Mặc định chỉ hiện 6 ảnh để trang gọn hơn.
-            </p>
-
-            <?php if ($isEdit && !empty($tour['image'])): ?>
-                <div style="margin:15px 0">
-                    <strong>Ảnh hiện tại:</strong>
-
-                    <img class="tf-current-image"
-                         src="<?= tfH($tour['image']) ?>"
-                         alt="Ảnh tour hiện tại"
-                         onerror="this.style.display='none'">
-                </div>
-            <?php endif; ?>
-
-            <div class="tf-photo-tools">
-
-                <input
-                    class="tf-input"
-                    type="search"
-                    id="photoSearch"
-                    placeholder="Tìm kiếm tên ảnh... Ví dụ: fansipan"
-                    autocomplete="off"
-                >
-
-                <button type="button"
-                        class="tf-btn blue"
-                        id="toggleImages">
-                    Xem tất cả ảnh
-                </button>
-
+            <h2>Ảnh đại diện tour bằng URL</h2>
+            <div class="tf-field">
+                <label for="tourImageUrl">Dán đường dẫn URL ảnh *</label>
+                <input class="tf-input" id="tourImageUrl" name="image" type="url"
+                       required maxlength="2000" placeholder="https://example.com/anh-tour.jpg"
+                       value="<?= tfH($tour['image'] ?? '') ?>">
+                <p class="tf-note">Dùng liên kết ảnh công khai dạng HTTPS; URL ảnh cũ được giữ khi sửa tour.</p>
+                <img id="tourPreview" src="<?= tfH($tour['image'] ?? '') ?>"
+                     alt="Xem trước ảnh tour" style="display:<?= !empty($tour['image']) ? 'block' : 'none' ?>;max-width:260px;max-height:170px;object-fit:cover;border-radius:10px;margin-top:12px">
             </div>
-
-            <?php if ($availableImages): ?>
-
-                <div class="tf-gallery" id="photoGallery">
-
-                    <?php foreach ($availableImages as $image): ?>
-
-                        <label class="tf-photo"
-                               data-filename="<?= tfH(mb_strtolower($image['name'])) ?>">
-
-                            <input
-                                type="radio"
-                                name="image"
-                                value="<?= tfH($image['path']) ?>"
-                                <?= $tour['image'] === $image['path']
-                                    ? 'checked' : '' ?>
-                            >
-
-                            <img
-                                src="<?= tfH($image['path']) ?>"
-                                alt="<?= tfH($image['name']) ?>"
-                                loading="lazy"
-                            >
-
-                            <span class="tf-photo-check">
-                                <i class="fa-solid fa-check"></i>
-                            </span>
-
-                            <span class="tf-photo-name"
-                                  title="<?= tfH($image['name']) ?>">
-                                <?= tfH($image['name']) ?>
-                            </span>
-
-                        </label>
-
-                    <?php endforeach; ?>
-
-                </div>
-
-                <p class="tf-note" id="photoCount"></p>
-
-                <div class="tf-selected">
-                    Ảnh được chọn:
-                    <strong id="selectedPhoto">
-                        <?= !empty($tour['image'])
-                            ? tfH(basename(rawurldecode($tour['image'])))
-                            : 'Chưa chọn ảnh' ?>
-                    </strong>
-                </div>
-
-            <?php else: ?>
-
-                <div class="tf-empty">
-                    Chưa có ảnh trong
-                    <strong>assets/images/tours/</strong>.
-                    Hãy tải ảnh lên GitHub rồi triển khai lại Vercel.
-                    <?php if ($isEdit): ?>
-                        Bạn vẫn có thể giữ ảnh tour hiện tại.
-                    <?php endif; ?>
-                </div>
-
-            <?php endif; ?>
-
         </section>
 
         <!-- =================================
@@ -1401,7 +1318,7 @@ textarea.tf-input {
             </h2>
 
             <p class="tf-note" style="margin-bottom:16px">
-                Mỗi ngày sử dụng tổng số chỗ của tour. Khách chỉ đăng ký được
+                Mỗi ngày có số chỗ riêng. Khách chỉ đăng ký được
                 các đợt đang mở, chưa qua ngày khởi hành và còn chỗ.
             </p>
 
@@ -1437,7 +1354,14 @@ textarea.tf-input {
                                 (đã đặt: <?= (int)$dep['booked'] ?>)
                             </label>
 
-                            <div class="tf-info">Theo tổng số chỗ: <?= (int)$tour['max_slots'] ?></div>
+                            <input
+                                class="tf-input"
+                                type="number"
+                                min="<?= (int)$dep['booked'] ?>"
+                                name="departure_capacity[<?= (int)$dep['id'] ?>]"
+                                value="<?= (int)$dep['available_slots'] ?>"
+                                required
+                            >
                         </div>
 
                         <div>
@@ -1466,7 +1390,7 @@ textarea.tf-input {
                             <div class="tf-info">
                                 <?= max(
                                     0,
-                                    (int)$tour['max_slots'] -
+                                    (int)$dep['available_slots'] -
                                     (int)$dep['booked']
                                 ) ?> chỗ
                             </div>
@@ -1509,7 +1433,14 @@ textarea.tf-input {
                     <div>
                         <label>Số chỗ</label>
 
-                        <div class="tf-info">Tự động dùng tổng số chỗ của tour</div>
+                        <input
+                            class="tf-input"
+                            type="number"
+                            name="new_departure_capacity[]"
+                            min="1"
+                            value="<?= tfH($tour['max_slots']) ?>"
+                            required
+                        >
                     </div>
 
                     <div>
@@ -1612,81 +1543,14 @@ textarea.tf-input {
 <script>
 (function() {
     const form = document.getElementById('tourForm');
-    const search = document.getElementById('photoSearch');
-    const gallery = document.getElementById('photoGallery');
-    const toggle = document.getElementById('toggleImages');
-    const count = document.getElementById('photoCount');
-    const selected = document.getElementById('selectedPhoto');
-
-    const cards = gallery
-        ? Array.from(gallery.querySelectorAll('.tf-photo'))
-        : [];
-
-    let showAll = false;
-
-    function normalize(text) {
-        return String(text || '')
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toLocaleLowerCase('vi');
-    }
-
-    function updateGallery() {
-        const keyword = normalize(search?.value.trim() || '');
-        const matching = cards.filter(function(card) {
-            return normalize(card.dataset.filename).includes(keyword);
-        });
-
-        // Mac dinh chi 6 anh.
-        // Khi tim kiem, hien thi ket qua phu hop.
-        const limit = keyword || showAll
-            ? matching.length
-            : 6;
-
-        cards.forEach(function(card) {
-            const index = matching.indexOf(card);
-            card.hidden = index < 0 || index >= limit;
-            card.style.display = card.hidden ? 'none' : '';
-        });
-
-        if (count) {
-            count.textContent =
-                'Hiển thị ' +
-                Math.min(limit, matching.length) +
-                '/' + matching.length +
-                ' ảnh phù hợp.';
-        }
-
-        if (toggle) {
-            toggle.textContent = showAll
-                ? 'Thu gọn ảnh'
-                : 'Xem tất cả ảnh';
-
-            toggle.style.display =
-                keyword ? 'none' : '';
-        }
-    }
-
-    search?.addEventListener('input', updateGallery);
-
-    toggle?.addEventListener('click', function() {
-        showAll = !showAll;
-        updateGallery();
+    const urlInput = document.getElementById('tourImageUrl');
+    const imagePreview = document.getElementById('tourPreview');
+    urlInput?.addEventListener('input', () => {
+        const value = urlInput.value.trim();
+        imagePreview.src = value;
+        imagePreview.style.display = /^https?:\/\//i.test(value) ? 'block' : 'none';
     });
-
-    gallery?.querySelectorAll(
-        'input[name="image"]'
-    ).forEach(function(radio) {
-        radio.addEventListener('change', function() {
-            if (selected && radio.checked) {
-                selected.textContent = decodeURIComponent(
-                    radio.value.split('/').pop()
-                );
-            }
-        });
-    });
-
-    updateGallery();
+    imagePreview?.addEventListener('error', () => { imagePreview.style.display = 'none'; });
 
     // ======================================
     // THEM DONG NGAY KHOI HANH
@@ -1759,48 +1623,25 @@ textarea.tf-input {
         ).classList.remove('open');
     });
 
-    const save = document.getElementById('saveTour');
-    let saving = false;
-    const modal = document.createElement('div');
-    modal.id = 'tfResultModal';
-    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:999999;background:rgba(15,23,42,.55);align-items:center;justify-content:center;padding:20px';
-    modal.innerHTML = '<div role="dialog" aria-modal="true" style="background:#fff;padding:28px;border-radius:15px;text-align:center;max-width:410px;width:100%;box-shadow:0 20px 60px #0003"><h2 id="tfResultTitle" style="color:#123357;margin:0 0 12px">Thông báo</h2><p id="tfResultText" style="line-height:1.7;color:#475569"></p><button id="tfResultOK" type="button" style="border:0;border-radius:9px;background:#166534;color:white;padding:12px 30px;cursor:pointer;font-weight:700">Đồng ý</button></div>';
-    document.body.appendChild(modal);
-    let success = false;
-    function notice(ok, msg) {
-        success = !!ok;
-        document.getElementById('tfResultTitle').textContent = ok ? 'Thành công!' : 'Không thành công';
-        document.getElementById('tfResultText').textContent = msg;
-        modal.style.display = 'flex';
-    }
-    document.getElementById('tfResultOK').addEventListener('click', function() {
-        if (success) window.location.assign('index.php');
-        else modal.style.display = 'none';
-    });
-    form?.addEventListener('submit', async function(event) {
-        event.preventDefault();
-        if (saving || !form.reportValidity()) return;
-        const dates = Array.from(form.querySelectorAll('input[name="new_departure_date[]"]'))
-            .map(input => input.value).filter(Boolean);
+    form?.addEventListener('submit', function(event) {
+        const dates = Array.from(
+            form.querySelectorAll(
+                'input[name="new_departure_date[]"]'
+            )
+        ).map(input => input.value).filter(Boolean);
+
         if (new Set(dates).size !== dates.length) {
-            notice(false, 'Bạn đang chọn trùng ngày khởi hành.');
+            event.preventDefault();
+            popup('Bạn đang chọn trùng ngày khởi hành.');
             return;
         }
-        saving = true;
-        const original = save?.innerHTML || '';
-        if (save) { save.disabled = true; save.textContent = 'ĐANG LƯU...'; }
-        try {
-            const response = await fetch(location.href, {
-                method:'POST', body:new FormData(form), credentials:'same-origin',
-                headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}
-            });
-            const raw = await response.text();
-            let result;
-            try { result = JSON.parse(raw); }
-            catch (_) { throw new Error('Máy chủ trả về lỗi PHP hoặc phiên đăng nhập đã hết hạn.'); }
-            notice(!!result.success, result.message || 'Không có thông báo.');
-        } catch (err) { notice(false, err.message || 'Không thể kết nối máy chủ.'); }
-        finally { saving = false; if (save) {save.disabled = false; save.innerHTML = original;} }
+
+        const save = document.getElementById('saveTour');
+
+        if (save && form.checkValidity()) {
+            save.disabled = true;
+            save.textContent = 'ĐANG LƯU...';
+        }
     });
 })();
 </script>
