@@ -49,10 +49,13 @@ $depStmt = $pdo->prepare("
                 FROM tour_bookings b
                 WHERE b.tour_id = d.tour_id
                   AND b.departure_date = d.departure_date
-                  AND LOWER(TRIM(b.status)) NOT IN (
-                      'đã hủy', 'đã huỷ', 'hủy', 'huỷ',
-                      'cancelled', 'canceled',
-                      'rejected', 'từ chối'
+                  AND LOWER(TRIM(b.status)) IN (
+                      'đã xác nhận',
+                      'đã thanh toán',
+                      'đã hoàn thành',
+                      'confirmed',
+                      'paid',
+                      'completed'
                   )
             ), 0)
         ) AS remaining
@@ -112,11 +115,13 @@ require_once __DIR__ . '/../includes/header.php';
     background: #f8fafc;
     padding-bottom: 70px;
 }
+
 .td-container {
     max-width: 1180px;
     margin: auto;
     padding: 0 20px;
 }
+
 .td-bar {
     position: sticky;
     top: 0;
@@ -125,6 +130,7 @@ require_once __DIR__ . '/../includes/header.php';
     padding: 13px 0;
     box-shadow: 0 3px 15px rgba(0,0,0,.08);
 }
+
 .td-bar-inner {
     display: flex;
     align-items: center;
@@ -132,11 +138,13 @@ require_once __DIR__ . '/../includes/header.php';
     gap: 13px;
     flex-wrap: wrap;
 }
+
 .td-tabs {
     display: flex;
     flex-wrap: wrap;
     gap: 9px;
 }
+
 .td-tabs a {
     background: #f1f5f9;
     border-radius: 22px;
@@ -146,9 +154,11 @@ require_once __DIR__ . '/../includes/header.php';
     font-size: 13px;
     font-weight: 700;
 }
+
 .td-tabs a:hover {
     color: #ea580c;
 }
+
 .td-hero {
     min-height: 390px;
     padding: 65px 0 50px;
@@ -158,20 +168,24 @@ require_once __DIR__ . '/../includes/header.php';
     background-position: center;
     color: white;
 }
+
 .td-hero h1 {
     font-size: clamp(27px,4vw,44px);
     line-height: 1.3;
     margin: 15px 0;
     color: white;
 }
+
 .td-hero-info {
     display: flex;
     flex-wrap: wrap;
     gap: 18px;
 }
+
 .td-hero-info i {
     color: #fb923c;
 }
+
 .td-grid {
     display: grid;
     grid-template-columns: minmax(0,2fr) minmax(280px,1fr);
@@ -179,9 +193,11 @@ require_once __DIR__ . '/../includes/header.php';
     margin: 35px 0;
     align-items: start;
 }
+
 .td-content-col {
     min-width: 0;
 }
+
 .td-box,
 .td-booking-card {
     background: #fff;
@@ -190,26 +206,31 @@ require_once __DIR__ . '/../includes/header.php';
     box-shadow: 0 5px 18px rgba(0,0,0,.04);
     overflow: hidden;
 }
+
 .td-box {
     padding: 27px;
     margin-bottom: 22px;
 }
+
 .td-box h2 {
     color: #0f172a;
     font-size: 24px;
     margin: 16px 0 20px;
 }
+
 .td-label {
     color: #ea580c;
     font-size: 12px;
     font-weight: 900;
     letter-spacing: 1px;
 }
+
 .td-description {
     color: #475569;
     line-height: 2;
     overflow-wrap: anywhere;
 }
+
 .td-tip {
     background: #f0fdf4;
     border-left: 4px solid #16a34a;
@@ -219,12 +240,14 @@ require_once __DIR__ . '/../includes/header.php';
     color: #166534;
     line-height: 1.9;
 }
+
 .td-leader {
     display: flex;
     align-items: center;
     gap: 18px;
     flex-wrap: wrap;
 }
+
 .td-leader-photo {
     width: 105px;
     height: 115px;
@@ -232,58 +255,70 @@ require_once __DIR__ . '/../includes/header.php';
     object-fit: cover;
     background: #e2e8f0;
 }
+
 .td-leader-name {
     font-size: 21px;
     font-weight: 800;
     color: #0f172a;
 }
+
 .td-leader-link {
     color: #166534;
     font-weight: 800;
     text-decoration: none;
 }
+
 .td-booking-card {
     position: sticky;
     top: 95px;
 }
+
 .td-booking-head {
     background: #166534;
     color: #fff;
     text-align: center;
     padding: 27px 20px;
 }
+
 .td-booking-head small {
     color: #dcfce7;
 }
+
 .td-booking-price {
     font-size: 31px;
     font-weight: 900;
     margin: 10px 0;
 }
+
 .td-booking-body {
     padding: 23px;
 }
+
 .td-date-box {
     background: #fff7ed;
     padding: 17px;
     border-radius: 10px;
     margin-bottom: 18px;
 }
+
 .td-date-box label {
     display: block;
     font-weight: 800;
     color: #9a3412;
     margin-bottom: 11px;
 }
+
 .td-date-box select {
     width: 100%;
 }
+
 .td-remaining {
     color: #166534;
     font-size: 13px;
     font-weight: 800;
     margin-top: 10px;
 }
+
 .td-booking-button {
     display: block;
     text-decoration: none;
@@ -295,14 +330,17 @@ require_once __DIR__ . '/../includes/header.php';
     font-weight: 800;
     margin-top: 20px;
 }
+
 .td-booking-button:hover {
     background: #ea580c;
     color: white;
 }
+
 .td-booking-button.disabled {
     background: #94a3b8;
     pointer-events: none;
 }
+
 .td-detail-row {
     display: flex;
     justify-content: space-between;
@@ -310,20 +348,24 @@ require_once __DIR__ . '/../includes/header.php';
     margin: 15px 0;
     font-size: 14px;
 }
+
 .td-section {
     margin-top: 35px;
     scroll-margin-top: 100px;
 }
+
 .td-section-title {
     font-size: 26px;
     color: #0f172a;
     margin: 12px 0 22px;
 }
+
 .td-schedule-grid {
     display: grid;
     grid-template-columns: repeat(3,minmax(0,1fr));
     gap: 18px;
 }
+
 .td-schedule-day {
     background: white;
     border-top: 4px solid #f97316;
@@ -332,53 +374,64 @@ require_once __DIR__ . '/../includes/header.php';
     color: #475569;
     line-height: 1.8;
 }
+
 .td-schedule-day h3 {
     font-size: 17px;
     color: #c2410c;
     margin-bottom: 13px;
 }
+
 .td-accordion {
     border: 1px solid #e2e8f0;
     border-radius: 10px;
     margin-top: 12px;
     overflow: hidden;
 }
+
 .td-accordion summary {
     padding: 17px 19px;
     background: #f8fafc;
     font-weight: 800;
     cursor: pointer;
 }
+
 .td-accordion > div {
     padding: 19px;
     color: #475569;
     line-height: 1.9;
     white-space: pre-line;
 }
+
 .td-review {
     padding: 18px 0;
     border-bottom: 1px solid #e2e8f0;
 }
+
 .td-review-stars {
     color: #eab308;
     margin-left: 10px;
 }
+
 @media(max-width:950px) {
     .td-grid,
     .td-schedule-grid {
         grid-template-columns: 1fr;
     }
+
     .td-booking-card {
         position: static;
     }
+
     .td-bar {
         position: static;
     }
 }
+
 @media(max-width:600px) {
     .td-box {
         padding: 18px;
     }
+
     .td-tabs {
         overflow-x: auto;
     }
