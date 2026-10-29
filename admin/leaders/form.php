@@ -86,66 +86,6 @@ $error = '';
 $record = null;
 
 // ==========================================
-// DOC THU VIEN ANH TU SOURCE GITHUB
-// ==========================================
-
-$imageDirectory = dirname(__DIR__, 2)
-    . '/assets/images/leaders';
-
-$availableImages = [];
-
-if (is_dir($imageDirectory)) {
-
-    $files = scandir($imageDirectory);
-
-    if (is_array($files)) {
-
-        foreach ($files as $filename) {
-
-            if ($filename === '.' || $filename === '..') {
-                continue;
-            }
-
-            if (!preg_match(
-                '/\.(jpg|jpeg|png|webp)$/i',
-                $filename
-            )) {
-                continue;
-            }
-
-            $fullPath = $imageDirectory
-                . DIRECTORY_SEPARATOR
-                . $filename;
-
-            if (!is_file($fullPath)) {
-                continue;
-            }
-
-            $availableImages[] = [
-                'name' => $filename,
-                'path' => '/assets/images/leaders/'
-                    . rawurlencode($filename)
-            ];
-        }
-
-        usort(
-            $availableImages,
-            static function($a, $b) {
-                return strnatcasecmp(
-                    $a['name'],
-                    $b['name']
-                );
-            }
-        );
-    }
-}
-
-$allowedImages = array_column(
-    $availableImages,
-    'path'
-);
-
-// ==========================================
 // LAY THONG TIN KHI SUA LEADER
 // ==========================================
 
@@ -279,31 +219,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        // Anh moi phai co trong thu vien.
-        // Anh cu co the nam o duong dan cu
-        // nen cho phep giu nguyen khi sua.
-
-        $isAvailableImage = in_array(
-            $selectedImage,
-            $allowedImages,
-            true
-        );
-
-        $isUnchangedImage = (
-            $id > 0 &&
-            $currentImage !== '' &&
-            hash_equals(
-                $currentImage,
-                $selectedImage
-            )
-        );
-
-        if (!$isAvailableImage && !$isUnchangedImage) {
-            throw new RuntimeException(
-                'Ảnh được chọn không có trong thư viện.'
-            );
+        if ($selectedImage === '') {
+            throw new RuntimeException('Vui lòng nhập URL ảnh.');
         }
-
+        if (!filter_var($selectedImage, FILTER_VALIDATE_URL) ||
+            !in_array(strtolower((string)parse_url($selectedImage, PHP_URL_SCHEME)), ['http','https'], true)) {
+            throw new RuntimeException('URL ảnh phải bắt đầu bằng http:// hoặc https:// và hợp lệ.');
+        }
+        if (strlen($selectedImage) > 2000) {
+            throw new RuntimeException('URL ảnh quá dài.');
+        }
         $editing['image'] = $selectedImage;
 
         // ==================================
@@ -941,192 +866,17 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             <hr class="lf-divider">
 
-            <!-- ====================================
-                 TIM KIEM VA CHON ANH LEADER
-                 ==================================== -->
-
-            <h2 class="lf-section-title">
-                <i class="fa-regular fa-images"></i>
-                Chọn ảnh đại diện Leader
-            </h2>
-
-            <p class="lf-photo-note">
-                Các ảnh được lấy từ thư mục
-                <strong>assets/images/leaders/</strong>
-                trên GitHub. Mặc định chỉ hiện tối đa
-                <strong>6 ảnh</strong>.
-                Bạn có thể tìm kiếm theo tên ảnh
-                hoặc chọn Xem tất cả ảnh.
-            </p>
-
-            <?php if ($id > 0 && $selectedImage !== ''): ?>
-
-                <div style="margin-bottom:18px">
-
-                    <div style="
-                        font-size:13px;
-                        font-weight:800;
-                        margin-bottom:9px;
-                    ">
-                        Ảnh đại diện hiện tại
-                    </div>
-
-                    <img
-                        src="<?= leaderFormH($selectedImage) ?>"
-                        alt="Ảnh Leader hiện tại"
-                        style="
-                            display:block;
-                            width:155px;
-                            height:175px;
-                            object-fit:cover;
-                            border-radius:10px;
-                            border:1px solid #e2e8f0;
-                        "
-                        onerror="this.style.display='none'"
-                    >
-
-                </div>
-
-            <?php endif; ?>
-
-            <?php if ($availableImages): ?>
-
-                <!-- BO TIM KIEM -->
-
-                <div class="lf-photo-tools">
-
-                    <div class="lf-photo-search-wrap">
-
-                        <i class="fa-solid fa-magnifying-glass"></i>
-
-                        <input
-                            type="search"
-                            class="lf-photo-search"
-                            id="leaderPhotoSearch"
-                            placeholder="Tìm tên ảnh... Ví dụ: nguyen-van-hung"
-                            autocomplete="off"
-                        >
-
-                    </div>
-
-                    <button
-                        type="button"
-                        class="lf-btn blue"
-                        id="toggleLeaderImages"
-                    >
-                        <i class="fa-solid fa-images"></i>
-                        <span id="toggleLeaderText">
-                            Xem tất cả ảnh
-                        </span>
-                    </button>
-
-                </div>
-
-                <!-- DANH SACH ANH -->
-
-                <div class="lf-gallery" id="leaderPhotoGallery">
-
-                    <?php foreach ($availableImages as $photo): ?>
-
-                        <?php
-                        $checked =
-                            $selectedImage === $photo['path'];
-                        ?>
-
-                        <label
-                            class="lf-photo-option"
-                            data-filename="<?= leaderFormH($photo['name']) ?>"
-                        >
-
-                            <input
-                                type="radio"
-                                name="image"
-                                value="<?= leaderFormH($photo['path']) ?>"
-                                <?= $checked ? 'checked' : '' ?>
-                            >
-
-                            <img
-                                src="<?= leaderFormH($photo['path']) ?>"
-                                alt="<?= leaderFormH($photo['name']) ?>"
-                                loading="lazy"
-                            >
-
-                            <span class="lf-photo-check">
-                                <i class="fa-solid fa-check"></i>
-                            </span>
-
-                            <div
-                                class="lf-photo-filename"
-                                title="<?= leaderFormH($photo['name']) ?>"
-                            >
-                                <?= leaderFormH($photo['name']) ?>
-                            </div>
-
-                        </label>
-
-                    <?php endforeach; ?>
-
-                </div>
-
-                <div
-                    class="lf-no-results"
-                    id="leaderPhotoNoResults"
-                    hidden
-                >
-                    <i class="fa-regular fa-image"></i>
-                    Không tìm thấy ảnh phù hợp.
-                    Hãy thử tên khác.
-                </div>
-
-                <p
-                    class="lf-photo-count"
-                    id="leaderPhotoCount"
-                ></p>
-
-                <div class="lf-selected">
-
-                    <i class="fa-solid fa-circle-check"></i>
-
-                    <span>
-                        Ảnh đã chọn:
-                        <strong id="selectedImageName">
-                            <?= leaderFormH($selectedFilename) ?>
-                        </strong>
-                    </span>
-
-                </div>
-
-            <?php else: ?>
-
-                <div class="lf-gallery-empty">
-
-                    <strong>
-                        Chưa tìm thấy ảnh trong thư viện.
-                    </strong>
-
-                    <p>
-                        Bạn hãy tải ảnh JPG, PNG hoặc WebP
-                        lên thư mục
-                        <code>assets/images/leaders/</code>
-                        trên GitHub.
-                    </p>
-
-                    <p>
-                        Sau khi Vercel triển khai xong,
-                        tải lại trang để chọn ảnh.
-                    </p>
-
-                    <?php if ($id > 0 && $selectedImage !== ''): ?>
-                        <p>
-                            Bạn vẫn có thể lưu các thông tin khác
-                            và giữ nguyên ảnh hiện tại.
-                        </p>
-                    <?php endif; ?>
-
-                </div>
-
-            <?php endif; ?>
-
+            <h2 class="lf-section-title">Ảnh đại diện Leader bằng URL</h2>
+            <div class="lf-field">
+                <label for="leaderImageUrl">Dán URL ảnh Leader *</label>
+                <input id="leaderImageUrl" name="image" type="url" required maxlength="2000"
+                       placeholder="https://example.com/leader.jpg"
+                       value="<?= leaderFormH($selectedImage) ?>"
+                       style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px">
+                <p class="lf-photo-note">Sử dụng liên kết ảnh công khai. Có thể giữ URL cũ khi sửa.</p>
+                <img id="leaderPreview" src="<?= leaderFormH($selectedImage) ?>" alt="Xem trước ảnh Leader"
+                     style="display:<?= $selectedImage ? 'block' : 'none' ?>;width:155px;height:175px;object-fit:cover;border-radius:10px;margin:12px 0">
+            </div>
             <hr class="lf-divider">
 
             <!-- ====================================
@@ -1158,9 +908,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     type="submit"
                     class="lf-btn"
                     id="saveLeaderBtn"
-                    <?= !$availableImages && $selectedImage === ''
-                        ? 'disabled'
-                        : '' ?>
+
                 >
 
                     <i class="fa-solid fa-floppy-disk"></i>
@@ -1184,263 +932,24 @@ require_once __DIR__ . '/../includes/sidebar.php';
 </main>
 
 <script>
-(function() {
-
-    // ======================================
-    // TIM KIEM ANH CO DAU / KHONG DAU
-    // ======================================
-
-    const searchInput = document.getElementById(
-        'leaderPhotoSearch'
-    );
-
-    const gallery = document.getElementById(
-        'leaderPhotoGallery'
-    );
-
-    const toggleButton = document.getElementById(
-        'toggleLeaderImages'
-    );
-
-    const toggleText = document.getElementById(
-        'toggleLeaderText'
-    );
-
-    const photoCount = document.getElementById(
-        'leaderPhotoCount'
-    );
-
-    const noResults = document.getElementById(
-        'leaderPhotoNoResults'
-    );
-
-    const selectedName = document.getElementById(
-        'selectedImageName'
-    );
-
-    const cards = gallery
-        ? Array.from(
-            gallery.querySelectorAll(
-                '.lf-photo-option'
-            )
-        )
-        : [];
-
-    const defaultLimit = 6;
-
-    let showAll = false;
-
-    function normalize(text) {
-        return String(text || '')
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/đ/g, 'd')
-            .replace(/Đ/g, 'd')
-            .toLocaleLowerCase('vi');
-    }
-
-    // ======================================
-    // CAP NHAT DANH SACH ANH
-    // ======================================
-
-    function updateGallery() {
-
-        const keyword = normalize(
-            searchInput?.value.trim() || ''
-        );
-
-        const matching = cards.filter(function(card) {
-
-            const filename = normalize(
-                card.dataset.filename || ''
-            );
-
-            return filename.includes(keyword);
-
-        });
-
-        const limit = keyword !== '' || showAll
-            ? matching.length
-            : defaultLimit;
-
-        let visible = 0;
-
-        cards.forEach(function(card) {
-
-            const index = matching.indexOf(card);
-
-            const shouldShow =
-                index >= 0 &&
-                index < limit;
-
-            card.hidden = !shouldShow;
-
-            if (shouldShow) {
-                visible++;
-            }
-
-        });
-
-        if (photoCount) {
-
-            if (keyword !== '') {
-                photoCount.textContent =
-                    'Tìm thấy ' +
-                    matching.length +
-                    ' ảnh phù hợp.';
-            } else {
-                photoCount.textContent =
-                    'Đang hiển thị ' +
-                    visible +
-                    '/' +
-                    cards.length +
-                    ' ảnh.';
-            }
-
-        }
-
-        if (noResults) {
-            noResults.hidden =
-                matching.length !== 0;
-        }
-
-        if (toggleButton) {
-
-            toggleButton.style.display =
-                keyword !== ''
-                    ? 'none'
-                    : '';
-
-        }
-
-        if (toggleText) {
-
-            toggleText.textContent =
-                showAll
-                    ? 'Thu gọn ảnh'
-                    : 'Xem tất cả ảnh';
-
-        }
-
-    }
-
-    // ======================================
-    // SU KIEN TIM KIEM
-    // ======================================
-
-    searchInput?.addEventListener(
-        'input',
-        updateGallery
-    );
-
-    // ======================================
-    // XEM TAT CA / THU GON
-    // ======================================
-
-    toggleButton?.addEventListener(
-        'click',
-        function() {
-
-            showAll = !showAll;
-
-            updateGallery();
-
-        }
-    );
-
-    // ======================================
-    // CHON ANH
-    // ======================================
-
-    const imageRadios = document.querySelectorAll(
-        'input[name="image"]'
-    );
-
-    imageRadios.forEach(function(radio) {
-
-        radio.addEventListener(
-            'change',
-            function() {
-
-                if (!radio.checked) {
-                    return;
-                }
-
-                const path = radio.value;
-
-                const filename = decodeURIComponent(
-                    path.split('/').pop() || ''
-                );
-
-                if (selectedName) {
-                    selectedName.textContent = filename;
-                }
-
-            }
-        );
-
+(() => {
+    const input = document.getElementById('leaderImageUrl');
+    const preview = document.getElementById('leaderPreview');
+    const form = document.getElementById('leaderForm');
+    const save = document.getElementById('saveLeaderBtn');
+    input?.addEventListener('input', () => {
+        const value = input.value.trim();
+        preview.src = value;
+        preview.style.display = /^https?:\/\//i.test(value) ? 'block' : 'none';
     });
-
-    // ======================================
-    // CHAN BAM LUU LIEN TUC
-    // ======================================
-
-    const form = document.getElementById(
-        'leaderForm'
-    );
-
-    const saveButton = document.getElementById(
-        'saveLeaderBtn'
-    );
-
-    form?.addEventListener('submit', function(event) {
-
-        if (!form.checkValidity()) {
-            return;
+    preview?.addEventListener('error', () => { preview.style.display = 'none'; });
+    form?.addEventListener('submit', () => {
+        if (form.checkValidity() && save) {
+            save.disabled = true;
+            save.textContent = 'ĐANG LƯU...';
         }
-
-        const checkedImage = form.querySelector(
-            'input[name="image"]:checked'
-        );
-
-        const existingImage = <?=
-            json_encode(
-                $id > 0 ? $selectedImage : '',
-                JSON_UNESCAPED_UNICODE |
-                JSON_HEX_TAG |
-                JSON_HEX_AMP |
-                JSON_HEX_APOS |
-                JSON_HEX_QUOT
-            )
-        ?>;
-
-        if (!checkedImage && !existingImage) {
-
-            event.preventDefault();
-
-            alert(
-                'Vui lòng chọn ảnh đại diện Leader.'
-            );
-
-            return;
-        }
-
-        if (saveButton) {
-
-            saveButton.disabled = true;
-
-            saveButton.innerHTML =
-                '<i class="fa-solid fa-spinner fa-spin"></i> ĐANG LƯU...';
-
-        }
-
     });
-
-    // KHOI TAO THU VIEN
-    updateGallery();
-
 })();
 </script>
-
 </body>
 </html>
