@@ -22,6 +22,18 @@ if (!function_exists('tfH')) {
     }
 }
 
+if (!function_exists('tfAjaxResponse')) {
+    function tfAjaxResponse(bool $ok, string $message): void {
+        while (ob_get_level() > 0) ob_end_clean();
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code($ok ? 200 : 422);
+        }
+        echo json_encode(['success' => $ok, 'message' => $message], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
 if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
@@ -155,16 +167,7 @@ if ($isEdit) {
                 FROM tour_bookings b
                 WHERE b.tour_id = d.tour_id
                   AND b.departure_date = d.departure_date
-                  AND LOWER(TRIM(b.status)) NOT IN (
-                      'đã hủy',
-                      'đã huỷ',
-                      'hủy',
-                      'huỷ',
-                      'cancelled',
-                      'canceled',
-                      'rejected',
-                      'từ chối'
-                  )
+                  AND LOWER(TRIM(b.status)) IN ('đã xác nhận', 'đã thanh toán', 'đã hoàn thành', 'confirmed', 'paid', 'completed')
             ), 0) AS booked
         FROM tour_departures d
         WHERE d.tour_id = ?
@@ -189,7 +192,6 @@ $fields = [
     'altitude',
     'distance',
     'max_slots',
-    'available_slots',
     'meeting_point',
     'transport',
     'description',
@@ -210,7 +212,6 @@ $labels = [
     'altitude' => 'Độ cao',
     'distance' => 'Quãng đường',
     'max_slots' => 'Tổng số chỗ',
-    'available_slots' => 'Số chỗ trống hiển thị',
     'meeting_point' => 'Điểm đón',
     'transport' => 'Phương tiện đưa đón',
     'description' => 'Mô tả giới thiệu tour',
@@ -280,10 +281,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FILTER_VALIDATE_INT
         );
 
-        $availableSlots = filter_var(
-            $tour['available_slots'],
-            FILTER_VALIDATE_INT
-        );
+        $availableSlots = $maxSlots; // Khong nhap tay: suc chua tu tong so cho
 
         $price = filter_var(
             $tour['price'],
@@ -310,15 +308,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Tổng số chỗ phải lớn hơn 0.');
         }
 
-        if (
-            $availableSlots === false ||
-            $availableSlots < 0 ||
-            $availableSlots > $maxSlots
-        ) {
-            throw new RuntimeException(
-                'Số chỗ trống phải từ 0 đến tổng số chỗ.'
-            );
-        }
 
         if (!in_array($tour['difficulty'], $difficulties, true)) {
             throw new RuntimeException('Độ khó không hợp lệ.');
@@ -392,9 +381,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
            ================================== */
 
         $newDates = $_POST['new_departure_date'] ?? [];
-        $newCapacities = $_POST['new_departure_capacity'] ?? [];
 
-        if (!is_array($newDates) || !is_array($newCapacities)) {
+        if (!is_array($newDates)) {
             throw new RuntimeException('Dữ liệu lịch khởi hành không hợp lệ.');
         }
 
@@ -440,16 +428,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $seenDates[$date] = true;
 
-            $capacity = filter_var(
-                $newCapacities[$index] ?? null,
-                FILTER_VALIDATE_INT
-            );
-
-            if ($capacity === false || $capacity < 1) {
-                throw new RuntimeException(
-                    'Số chỗ của mỗi ngày khởi hành phải lớn hơn 0.'
-                );
-            }
+            $capacity = $maxSlots;
 
             $newDepartures[] = [
                 'date' => $date,
@@ -572,10 +551,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
            ================================== */
 
         if ($isEdit) {
-            $postedCaps = $_POST['departure_capacity'] ?? [];
             $postedStatuses = $_POST['departure_status'] ?? [];
 
-            if (!is_array($postedCaps) || !is_array($postedStatuses)) {
+            if (!is_array($postedStatuses)) {
                 throw new RuntimeException(
                     'Dữ liệu đợt khởi hành không hợp lệ.'
                 );
@@ -598,12 +576,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 FROM tour_bookings
                 WHERE tour_id = ?
                   AND departure_date = ?
-                  AND LOWER(TRIM(status)) NOT IN (
-                    'đã hủy', 'đã huỷ',
-                    'hủy', 'huỷ',
-                    'cancelled', 'canceled',
-                    'rejected', 'từ chối'
-                  )
+                  AND LOWER(TRIM(status)) IN ('đã xác nhận', 'đã thanh toán', 'đã hoàn thành', 'confirmed', 'paid', 'completed')
             ");
 
             $updateDeparture = $pdo->prepare("
@@ -616,7 +589,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $depId = (int)$departure['id'];
 
                 if (
-                    !array_key_exists($depId, $postedCaps) ||
                     !array_key_exists($depId, $postedStatuses)
                 ) {
                     throw new RuntimeException(
@@ -624,18 +596,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     );
                 }
 
-                $capacity = filter_var(
-                    $postedCaps[$depId],
-                    FILTER_VALIDATE_INT
-                );
+                $capacity = $maxSlots;
 
                 $status = (string)$postedStatuses[$depId];
 
-                if ($capacity === false || $capacity < 0) {
-                    throw new RuntimeException(
-                        'Số chỗ của đợt khởi hành không hợp lệ.'
-                    );
-                }
 
                 if (!in_array($status, ['0', '1'], true)) {
                     throw new RuntimeException(
@@ -716,12 +680,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo->commit();
 
-        $_SESSION['tour_form_notice'] = $isEdit
+        tfAjaxResponse(true, $isEdit
             ? 'Đã lưu thay đổi tour và lịch khởi hành.'
-            : 'Đã tạo tour và lịch khởi hành thành công.';
-
-        header('Location: index.php', true, 303);
-        exit;
+            : 'Đã tạo tour và lịch khởi hành thành công.');
 
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -733,6 +694,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
             : 'Không thể lưu tour. Vui lòng thử lại.';
+        tfAjaxResponse(false, $error);
     }
 }
 
@@ -1301,16 +1263,6 @@ textarea.tf-input {
                 </div>
 
                 <div class="tf-field">
-                    <label>Số chỗ trống hiển thị</label>
-                    <input class="tf-input"
-                           type="number"
-                           name="available_slots"
-                           min="0"
-                           required
-                           value="<?= tfH($tour['available_slots']) ?>">
-                </div>
-
-                <div class="tf-field">
                     <label>Điểm đón</label>
                     <input class="tf-input"
                            name="meeting_point"
@@ -1449,7 +1401,7 @@ textarea.tf-input {
             </h2>
 
             <p class="tf-note" style="margin-bottom:16px">
-                Mỗi ngày có số chỗ riêng. Khách chỉ đăng ký được
+                Mỗi ngày sử dụng tổng số chỗ của tour. Khách chỉ đăng ký được
                 các đợt đang mở, chưa qua ngày khởi hành và còn chỗ.
             </p>
 
@@ -1485,14 +1437,7 @@ textarea.tf-input {
                                 (đã đặt: <?= (int)$dep['booked'] ?>)
                             </label>
 
-                            <input
-                                class="tf-input"
-                                type="number"
-                                min="<?= (int)$dep['booked'] ?>"
-                                name="departure_capacity[<?= (int)$dep['id'] ?>]"
-                                value="<?= (int)$dep['available_slots'] ?>"
-                                required
-                            >
+                            <div class="tf-info">Theo tổng số chỗ: <?= (int)$tour['max_slots'] ?></div>
                         </div>
 
                         <div>
@@ -1521,7 +1466,7 @@ textarea.tf-input {
                             <div class="tf-info">
                                 <?= max(
                                     0,
-                                    (int)$dep['available_slots'] -
+                                    (int)$tour['max_slots'] -
                                     (int)$dep['booked']
                                 ) ?> chỗ
                             </div>
@@ -1564,14 +1509,7 @@ textarea.tf-input {
                     <div>
                         <label>Số chỗ</label>
 
-                        <input
-                            class="tf-input"
-                            type="number"
-                            name="new_departure_capacity[]"
-                            min="1"
-                            value="<?= tfH($tour['max_slots']) ?>"
-                            required
-                        >
+                        <div class="tf-info">Tự động dùng tổng số chỗ của tour</div>
                     </div>
 
                     <div>
@@ -1821,25 +1759,48 @@ textarea.tf-input {
         ).classList.remove('open');
     });
 
-    form?.addEventListener('submit', function(event) {
-        const dates = Array.from(
-            form.querySelectorAll(
-                'input[name="new_departure_date[]"]'
-            )
-        ).map(input => input.value).filter(Boolean);
-
+    const save = document.getElementById('saveTour');
+    let saving = false;
+    const modal = document.createElement('div');
+    modal.id = 'tfResultModal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:999999;background:rgba(15,23,42,.55);align-items:center;justify-content:center;padding:20px';
+    modal.innerHTML = '<div role="dialog" aria-modal="true" style="background:#fff;padding:28px;border-radius:15px;text-align:center;max-width:410px;width:100%;box-shadow:0 20px 60px #0003"><h2 id="tfResultTitle" style="color:#123357;margin:0 0 12px">Thông báo</h2><p id="tfResultText" style="line-height:1.7;color:#475569"></p><button id="tfResultOK" type="button" style="border:0;border-radius:9px;background:#166534;color:white;padding:12px 30px;cursor:pointer;font-weight:700">Đồng ý</button></div>';
+    document.body.appendChild(modal);
+    let success = false;
+    function notice(ok, msg) {
+        success = !!ok;
+        document.getElementById('tfResultTitle').textContent = ok ? 'Thành công!' : 'Không thành công';
+        document.getElementById('tfResultText').textContent = msg;
+        modal.style.display = 'flex';
+    }
+    document.getElementById('tfResultOK').addEventListener('click', function() {
+        if (success) window.location.assign('index.php');
+        else modal.style.display = 'none';
+    });
+    form?.addEventListener('submit', async function(event) {
+        event.preventDefault();
+        if (saving || !form.reportValidity()) return;
+        const dates = Array.from(form.querySelectorAll('input[name="new_departure_date[]"]'))
+            .map(input => input.value).filter(Boolean);
         if (new Set(dates).size !== dates.length) {
-            event.preventDefault();
-            popup('Bạn đang chọn trùng ngày khởi hành.');
+            notice(false, 'Bạn đang chọn trùng ngày khởi hành.');
             return;
         }
-
-        const save = document.getElementById('saveTour');
-
-        if (save && form.checkValidity()) {
-            save.disabled = true;
-            save.textContent = 'ĐANG LƯU...';
-        }
+        saving = true;
+        const original = save?.innerHTML || '';
+        if (save) { save.disabled = true; save.textContent = 'ĐANG LƯU...'; }
+        try {
+            const response = await fetch(location.href, {
+                method:'POST', body:new FormData(form), credentials:'same-origin',
+                headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}
+            });
+            const raw = await response.text();
+            let result;
+            try { result = JSON.parse(raw); }
+            catch (_) { throw new Error('Máy chủ trả về lỗi PHP hoặc phiên đăng nhập đã hết hạn.'); }
+            notice(!!result.success, result.message || 'Không có thông báo.');
+        } catch (err) { notice(false, err.message || 'Không thể kết nối máy chủ.'); }
+        finally { saving = false; if (save) {save.disabled = false; save.innerHTML = original;} }
     });
 })();
 </script>
