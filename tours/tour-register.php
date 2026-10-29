@@ -97,11 +97,13 @@ function vt_departures(PDO $pdo, int $tourId) {
                     FROM tour_bookings b
                     WHERE b.tour_id = d.tour_id
                       AND b.departure_date = d.departure_date
-                      AND LOWER(TRIM(b.status)) NOT IN (
-                          'đã hủy', 'đã huỷ',
-                          'hủy', 'huỷ',
-                          'cancelled', 'canceled',
-                          'rejected', 'từ chối'
+                      AND LOWER(TRIM(b.status)) IN (
+                          'đã xác nhận',
+                          'đã thanh toán',
+                          'đã hoàn thành',
+                          'confirmed',
+                          'paid',
+                          'completed'
                       )
                 ), 0)
             ) AS remaining
@@ -322,11 +324,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
                     FROM tour_bookings
                     WHERE tour_id = ?
                       AND departure_date = ?
-                      AND LOWER(TRIM(status)) NOT IN (
-                          'đã hủy', 'đã huỷ',
-                          'hủy', 'huỷ',
-                          'cancelled', 'canceled',
-                          'rejected', 'từ chối'
+                      AND LOWER(TRIM(status)) IN (
+                          'đã xác nhận',
+                          'đã thanh toán',
+                          'đã hoàn thành',
+                          'confirmed',
+                          'paid',
+                          'completed'
                       )
                 ");
 
