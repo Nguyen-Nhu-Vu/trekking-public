@@ -83,58 +83,6 @@ $record = null;
 $availableImages = [];
 
 /* =====================================
-   THU VIEN ANH SAN PHAM GITHUB
-   ===================================== */
-
-$imageDirectory = dirname(__DIR__, 2)
-    . '/assets/images/products';
-
-if (is_dir($imageDirectory)) {
-    $files = scandir($imageDirectory);
-
-    if (is_array($files)) {
-        foreach ($files as $filename) {
-
-            if (!preg_match(
-                '/\.(jpg|jpeg|png|webp)$/i',
-                $filename
-            )) {
-                continue;
-            }
-
-            $fullPath = $imageDirectory
-                . DIRECTORY_SEPARATOR
-                . $filename;
-
-            if (!is_file($fullPath)) {
-                continue;
-            }
-
-            $availableImages[] = [
-                'name' => $filename,
-                'path' => '/assets/images/products/'
-                    . rawurlencode($filename)
-            ];
-        }
-    }
-}
-
-usort(
-    $availableImages,
-    static function ($a, $b) {
-        return strnatcasecmp(
-            $a['name'],
-            $b['name']
-        );
-    }
-);
-
-$allowedImages = array_column(
-    $availableImages,
-    'path'
-);
-
-/* =====================================
    TAI DANH MUC
    ===================================== */
 
@@ -284,24 +232,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        $validLibraryImage = in_array(
-            $selectedImage,
-            $allowedImages,
-            true
-        );
-
-        $unchangedImage = (
-            $isEdit &&
-            $oldImage !== '' &&
-            hash_equals($oldImage, $selectedImage)
-        );
-
-        if (!$validLibraryImage && !$unchangedImage) {
-            throw new RuntimeException(
-                'Ảnh không nằm trong thư viện.'
-            );
+        if ($selectedImage === '') {
+            throw new RuntimeException('Vui lòng nhập URL ảnh.');
         }
-
+        if (!filter_var($selectedImage, FILTER_VALIDATE_URL) ||
+            !in_array(strtolower((string)parse_url($selectedImage, PHP_URL_SCHEME)), ['http','https'], true)) {
+            throw new RuntimeException('URL ảnh phải bắt đầu bằng http:// hoặc https:// và hợp lệ.');
+        }
+        if (strlen($selectedImage) > 2000) {
+            throw new RuntimeException('URL ảnh quá dài.');
+        }
+        
         /* CAP NHAT SAN PHAM */
 
         if ($isEdit) {
@@ -977,136 +918,16 @@ require_once __DIR__ . '/../includes/sidebar.php';
             <hr class="pf-divider">
 
             <section class="pf-section">
-
-                <h2>
-                    <i class="fa-regular fa-images"></i>
-                    Chọn ảnh sản phẩm
-                </h2>
-
-                <p class="pf-note">
-                    Ảnh được lấy từ thư mục
-                    <strong>assets/images/products/</strong>
-                    trên GitHub. Bạn có thể tìm tên ảnh
-                    hoặc xem toàn bộ thư viện.
-                </p>
-
-                <?php if ($isEdit && $currentImage): ?>
-
-                    <strong>Ảnh sản phẩm hiện tại</strong>
-
-                    <img
-                        class="pf-current"
-                        src="<?= pfh($currentImage) ?>"
-                        alt="Ảnh sản phẩm hiện tại"
-                        onerror="this.style.display='none'"
-                    >
-
-                <?php endif; ?>
-
-                <?php if ($availableImages): ?>
-
-                    <div class="pf-gallery-tools">
-
-                        <input
-                            class="pf-input"
-                            type="search"
-                            id="photoSearch"
-                            placeholder="Tìm tên ảnh... Ví dụ: balo, giay, ao..."
-                            autocomplete="off"
-                        >
-
-                        <button
-                            class="pf-btn blue"
-                            type="button"
-                            id="togglePhotos"
-                        >
-                            Xem tất cả ảnh
-                        </button>
-
-                    </div>
-
-                    <div class="pf-gallery" id="photoGallery">
-
-                        <?php foreach ($availableImages as $photo): ?>
-
-                            <label
-                                class="pf-photo"
-                                data-name="<?= pfh($photo['name']) ?>"
-                            >
-
-                                <input
-                                    type="radio"
-                                    name="image"
-                                    value="<?= pfh($photo['path']) ?>"
-                                    <?= $currentImage === $photo['path']
-                                        ? 'checked'
-                                        : '' ?>
-                                >
-
-                                <img
-                                    src="<?= pfh($photo['path']) ?>"
-                                    alt="<?= pfh($photo['name']) ?>"
-                                    loading="lazy"
-                                >
-
-                                <span class="pf-check">
-                                    <i class="fa-solid fa-check"></i>
-                                </span>
-
-                                <span class="pf-photo-name">
-                                    <?= pfh($photo['name']) ?>
-                                </span>
-
-                            </label>
-
-                        <?php endforeach; ?>
-
-                    </div>
-
-                    <p
-                        class="pf-note"
-                        id="photoCount"
-                        style="margin-top:12px"
-                    ></p>
-
-                    <div
-                        class="pf-empty"
-                        id="photoNoResults"
-                        hidden
-                    >
-                        Không tìm thấy ảnh phù hợp.
-                    </div>
-
-                    <div class="pf-selected">
-
-                        <i class="fa-solid fa-circle-check"></i>
-
-                        Ảnh đã chọn:
-
-                        <strong id="selectedPhoto">
-                            <?= pfh($currentFilename) ?>
-                        </strong>
-
-                    </div>
-
-                <?php else: ?>
-
-                    <div class="pf-empty">
-
-                        Chưa có ảnh trong thư mục
-                        <strong>assets/images/products/</strong>.
-
-                        Hãy tải ảnh lên GitHub rồi triển khai
-                        lại Vercel.
-
-                        <?php if ($isEdit && $currentImage): ?>
-                            Ảnh sản phẩm hiện tại vẫn được giữ.
-                        <?php endif; ?>
-
-                    </div>
-
-                <?php endif; ?>
-
+                <h2>Ảnh sản phẩm bằng URL</h2>
+                <div class="pf-field">
+                    <label for="productImageUrl">Dán đường dẫn ảnh *</label>
+                    <input class="pf-input" type="url" name="image" id="productImageUrl"
+                           maxlength="2000" required placeholder="https://example.com/san-pham.jpg"
+                           value="<?= pfh($currentImage) ?>">
+                    <p class="pf-note">Chỉ dùng URL ảnh công khai (HTTP/HTTPS). Khi sửa có thể thay URL hoặc giữ nguyên ảnh cũ.</p>
+                    <img id="productPreview" src="<?= pfh($currentImage) ?>" alt="Xem trước ảnh sản phẩm"
+                         style="display:<?= $currentImage ? 'block' : 'none' ?>;max-width:240px;max-height:175px;object-fit:cover;border-radius:10px;margin-top:12px">
+                </div>
             </section>
 
             <hr class="pf-divider">
@@ -1132,9 +953,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     class="pf-btn"
                     type="submit"
                     id="saveProduct"
-                    <?= !$availableImages && !$currentImage
-                        ? 'disabled'
-                        : '' ?>
+
                 >
 
                     <i class="fa-solid fa-floppy-disk"></i>
@@ -1273,141 +1092,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
     });
 
-    /* =====================================
-       TIM KIEM ANH
-       ===================================== */
-
-    const photoSearch = document.getElementById(
-        'photoSearch'
-    );
-
-    const gallery = document.getElementById(
-        'photoGallery'
-    );
-
-    const toggle = document.getElementById(
-        'togglePhotos'
-    );
-
-    const count = document.getElementById(
-        'photoCount'
-    );
-
-    const selected = document.getElementById(
-        'selectedPhoto'
-    );
-
-    const noResults = document.getElementById(
-        'photoNoResults'
-    );
-
-    const cards = gallery
-        ? Array.from(
-            gallery.querySelectorAll('.pf-photo')
-        )
-        : [];
-
-    let showAll = false;
-
-    function normalize(value) {
-
-        return String(value || '')
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/đ/g, 'd')
-            .replace(/Đ/g, 'd')
-            .toLowerCase();
-
-    }
-
-    function updateGallery() {
-
-        const keyword = normalize(
-            photoSearch?.value.trim()
-        );
-
-        const matching = cards.filter(function(card) {
-
-            return normalize(
-                card.dataset.name
-            ).includes(keyword);
-
-        });
-
-        const visible = keyword || showAll
-            ? matching
-            : matching.slice(0, 6);
-
-        cards.forEach(function(card) {
-
-            card.hidden = !visible.includes(card);
-
-        });
-
-        if (count) {
-
-            count.textContent =
-                'Hiển thị ' +
-                visible.length +
-                '/' +
-                matching.length +
-                ' ảnh phù hợp.';
-
-        }
-
-        if (noResults) {
-
-            noResults.hidden =
-                matching.length !== 0;
-
-        }
-
-        if (toggle) {
-
-            toggle.style.display =
-                keyword ? 'none' : '';
-
-            toggle.textContent = showAll
-                ? 'Thu gọn ảnh'
-                : 'Xem tất cả ảnh';
-
-        }
-
-    }
-
-    photoSearch?.addEventListener(
-        'input',
-        updateGallery
-    );
-
-    toggle?.addEventListener('click', function() {
-
-        showAll = !showAll;
-
-        updateGallery();
-
+    const productUrlInput = document.getElementById('productImageUrl');
+    const productPreview = document.getElementById('productPreview');
+    productUrlInput?.addEventListener('input', () => {
+        productPreview.src = productUrlInput.value.trim();
+        productPreview.style.display = /^https?:\/\//i.test(productUrlInput.value.trim()) ? 'block' : 'none';
     });
-
-    gallery?.querySelectorAll(
-        'input[name="image"]'
-    ).forEach(function(radio) {
-
-        radio.addEventListener('change', function() {
-
-            if (radio.checked && selected) {
-
-                selected.textContent =
-                    decodeURIComponent(
-                        radio.value.split('/').pop()
-                    );
-
-            }
-
-        });
-
-    });
-
-    updateGallery();
+    productPreview?.addEventListener('error', () => { productPreview.style.display = 'none'; });
 
     /* =====================================
        LUU BANG AJAX - KHONG CHUYEN TRANG
@@ -1433,20 +1124,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
         }
 
         if (!form.reportValidity()) {
-            return;
-        }
-
-        const chosenImage = form.querySelector(
-            'input[name="image"]:checked'
-        );
-
-        if (!chosenImage && !oldImage) {
-
-            showPopup(
-                false,
-                'Vui lòng chọn ảnh sản phẩm.'
-            );
-
             return;
         }
 
