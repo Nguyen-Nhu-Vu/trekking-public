@@ -612,6 +612,9 @@ if ($orders) {
             }
         }
     </style>
+<style>
+.vnn-guest-notice{display:inline-block;margin-top:7px;padding:5px 9px;border:1px solid #fcd34d;border-radius:7px;background:#fffbeb;color:#92400e;font-size:11px;font-weight:700;line-height:1.4;white-space:normal}
+</style>
 </head>
 
 <body class="admin-body">
@@ -814,6 +817,10 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                                 $order['fullname']
                                             ) ?>
                                         </div>
+
+                                        <?php if (!isset($order['user_id']) || (int)$order['user_id'] === 0): ?>
+                                            <div class="vnn-guest-notice" title="Khách đặt hàng không đăng nhập tài khoản"><i class="fa-solid fa-triangle-exclamation"></i> Khách vãng lai – chưa có tài khoản</div>
+                                        <?php endif; ?>
 
                                         <small class="vnn-order-phone">
                                             <?= order_h(
