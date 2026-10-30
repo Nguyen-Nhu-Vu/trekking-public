@@ -79,6 +79,9 @@ $reviewsStmt = $pdo->prepare("
 $reviewsStmt->execute([$id]);
 $reviews = $reviewsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+require_once __DIR__ . '/../includes/review-eligibility.php';
+$canReviewTour = isLoggedIn() && vnnCanReviewTour($pdo, (int)$_SESSION['user_id'], $id);
+
 $firstAvailable = null;
 
 foreach ($departures as $dep) {
@@ -873,7 +876,7 @@ require_once __DIR__ . '/../includes/header.php';
                     (<?= count($reviews) ?>)
                 </h2>
 
-                <?php if (isLoggedIn()): ?>
+                <?php if ($canReviewTour): ?>
 
                     <form
                         action="<?= BASE_URL ?>tours/tour-review.php"
@@ -910,6 +913,8 @@ require_once __DIR__ . '/../includes/header.php';
 
                     </form>
 
+                <?php elseif (isLoggedIn()): ?>
+                    <p>Bạn chỉ có thể đánh giá tour này sau khi đã đăng ký tour bằng tài khoản hiện tại và đơn chưa bị hủy.</p>
                 <?php else: ?>
 
                     <p>
