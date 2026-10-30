@@ -265,6 +265,28 @@ $stmt->execute($params);
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $totalOrders = count($orders);
+$orderPerPage = 10;
+$orderPageCount = max(1, (int)ceil($totalOrders / $orderPerPage));
+$orderPage = min($orderPageCount, max(1, (int)($_GET['page'] ?? 1)));
+$orders = array_slice($orders, ($orderPage - 1) * $orderPerPage, $orderPerPage);
+$vnnCounts = ['pending' => 0, 'unpaid' => 0];
+try {
+    $counts = $pdo->query("SELECT status, COUNT(*) AS total FROM orders WHERE status IN ('Chờ xác nhận','Đã xác nhận') GROUP BY status")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $vnnCounts['pending'] = (int)($counts['Chờ xác nhận'] ?? 0);
+    $vnnCounts['unpaid'] = (int)($counts['Đã xác nhận'] ?? 0);
+} catch (Throwable $e) { error_log('Order pending count: ' . $e->getMessage()); }
+$orderProducts = [];
+if ($orders) {
+    try {
+        $ids = array_column($orders, 'id');
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $detailStmt = $pdo->prepare("SELECT d.order_id, d.quantity, p.name AS product_name FROM order_details d LEFT JOIN products p ON p.id=d.product_id WHERE d.order_id IN ($marks) ORDER BY d.order_id, d.product_id");
+        $detailStmt->execute($ids);
+        foreach ($detailStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+            $orderProducts[(int)$item['order_id']][] = $item;
+        }
+    } catch (Throwable $e) { error_log('Order product list: ' . $e->getMessage()); }
+}
 ?>
 
 <!DOCTYPE html>
@@ -428,7 +450,7 @@ $totalOrders = count($orders);
 
         .vnn-order-table {
             width: 100%;
-            min-width: 930px;
+            min-width: 1150px;
             border-collapse: collapse;
             table-layout: fixed;
         }
@@ -651,7 +673,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
         <div style="padding:13px 17px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;margin-bottom:16px;line-height:1.8;color:#9a3412;font-size:13px">
             <strong><i class="fa-solid fa-bell"></i> Cần xử lý:</strong>
             <strong><?= (int)($vnnCounts['pending'] ?? 0) ?></strong> đơn hàng chờ xác nhận;
-            <strong><?= (int)($vnnCounts['unpaid'] ?? 0) ?></strong> đơn hàng đã xác nhận, chưa thanh toán.
+            <strong><?= (int)($vnnCounts['unpaid'] ?? 0) ?></strong> chưa thanh toán.
         </div>
 
 
@@ -734,11 +756,12 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                     <colgroup>
                         <col style="width:4%">
-                        <col style="width:19%">
-                        <col style="width:25%">
-                        <col style="width:18%">
                         <col style="width:16%">
-                        <col style="width:18%">
+                        <col style="width:20%">
+                        <col style="width:21%">
+                        <col style="width:13%">
+                        <col style="width:13%">
+                        <col style="width:13%">
                     </colgroup>
 
                     <thead>
@@ -753,6 +776,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                             <th>Mã Đơn</th>
                             <th>Khách Hàng</th>
+                            <th>Hàng hóa / Số lượng</th>
                             <th>Tổng Tiền</th>
                             <th>Trạng Thái</th>
                             <th>Ngày Đặt</th>
@@ -798,6 +822,16 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                         </small>
                                     </td>
 
+                                    <td>
+                                        <?php foreach (($orderProducts[(int)$order['id']] ?? []) as $product): ?>
+                                            <div style="margin-bottom:5px;overflow-wrap:anywhere">
+                                                <?= order_h($product['product_name'] ?: 'Sản phẩm không còn tồn tại') ?>
+                                                <strong>× <?= (int)$product['quantity'] ?></strong>
+                                            </div>
+                                        <?php endforeach; ?>
+                                        <?php if (empty($orderProducts[(int)$order['id']])): ?>—<?php endif; ?>
+                                    </td>
+
                                     <td class="vnn-order-price">
                                         <?= format_price(
                                             $order['total_amount']
@@ -840,7 +874,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                             <tr>
                                 <td
-                                    colspan="6"
+                                    colspan="7"
                                     style="text-align:center;padding:40px"
                                 >
                                     Không có đơn hàng nào phù hợp.
@@ -854,6 +888,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 </table>
 
             </div>
+<?php if ($orderPageCount > 1): ?>
+<nav class="vnn-pagination" aria-label="Phân trang" style="display:flex;gap:7px;justify-content:center;align-items:center;flex-wrap:wrap;padding:18px 10px">
+<?php for ($n = 1; $n <= $orderPageCount; $n++): ?>
+<a href="?<?= http_build_query(['status' => $statusFilter, 'page' => $n]) ?>" style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;border-radius:8px;padding:0 10px;text-decoration:none;border:1px solid #cbd5e1;background:<?= $n === $orderPage ? '#0f766e' : '#fff' ?>;color:<?= $n === $orderPage ? '#fff' : '#0f172a' ?>;font-weight:700" <?= $n === $orderPage ? 'aria-current="page"' : '' ?>><?= $n ?></a>
+<?php endfor; ?>
+</nav>
+<?php endif; ?>
 
         </form>
 
