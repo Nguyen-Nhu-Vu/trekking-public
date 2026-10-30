@@ -69,6 +69,8 @@ if ($is_footwear) {
 $defaultSize = $is_footwear ? '40' : 'L';
 $added = false;
 $cartError = '';
+require_once __DIR__ . '/../includes/review-eligibility.php';
+$canReviewProduct = isLoggedIn() && vnnCanReviewProduct($pdo, (int)$_SESSION['user_id'], $id);
 $reviewMessage = '';
 $reviewError = '';
 
@@ -131,6 +133,8 @@ if (
 ) {
     if (!isLoggedIn()) {
         $reviewError = 'Vui lòng đăng nhập để gửi đánh giá.';
+    } elseif (!$canReviewProduct) {
+        $reviewError = 'Chỉ khách hàng đã mua sản phẩm này (đơn đã thanh toán hoặc giao thành công) mới được đánh giá.';
     } else {
         $rating = (int) ($_POST['rating'] ?? 5);
         $comment = trim((string) ($_POST['comment'] ?? ''));
@@ -805,7 +809,7 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         <?php endif; ?>
 
-        <?php if (isLoggedIn()): ?>
+        <?php if ($canReviewProduct): ?>
 
             <form method="POST" class="pd-review-form">
 
@@ -853,6 +857,8 @@ require_once __DIR__ . '/../includes/header.php';
 
             </form>
 
+        <?php elseif (isLoggedIn()): ?>
+            <div class="pd-message">Bạn chỉ có thể đánh giá sản phẩm này khi đã mua bằng tài khoản hiện tại và đơn hàng đã thanh toán hoặc giao thành công.</div>
         <?php else: ?>
 
             <div class="pd-message">
