@@ -278,9 +278,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
     ) {
         $error = 'Phiên đăng ký đã hết hạn. Vui lòng tải lại trang.';
 
-    } elseif (!$user) {
-        $error = 'Vui lòng đăng nhập để đăng ký tour.';
-
     } elseif (
         $name === ''
         || strlen($phone) < 9
@@ -382,7 +379,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
 
                 $stmt->execute([
                     $bookingCode,
-                    (int)$user['id'],
+                    $user ? (int)$user['id'] : null,
                     $tourId,
                     $selectedDate,
                     $name,
@@ -780,6 +777,10 @@ body.vt-modal-active {
         <i class="fa-solid fa-circle-check"></i>
         Đăng ký của bạn đã được ghi nhận thành công.
         Vui lòng chọn Thanh toán để xem thông tin chuyển khoản.
+        <?php if (!$user): ?>
+            Nhân viên sẽ liên hệ qua số điện thoại bạn đã cung cấp.
+            Nếu cần hỗ trợ, vui lòng gọi hotline trên website VNN Travel.
+        <?php endif; ?>
     </div>
 
     <div class="vt-summary">
