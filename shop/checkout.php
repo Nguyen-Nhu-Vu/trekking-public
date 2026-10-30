@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -60,7 +61,7 @@ $success = null;
 if ($userId > 0) {
     try {
         $q = $pdo->prepare("
-            SELECT id, fullname, phone, email
+            SELECT id, fullname, phone, email, role
             FROM users WHERE id = ? LIMIT 1
         ");
         $q->execute([$userId]);
@@ -72,7 +73,90 @@ if ($userId > 0) {
     }
 }
 
-// Giu dung cau truc gio hang hien tai cua VNN Travel.
+// ==========================================
+// PHAN QUYEN MUA HANG
+// ==========================================
+// Khach vang lai: userId = 0 => duoc dat hang.
+// Khach customer => duoc dat hang.
+// Admin / Manager / Staff => cam dat hang.
+// Lay role truc tiep tu database de tranh
+// phu thuoc vao role cu trong session.
+
+if (
+    $userId > 0 &&
+    $user &&
+    strtolower(trim((string)($user['role'] ?? ''))) !== 'customer'
+) {
+    http_response_code(403);
+
+    require_once __DIR__ . '/../includes/header.php';
+    ?>
+
+    <section class="container section"
+             style="min-height:55vh;padding-top:65px;padding-bottom:65px">
+
+        <div style="
+            max-width:650px;
+            margin:auto;
+            padding:30px;
+            text-align:center;
+            background:white;
+            border:1px solid #fecaca;
+            border-radius:14px;
+            box-shadow:0 8px 24px rgba(0,0,0,.05);
+        ">
+
+            <div style="
+                width:65px;
+                height:65px;
+                border-radius:50%;
+                background:#fee2e2;
+                color:#b91c1c;
+                display:flex;
+                align-items:center;
+                justify-content:center;
+                margin:0 auto 18px;
+                font-size:29px;
+            ">
+                <i class="fa-solid fa-user-lock"></i>
+            </div>
+
+            <h2 style="color:#b91c1c;margin-bottom:14px">
+                Tài khoản không có quyền mua hàng
+            </h2>
+
+            <p style="color:#475569;line-height:1.8">
+                Tài khoản Admin, Quản lý và Nhân viên
+                chỉ được dùng để quản trị hệ thống,
+                không được đặt hàng trên website.
+            </p>
+
+            <p style="color:#475569;line-height:1.8">
+                Chỉ tài khoản Khách hàng hoặc
+                khách vãng lai chưa đăng nhập
+                mới có thể mua hàng.
+            </p>
+
+            <a
+                href="<?= ckH($base) ?>shop/shop.php"
+                class="btn btn-primary"
+                style="display:inline-block;margin-top:17px"
+            >
+                Quay về cửa hàng
+            </a>
+
+        </div>
+    </section>
+
+    <?php
+    require_once __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
+// ==========================================
+// GIO HANG HIEN TAI
+// ==========================================
+
 $items = [];
 $cart = $_SESSION['cart'] ?? [];
 
@@ -113,6 +197,7 @@ try {
             }
 
             $price = (float)$p['price'];
+
             $items[] = [
                 'id' => $id,
                 'name' => $p['name'],
@@ -137,6 +222,7 @@ $total = $subtotal + $shippingFee;
 if (empty($_SESSION['cod_token'])) {
     $_SESSION['cod_token'] = bin2hex(random_bytes(16));
 }
+
 if (empty($_SESSION['cod_order_code'])) {
     $_SESSION['cod_order_code'] =
         'DH' . strtoupper(bin2hex(random_bytes(7)));
@@ -152,6 +238,10 @@ $old = [
     'notes' => $_POST['notes'] ?? '',
     'payment' => $_POST['payment_method'] ?? 'COD'
 ];
+
+// ==========================================
+// XU LY DAT HANG
+// ==========================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
     $token = (string)($_POST['cod_token'] ?? '');
@@ -173,22 +263,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
         )
     ) {
         $success = $_SESSION['cod_completed']['order'];
+
     } elseif ($error !== '') {
         // Giu nguyen loi gio hang.
+
     } elseif (
         $token === '' ||
         !hash_equals((string)$_SESSION['cod_token'], $token)
     ) {
         $error = 'Phiên đặt hàng không hợp lệ.';
+
     } elseif (
         $submittedCode === '' ||
         !hash_equals((string)$orderCode, $submittedCode)
     ) {
         $error = 'Mã yêu cầu đặt hàng không hợp lệ.';
+
     } elseif (!$items) {
         $error = 'Giỏ hàng đang trống.';
+
     } elseif (!in_array($paymentChoice, ['COD', 'MoMo'], true)) {
         $error = 'Phương thức thanh toán không hợp lệ.';
+
     } elseif (
         $fullname === '' ||
         strlen($phone) < 9 ||
@@ -196,8 +292,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
         $address === ''
     ) {
         $error = 'Vui lòng nhập đủ thông tin giao hàng.';
+
     } elseif ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Email không hợp lệ.';
+
     } else {
         try {
             $pdo->beginTransaction();
@@ -206,20 +304,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 $checkUser = $pdo->prepare(
                     "SELECT id FROM users WHERE id = ? LIMIT 1"
                 );
+
                 $checkUser->execute([$userId]);
+
                 if (!$checkUser->fetchColumn()) {
-                    throw new RuntimeException('Tài khoản không còn tồn tại.');
+                    throw new RuntimeException(
+                        'Tài khoản không còn tồn tại.'
+                    );
                 }
+
                 $checkUser->closeCursor();
             }
 
             $checkCode = $pdo->prepare(
                 "SELECT id FROM orders WHERE order_code = ? LIMIT 1"
             );
+
             $checkCode->execute([$orderCode]);
+
             if ($checkCode->fetchColumn()) {
-                throw new RuntimeException('Đơn hàng này đã được ghi nhận.');
+                throw new RuntimeException(
+                    'Đơn hàng này đã được ghi nhận.'
+                );
             }
+
             $checkCode->closeCursor();
 
             $productLock = $pdo->prepare("
@@ -236,8 +344,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 $productLock->closeCursor();
 
                 if (!$p || (int)$p['status'] !== 1) {
-                    throw new RuntimeException('Sản phẩm không còn được bán.');
+                    throw new RuntimeException(
+                        'Sản phẩm không còn được bán.'
+                    );
                 }
+
                 if ((int)$p['stock'] < $item['qty']) {
                     throw new RuntimeException(
                         '"' . $p['name'] . '" không đủ tồn kho.'
@@ -245,6 +356,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 }
 
                 $price = (float)$p['price'];
+
                 $verified[] = [
                     'id' => (int)$p['id'],
                     'name' => $p['name'],
@@ -253,21 +365,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     'price' => $price,
                     'total' => $price * $item['qty']
                 ];
+
                 $verifiedSubtotal += $price * $item['qty'];
             }
 
             $verifiedShipping = $verifiedSubtotal > 0 &&
                 $verifiedSubtotal < 1000000 ? 35000 : 0;
+
             $verifiedTotal = $verifiedSubtotal + $verifiedShipping;
 
             $status = ckEnum($pdo, 'status', [
-                'Chờ xác nhận', 'Chờ xử lý', 'pending', 'Pending'
+                'Chờ xác nhận',
+                'Chờ xử lý',
+                'pending',
+                'Pending'
             ]);
 
             $paymentMethod = $paymentChoice === 'MoMo'
                 ? ckEnum($pdo, 'payment_method', ['MoMo'])
                 : ckEnum($pdo, 'payment_method', [
-                    'COD', 'cod', 'cash', 'Thanh toán khi nhận hàng'
+                    'COD',
+                    'cod',
+                    'cash',
+                    'Thanh toán khi nhận hàng'
                 ]);
 
             $orderInsert = $pdo->prepare("
@@ -281,15 +401,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
             ");
 
             $orderInsert->execute([
-                $orderCode, $userId > 0 ? $userId : null, $fullname, $phone, $email,
-                $address, $paymentMethod, $verifiedShipping,
-                $verifiedTotal, $notes, $status
+                $orderCode,
+                $userId > 0 ? $userId : null,
+                $fullname,
+                $phone,
+                $email,
+                $address,
+                $paymentMethod,
+                $verifiedShipping,
+                $verifiedTotal,
+                $notes,
+                $status
             ]);
 
             $orderId = (int)$pdo->lastInsertId();
 
             if ($orderId <= 0) {
-                throw new RuntimeException('Không tạo được đơn hàng.');
+                throw new RuntimeException(
+                    'Không tạo được đơn hàng.'
+                );
             }
 
             $detailInsert = $pdo->prepare("
@@ -320,7 +450,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 ]);
 
                 if ($stockUpdate->rowCount() !== 1) {
-                    throw new RuntimeException('Không thể cập nhật tồn kho.');
+                    throw new RuntimeException(
+                        'Không thể cập nhật tồn kho.'
+                    );
                 }
             }
 
@@ -351,7 +483,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
             );
 
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
             error_log('Checkout: ' . $e->getMessage());
 
             $error = $e instanceof RuntimeException
@@ -416,25 +551,31 @@ require_once __DIR__ . '/../includes/header.php';
 <section class="ck-card ck-empty">
     <h3>Đặt hàng thành công!</h3>
     <p>Đơn hàng sẽ sớm được giao đến tay bạn.</p>
-    <?php if ($userId <= 0): ?><p>Khách vãng lai: nhân viên sẽ liên hệ bằng số điện thoại đã nhập. Nếu có thắc mắc, vui lòng liên hệ hotline trên website.</p><?php endif; ?>
+    <?php if ($userId <= 0): ?>
+        <p>Khách vãng lai: nhân viên sẽ liên hệ bằng số điện thoại đã nhập. Nếu có thắc mắc, vui lòng liên hệ hotline trên website.</p>
+    <?php endif; ?>
+
     <button class="ck-btn" type="button" onclick="ckOpen()">
         <?= ($success['payment'] ?? 'COD') === 'MoMo'
             ? 'Xem mã QR thanh toán'
             : 'Xem thông tin đơn hàng' ?>
     </button>
+
     <a class="ck-link" href="<?= ckH($base) ?>shop/my-orders.php">
         Đơn mua thiết bị của tôi
     </a>
 </section>
+
 <?php elseif (!$items && !$error): ?>
 <section class="ck-card ck-empty">
     Giỏ hàng đang trống.
     <a href="<?= ckH($base) ?>shop/shop.php">Tiếp tục mua sắm</a>
 </section>
+
 <?php else: ?>
-<?php if ($error): ?>
-    <div class="ck-error"><?= ckH($error) ?></div>
-<?php endif; ?>
+    <?php if ($error): ?>
+        <div class="ck-error"><?= ckH($error) ?></div>
+    <?php endif; ?>
 
 <form method="POST" id="ckForm">
 <input type="hidden" name="place_order" value="1">
@@ -449,37 +590,45 @@ require_once __DIR__ . '/../includes/header.php';
         <label>Họ và tên *</label>
         <input name="fullname" required value="<?= ckH($old['fullname']) ?>">
     </div>
+
     <div class="ck-two">
         <div class="ck-field">
             <label>Số điện thoại *</label>
             <input name="phone" type="tel" required value="<?= ckH($old['phone']) ?>">
         </div>
+
         <div class="ck-field">
             <label>Email</label>
             <input name="email" type="email" value="<?= ckH($old['email']) ?>">
         </div>
     </div>
+
     <div class="ck-field">
         <label>Địa chỉ giao hàng *</label>
         <input name="address" required value="<?= ckH($old['address']) ?>">
     </div>
+
     <div class="ck-field">
         <label>Ghi chú</label>
         <textarea name="notes"><?= ckH($old['notes']) ?></textarea>
     </div>
 
     <h3>Phương thức thanh toán</h3>
+
     <label class="ck-payment-option">
         <input type="radio" name="payment_method" value="COD"
             <?= $old['payment'] !== 'MoMo' ? 'checked' : '' ?>>
+
         <span>
             <strong>Thanh toán khi nhận hàng (COD)</strong>
             <p>Thanh toán trực tiếp khi nhận sản phẩm.</p>
         </span>
     </label>
+
     <label class="ck-payment-option">
         <input type="radio" name="payment_method" value="MoMo"
             <?= $old['payment'] === 'MoMo' ? 'checked' : '' ?>>
+
         <span>
             <strong>Chuyển khoản bằng QR MoMo</strong>
             <p>Đặt hàng xong sẽ hiện mã QR. Quản lý xác nhận thanh toán thủ công.</p>
@@ -489,32 +638,50 @@ require_once __DIR__ . '/../includes/header.php';
 
 <section class="ck-card">
     <h3><i class="fa-solid fa-box"></i> Đơn hàng của bạn</h3>
+
     <?php foreach ($items as $item): ?>
         <div class="ck-item">
             <div class="ck-item-name"><?= ckH($item['name']) ?></div>
+
             <?php if ($item['size']): ?>
-                <p class="ck-muted">Phân loại: <?= ckH($item['size']) ?></p>
+                <p class="ck-muted">
+                    Phân loại: <?= ckH($item['size']) ?>
+                </p>
             <?php endif; ?>
+
             <div class="ck-row">
-                <span><?= (int)$item['qty'] ?> × <?= ckMoney($item['price']) ?></span>
+                <span>
+                    <?= (int)$item['qty'] ?> ×
+                    <?= ckMoney($item['price']) ?>
+                </span>
                 <strong><?= ckMoney($item['total']) ?></strong>
             </div>
         </div>
     <?php endforeach; ?>
 
     <div class="ck-row">
-        <span>Tạm tính</span><strong><?= ckMoney($subtotal) ?></strong>
+        <span>Tạm tính</span>
+        <strong><?= ckMoney($subtotal) ?></strong>
     </div>
+
     <div class="ck-row">
         <span>Phí giao hàng</span>
-        <strong><?= $shippingFee ? ckMoney($shippingFee) : 'Miễn phí' ?></strong>
+        <strong>
+            <?= $shippingFee
+                ? ckMoney($shippingFee)
+                : 'Miễn phí' ?>
+        </strong>
     </div>
+
     <div class="ck-row ck-total">
-        <span>Tổng cộng</span><strong><?= ckMoney($total) ?></strong>
+        <span>Tổng cộng</span>
+        <strong><?= ckMoney($total) ?></strong>
     </div>
+
     <button class="ck-btn full" type="submit" id="ckSubmit">
         XÁC NHẬN ĐẶT HÀNG
     </button>
+
     <p class="ck-muted">
         Đơn sẽ được ghi nhận ở trạng thái chờ xác nhận.
     </p>
@@ -527,17 +694,29 @@ require_once __DIR__ . '/../includes/header.php';
 
 <?php if ($success): ?>
 <div class="ck-overlay" id="ckOverlay">
-<div class="ck-modal" role="dialog" aria-modal="true" aria-label="Thông báo đặt hàng">
-    <button type="button" class="ck-close" onclick="ckClose()" aria-label="Đóng">&times;</button>
+<div class="ck-modal" role="dialog" aria-modal="true"
+     aria-label="Thông báo đặt hàng">
+
+    <button type="button" class="ck-close"
+            onclick="ckClose()" aria-label="Đóng">
+        &times;
+    </button>
+
     <h2>Đặt hàng thành công!</h2>
     <p>Đơn hàng sẽ sớm được giao đến tay bạn.</p>
-    <?php if ($userId <= 0): ?><p>Đơn khách vãng lai: nhân viên sẽ liên hệ bằng điện thoại. Thắc mắc vui lòng liên hệ hotline trên website.</p><?php endif; ?>
+
+    <?php if ($userId <= 0): ?>
+        <p>
+            Đơn khách vãng lai: nhân viên sẽ liên hệ bằng điện thoại.
+            Thắc mắc vui lòng liên hệ hotline trên website.
+        </p>
+    <?php endif; ?>
 
     <?php if (($success['payment'] ?? 'COD') === 'MoMo'): ?>
         <p><strong>Quét mã MoMo để chuyển khoản</strong></p>
         <img class="ck-qr"
-            src="<?= ckH($base) ?>assets/images/momo-qr-vu.jpg"
-            alt="QR MoMo VNN Travel">
+             src="<?= ckH($base) ?>assets/images/momo-qr-vu.jpg"
+             alt="QR MoMo VNN Travel">
     <?php endif; ?>
 
     <?php
@@ -549,20 +728,46 @@ require_once __DIR__ . '/../includes/header.php';
     ?>
 
     <div class="ck-pay-info">
-        <div>Mã đơn: <strong><?= ckH($success['code']) ?></strong></div>
-        <div>Khách hàng: <strong><?= ckH($success['fullname']) ?></strong></div>
-        <div>Điện thoại: <strong><?= ckH($success['phone']) ?></strong></div>
-        <div>Phương thức:
-            <strong><?= ($success['payment'] ?? 'COD') === 'MoMo' ? 'MoMo' : 'COD' ?></strong>
+        <div>
+            Mã đơn:
+            <strong><?= ckH($success['code']) ?></strong>
         </div>
-        <div>Tổng tiền:
-            <strong style="color:#ea580c"><?= ckMoney($success['total']) ?></strong>
+
+        <div>
+            Khách hàng:
+            <strong><?= ckH($success['fullname']) ?></strong>
+        </div>
+
+        <div>
+            Điện thoại:
+            <strong><?= ckH($success['phone']) ?></strong>
+        </div>
+
+        <div>
+            Phương thức:
+            <strong>
+                <?= ($success['payment'] ?? 'COD') === 'MoMo'
+                    ? 'MoMo'
+                    : 'COD' ?>
+            </strong>
+        </div>
+
+        <div>
+            Tổng tiền:
+            <strong style="color:#ea580c">
+                <?= ckMoney($success['total']) ?>
+            </strong>
         </div>
 
         <?php if (($success['payment'] ?? 'COD') === 'MoMo'): ?>
-            <div>Nội dung chuyển khoản:<br>
-                <strong id="ckTransfer"><?= ckH($transferContent) ?></strong>
+            <div>
+                Nội dung chuyển khoản:
+                <br>
+                <strong id="ckTransfer">
+                    <?= ckH($transferContent) ?>
+                </strong>
             </div>
+
             <button class="ck-copy" type="button"
                 onclick="navigator.clipboard?.writeText(document.getElementById('ckTransfer').textContent)">
                 Sao chép nội dung
@@ -578,7 +783,10 @@ require_once __DIR__ . '/../includes/header.php';
         </p>
     <?php endif; ?>
 
-    <button class="ck-btn" type="button" onclick="ckClose()">Đóng</button>
+    <button class="ck-btn" type="button" onclick="ckClose()">
+        Đóng
+    </button>
+
 </div>
 </div>
 <?php endif; ?>
@@ -588,29 +796,39 @@ function ckOpen() {
     const overlay = document.getElementById('ckOverlay');
     if (overlay) overlay.hidden = false;
 }
+
 function ckClose() {
     const overlay = document.getElementById('ckOverlay');
     if (overlay) overlay.hidden = true;
 }
 
 const ckForm = document.getElementById('ckForm');
+
 if (ckForm) {
     ckForm.addEventListener('submit', function() {
         if (!ckForm.checkValidity()) return;
-        const b = document.getElementById('ckSubmit');
-        if (b) {
-            b.disabled = true;
-            b.textContent = 'ĐANG XỬ LÝ...';
+
+        const button = document.getElementById('ckSubmit');
+
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'ĐANG XỬ LÝ...';
         }
     });
 }
 
-document.getElementById('ckOverlay')?.addEventListener('click', function(e) {
-    if (e.target === this) ckClose();
-});
+document.getElementById('ckOverlay')?.addEventListener(
+    'click',
+    function(e) {
+        if (e.target === this) ckClose();
+    }
+);
+
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') ckClose();
 });
 </script>
 
-<?php require_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+require_once __DIR__ . '/../includes/footer.php';
+?>
