@@ -1,4 +1,3 @@
-
 <?php
 ob_start();
 
@@ -376,11 +375,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             (string)($editing['fullname'] ?? '')
         );
 
-        header(
-            'Location: index.php',
-            true,
-            303
-        );
+        if (!headers_sent()) {
+            header('Location: index.php', true, 303);
+        } else {
+            echo '<script>window.location.replace("index.php");</script>';
+        }
 
         exit;
 
@@ -831,6 +830,12 @@ $selectedFilename = $selectedImage !== ''
         width: 100%;
     }
 }
+
+.lf-gallery-preview { display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px; }
+.lf-gallery-preview-item { padding:7px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;min-width:0; }
+.lf-gallery-preview-item img { width:100%;height:125px;object-fit:cover;border-radius:7px;display:block; }
+.lf-gallery-preview-caption { font-size:12px;color:#475569;padding-top:6px;overflow-wrap:anywhere; }
+.lf-gallery-preview-error { font-size:12px;color:#b91c1c;padding:10px;overflow-wrap:anywhere; }
 </style>
 
 </head>
@@ -914,6 +919,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
                             ><?= leaderFormH(
                                 $editing[$field] ?? ''
                             ) ?></textarea>
+
+                            <?php if ($field === 'gallery'): ?>
+                                <p class="lf-photo-note">Mỗi dòng một URL ảnh HTTPS. Ảnh sẽ được xem trước ngay bên dưới.</p>
+                                <div id="leaderGalleryPreview" class="lf-gallery-preview" aria-live="polite"></div>
+                            <?php endif; ?>
 
                         <?php else: ?>
 
@@ -1051,6 +1061,44 @@ require_once __DIR__ . '/../includes/sidebar.php';
     preview?.addEventListener('error', () => {
         preview.style.display = 'none';
     });
+
+    const galleryInput = document.getElementById('lf-gallery');
+    const galleryPreview = document.getElementById('leaderGalleryPreview');
+    let galleryRenderVersion = 0;
+
+    function renderGalleryPreview() {
+        if (!galleryInput || !galleryPreview) return;
+        const version = ++galleryRenderVersion;
+        const urls = [...new Set(galleryInput.value.split(/\r?\n/).map(v => v.trim()).filter(Boolean))];
+        galleryPreview.replaceChildren();
+        urls.forEach((url, index) => {
+            const item = document.createElement('div');
+            item.className = 'lf-gallery-preview-item';
+            if (!/^https?:\/\//i.test(url)) {
+                const error = document.createElement('div');
+                error.className = 'lf-gallery-preview-error';
+                error.textContent = 'URL ' + (index + 1) + ' không hợp lệ.';
+                item.appendChild(error);
+            } else {
+                const img = document.createElement('img');
+                img.alt = 'Ảnh album ' + (index + 1);
+                img.loading = 'lazy';
+                img.addEventListener('error', () => {
+                    if (version !== galleryRenderVersion) return;
+                    item.replaceChildren();
+                    const error = document.createElement('div');
+                    error.className = 'lf-gallery-preview-error';
+                    error.textContent = 'Ảnh ' + (index + 1) + ' không tải được. Hãy kiểm tra URL hoặc quyền truy cập ảnh.';
+                    item.appendChild(error);
+                });
+                img.src = url;
+                item.appendChild(img);
+            }
+            galleryPreview.appendChild(item);
+        });
+    }
+    galleryInput?.addEventListener('input', renderGalleryPreview);
+    renderGalleryPreview();
 
     form?.addEventListener('submit', () => {
         if (form.checkValidity() && save) {
