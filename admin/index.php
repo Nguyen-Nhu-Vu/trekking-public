@@ -432,29 +432,6 @@ $quickItems = [
             </p>
         </section>
 
-        <section class="vnn-dashboard-notice">
-            <div class="vnn-dashboard-notice-text">
-                <i class="fa-solid fa-bell"></i>
-                <span>
-                    <strong>Cần xử lý:</strong>
-                    <?= (int)$pendingTourCount ?> đăng ký tour
-                    và <?= (int)$pendingOrderCount ?> đơn hàng
-                    đang chờ xác nhận.
-                </span>
-            </div>
-
-            <div class="vnn-dashboard-notice-actions">
-                <a class="btn-tour"
-                   href="<?= vnnDashH($adminUrl . 'bookings/') ?>">
-                    Duyệt Tour
-                </a>
-                <a class="btn-order"
-                   href="<?= vnnDashH($adminUrl . 'orders/') ?>">
-                    Duyệt Đơn Hàng
-                </a>
-            </div>
-        </section>
-
         <section class="vnn-dashboard-stats">
             <div class="vnn-dashboard-stat">
                 <div class="vnn-dashboard-stat-label">Khách hàng</div>
