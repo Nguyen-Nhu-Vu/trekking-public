@@ -45,7 +45,6 @@ $chatBaseUrl = defined('BASE_URL') ? BASE_URL : '/';
                 <h4>Về VNN Travel</h4>
                 <ul>
                     <li><a href="<?= $chatBaseUrl ?>tours/tour.php">Danh sách tour trekking</a></li>
-                    <li><a href="<?= $chatBaseUrl ?>pages/locations.php">Các đỉnh núi nổi tiếng</a></li>
                     <li><a href="<?= $chatBaseUrl ?>shop/shop.php">Dụng cụ dã ngoại</a></li>
                     <li><a href="<?= $chatBaseUrl ?>pages/blog.php">Kinh nghiệm leo núi</a></li>
                     <li><a href="<?= $chatBaseUrl ?>pages/contact.php">Hỗ trợ & Liên hệ</a></li>
