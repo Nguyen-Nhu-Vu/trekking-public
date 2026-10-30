@@ -44,6 +44,9 @@ $isAdminHistory = in_array(
 if (!function_exists('vnnSideUnanswered')) {
     function vnnSideUnanswered(PDO $pdo): int {
         try {
+            // Count using the same latest support-message definition as chat-api.php.
+            // A customer needs a reply only when their latest staff/customer
+            // conversation message was sent by that customer.
             return (int) $pdo->query("SELECT COUNT(*) FROM users u
                 WHERE u.role = 'customer'
                   AND (
@@ -398,14 +401,9 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
 
         <?php endif; ?>
 
-        <?php if ($role === 'staff'): ?>
-            <a class="vnn-nav-link"
-               href="<?= vnnSideH($base) ?>admin/logout.php"
-               style="color:#fca5a5">
-                <span class="vnn-nav-label">
-                    <i class="fa-solid fa-right-from-bracket"></i>
-                    <span>Đăng xuất</span>
-                </span>
+        <?php if (in_array($role, ['staff', 'manager'], true)): ?>
+            <a class="vnn-nav-link" href="<?= vnnSideH($base) ?>admin/logout.php" style="color:#fca5a5">
+                <span class="vnn-nav-label"><i class="fa-solid fa-right-from-bracket"></i><span>Đăng xuất</span></span>
             </a>
         <?php endif; ?>
 
