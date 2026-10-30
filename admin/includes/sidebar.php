@@ -1,4 +1,3 @@
-
 <?php
 $current_page = $current_page ?? '';
 $role = getRole();
@@ -70,7 +69,7 @@ $pendingChat = 0;
 $pendingTours = 0;
 $pendingOrders = 0;
 
-if ($role !== 'admin') {
+if (in_array($role, ['admin', 'manager', 'staff'], true)) {
     $pendingChat = vnnSideUnanswered($pdo);
     $pendingTours = vnnSidePending($pdo, 'tour_bookings');
     $pendingOrders = vnnSidePending($pdo, 'orders');
@@ -311,7 +310,8 @@ if ($role !== 'admin') {
             $base.'admin/chat/',
             'fa-comments',
             'Chat Trực Tuyến',
-            $current_page === 'chat'
+            $current_page === 'chat',
+            $pendingChat
         );
 
         vnnSideMenuLink(
