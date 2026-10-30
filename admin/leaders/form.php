@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -193,6 +194,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $values['experience_years'] = $years;
 
+        $galleryUrls = array_values(array_filter(array_map(
+            'trim',
+            preg_split(
+                '/\r\n|\n|\r/',
+                (string)$values['gallery']
+            )
+        )));
+
+        if (count($galleryUrls) > 30) {
+            throw new RuntimeException(
+                'Album Leader tối đa 30 ảnh.'
+            );
+        }
+
+        foreach ($galleryUrls as $url) {
+            $parts = parse_url($url);
+
+            if (
+                strlen($url) > 2048 ||
+                !filter_var($url, FILTER_VALIDATE_URL) ||
+                !in_array(
+                    strtolower((string)($parts['scheme'] ?? '')),
+                    ['https', 'http'],
+                    true
+                ) ||
+                isset($parts['user']) ||
+                isset($parts['pass'])
+            ) {
+                throw new RuntimeException(
+                    'Album chứa URL ảnh không hợp lệ.'
+                );
+            }
+        }
+
+        $values['gallery'] = implode(
+            "\n",
+            $galleryUrls
+        );
+
         // ==================================
         // KIEM TRA ANH
         // ==================================
@@ -220,15 +260,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($selectedImage === '') {
-            throw new RuntimeException('Vui lòng nhập URL ảnh.');
+            throw new RuntimeException(
+                'Vui lòng nhập URL ảnh.'
+            );
         }
-        if (!filter_var($selectedImage, FILTER_VALIDATE_URL) ||
-            !in_array(strtolower((string)parse_url($selectedImage, PHP_URL_SCHEME)), ['http','https'], true)) {
-            throw new RuntimeException('URL ảnh phải bắt đầu bằng http:// hoặc https:// và hợp lệ.');
+
+        if (
+            !filter_var(
+                $selectedImage,
+                FILTER_VALIDATE_URL
+            ) ||
+            !in_array(
+                strtolower(
+                    (string)parse_url(
+                        $selectedImage,
+                        PHP_URL_SCHEME
+                    )
+                ),
+                ['http', 'https'],
+                true
+            )
+        ) {
+            throw new RuntimeException(
+                'URL ảnh phải bắt đầu bằng http:// hoặc https:// và hợp lệ.'
+            );
         }
+
         if (strlen($selectedImage) > 2000) {
-            throw new RuntimeException('URL ảnh quá dài.');
+            throw new RuntimeException(
+                'URL ảnh quá dài.'
+            );
         }
+
         $editing['image'] = $selectedImage;
 
         // ==================================
@@ -299,6 +362,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'Đã thêm Leader mới thành công.';
         }
 
+        require_once __DIR__ . '/../includes/audit.php';
+
+        vnnAuditChange(
+            $pdo,
+            'content',
+            $id > 0 ? 'Sửa Leader' : 'Thêm Leader',
+            'trekking_leaders',
+            $id > 0
+                ? $id
+                : (int)$pdo->lastInsertId(),
+            '',
+            (string)($editing['fullname'] ?? '')
+        );
+
         header(
             'Location: index.php',
             true,
@@ -327,6 +404,7 @@ $selectedImage = (string)(
 $selectedFilename = $selectedImage !== ''
     ? basename(rawurldecode($selectedImage))
     : 'Chưa chọn ảnh';
+
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -866,17 +944,39 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             <hr class="lf-divider">
 
-            <h2 class="lf-section-title">Ảnh đại diện Leader bằng URL</h2>
+            <h2 class="lf-section-title">
+                Ảnh đại diện Leader bằng URL
+            </h2>
+
             <div class="lf-field">
-                <label for="leaderImageUrl">Dán URL ảnh Leader *</label>
-                <input id="leaderImageUrl" name="image" type="url" required maxlength="2000"
-                       placeholder="https://example.com/leader.jpg"
-                       value="<?= leaderFormH($selectedImage) ?>"
-                       style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px">
-                <p class="lf-photo-note">Sử dụng liên kết ảnh công khai. Có thể giữ URL cũ khi sửa.</p>
-                <img id="leaderPreview" src="<?= leaderFormH($selectedImage) ?>" alt="Xem trước ảnh Leader"
-                     style="display:<?= $selectedImage ? 'block' : 'none' ?>;width:155px;height:175px;object-fit:cover;border-radius:10px;margin:12px 0">
+                <label for="leaderImageUrl">
+                    Dán URL ảnh Leader *
+                </label>
+
+                <input
+                    id="leaderImageUrl"
+                    name="image"
+                    type="url"
+                    required
+                    maxlength="2000"
+                    placeholder="https://example.com/leader.jpg"
+                    value="<?= leaderFormH($selectedImage) ?>"
+                    style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px"
+                >
+
+                <p class="lf-photo-note">
+                    Sử dụng liên kết ảnh công khai.
+                    Có thể giữ URL cũ khi sửa.
+                </p>
+
+                <img
+                    id="leaderPreview"
+                    src="<?= leaderFormH($selectedImage) ?>"
+                    alt="Xem trước ảnh Leader"
+                    style="display:<?= $selectedImage ? 'block' : 'none' ?>;width:155px;height:175px;object-fit:cover;border-radius:10px;margin:12px 0"
+                >
             </div>
+
             <hr class="lf-divider">
 
             <!-- ====================================
@@ -908,7 +1008,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     type="submit"
                     class="lf-btn"
                     id="saveLeaderBtn"
-
                 >
 
                     <i class="fa-solid fa-floppy-disk"></i>
@@ -937,12 +1036,22 @@ require_once __DIR__ . '/../includes/sidebar.php';
     const preview = document.getElementById('leaderPreview');
     const form = document.getElementById('leaderForm');
     const save = document.getElementById('saveLeaderBtn');
+
     input?.addEventListener('input', () => {
         const value = input.value.trim();
+
         preview.src = value;
-        preview.style.display = /^https?:\/\//i.test(value) ? 'block' : 'none';
+
+        preview.style.display =
+            /^https?:\/\//i.test(value)
+                ? 'block'
+                : 'none';
     });
-    preview?.addEventListener('error', () => { preview.style.display = 'none'; });
+
+    preview?.addEventListener('error', () => {
+        preview.style.display = 'none';
+    });
+
     form?.addEventListener('submit', () => {
         if (form.checkValidity() && save) {
             save.disabled = true;
@@ -951,5 +1060,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
     });
 })();
 </script>
+
 </body>
 </html>
