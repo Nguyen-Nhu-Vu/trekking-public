@@ -1,7 +1,8 @@
+
 <?php
 // VNN Travel - Dang ky tour va thanh toan QR
-// Thanh toan hien thi bang modal o giua man hinh.
-// So cho tinh theo tung ngay khoi hanh.
+// So cho duoc tinh theo tung ngay khoi hanh.
+// Chi customer va khach vang lai duoc dang ky.
 
 ob_start();
 
@@ -170,8 +171,6 @@ $base = rtrim(
     '/'
 ) . '/';
 
-// Giu duong dan QR cua ban truoc.
-// Dam bao anh thuc te nam tai duong dan nay.
 $qrImage = $base . 'assets/images/momo-qr-vu.jpg';
 
 $tourId = (int)($_GET['id'] ?? 0);
@@ -197,15 +196,37 @@ $departures = $tour
     ? vt_departures($pdo, $tourId)
     : [];
 
+// ==========================================
+// KIEM TRA PHAN QUYEN DANG KY TOUR
+// ==========================================
+
 $user = null;
+$blockedAccount = false;
+$roleCheckError = '';
 
 if (!empty($_SESSION['user_id'])) {
-    $stmt = $pdo->prepare("
-        SELECT * FROM users
-        WHERE id = ? LIMIT 1
-    ");
-    $stmt->execute([(int)$_SESSION['user_id']]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    try {
+        $stmt = $pdo->prepare("
+            SELECT *
+            FROM users
+            WHERE id = ?
+            LIMIT 1
+        ");
+
+        $stmt->execute([(int)$_SESSION['user_id']]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $blockedAccount = !$user ||
+            strtolower(trim((string)($user['role'] ?? '')))
+            !== 'customer';
+
+    } catch (Throwable $e) {
+        error_log('Tour role check: ' . $e->getMessage());
+
+        $blockedAccount = true;
+        $roleCheckError =
+            'Không thể kiểm tra quyền tài khoản. Vui lòng thử lại sau.';
+    }
 }
 
 $tokenKey = 'vnn_booking_token_' . $tourId;
@@ -246,7 +267,11 @@ $old = [
 // XU LY DANG KY TOUR
 // ==========================================
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    $tour &&
+    !$blockedAccount
+) {
     $token = (string)($_POST['booking_token'] ?? '');
     $name = trim((string)$old['fullname']);
     $phone = vt_phone($old['phone']);
@@ -268,7 +293,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
             $token
         )
     ) {
-        // Da luu cung mot lan gui, khong tao don trung.
         $payment = $_SESSION[$doneKey]['payment'];
         $success = true;
 
@@ -392,9 +416,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tour) {
                     $status
                 ]);
 
-                // So cho con lai tinh tu booking,
-                // khong tru truc tiep cot available_slots.
-
                 $pdo->commit();
 
                 $payment = [
@@ -454,310 +475,319 @@ require_once __DIR__ . '/../includes/header.php';
 
 <style>
 .vt-page {
-    min-height:75vh;
-    padding:36px 16px 70px;
-    background:#f8fafc;
+    min-height: 75vh;
+    padding: 36px 16px 70px;
+    background: #f8fafc;
 }
 .vt-card {
-    max-width:760px;
-    margin:auto;
-    padding:34px;
-    background:#fff;
-    border-radius:16px;
-    box-shadow:0 8px 26px rgba(0,0,0,.07);
+    max-width: 760px;
+    margin: auto;
+    padding: 34px;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 8px 26px rgba(0,0,0,.07);
 }
 .vt-title {
-    text-align:center;
-    font-size:27px;
-    font-weight:800;
-    color:#14532d;
-    margin:0 0 12px;
+    text-align: center;
+    font-size: 27px;
+    font-weight: 800;
+    color: #14532d;
+    margin: 0 0 12px;
 }
 .vt-subtitle {
-    text-align:center;
-    line-height:1.7;
-    color:#64748b;
-    margin-bottom:28px;
+    text-align: center;
+    line-height: 1.7;
+    color: #64748b;
+    margin-bottom: 28px;
 }
 .vt-error {
-    background:#fee2e2;
-    color:#991b1b;
-    border:1px solid #fecaca;
-    padding:16px;
-    margin:18px 0;
-    border-radius:10px;
-    line-height:1.7;
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+    padding: 16px;
+    margin: 18px 0;
+    border-radius: 10px;
+    line-height: 1.7;
 }
 .vt-ok {
-    padding:16px;
-    border-radius:10px;
-    background:#dcfce7;
-    color:#166534;
-    line-height:1.7;
-    margin:20px 0;
+    padding: 16px;
+    border-radius: 10px;
+    background: #dcfce7;
+    color: #166534;
+    line-height: 1.7;
+    margin: 20px 0;
 }
 .vt-departure {
-    background:#fff7ed;
-    border:1px solid #fed7aa;
-    border-radius:11px;
-    padding:17px;
-    margin-bottom:23px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 11px;
+    padding: 17px;
+    margin-bottom: 23px;
 }
 .vt-departure label {
-    display:block;
-    font-weight:800;
-    color:#c2410c;
-    margin-bottom:11px;
+    display: block;
+    font-weight: 800;
+    color: #c2410c;
+    margin-bottom: 11px;
 }
 .vt-grid {
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:17px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 17px;
 }
 .vt-field {
-    margin-bottom:18px;
+    margin-bottom: 18px;
 }
 .vt-field label {
-    display:block;
-    color:#0f172a;
-    margin-bottom:8px;
-    font-weight:700;
+    display: block;
+    color: #0f172a;
+    margin-bottom: 8px;
+    font-weight: 700;
 }
 .vt-field input,
 .vt-field textarea,
 .vt-field select {
-    width:100%;
-    box-sizing:border-box;
-    border:1px solid #dbe3ed;
-    border-radius:9px;
-    padding:12px;
-    font:inherit;
-    background:#fff;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #dbe3ed;
+    border-radius: 9px;
+    padding: 12px;
+    font: inherit;
+    background: #fff;
 }
 .vt-field textarea {
-    min-height:95px;
-    resize:vertical;
+    min-height: 95px;
+    resize: vertical;
 }
 .vt-inline-error {
-    color:#b91c1c;
-    font-size:14px;
-    margin-top:8px;
-    display:none;
+    color: #b91c1c;
+    font-size: 14px;
+    margin-top: 8px;
+    display: none;
 }
 .vt-summary {
-    border:1px solid #e2e8f0;
-    background:#f8fafc;
-    border-radius:11px;
-    padding:20px;
-    margin:24px 0;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 11px;
+    padding: 20px;
+    margin: 24px 0;
 }
 .vt-row {
-    display:flex;
-    justify-content:space-between;
-    align-items:start;
-    gap:15px;
-    margin:13px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 15px;
+    margin: 13px 0;
 }
 .vt-total {
-    color:#ea580c;
-    font-size:21px;
-    font-weight:800;
+    color: #ea580c;
+    font-size: 21px;
+    font-weight: 800;
 }
 .vt-button {
-    width:100%;
-    padding:16px;
-    border:0;
-    border-radius:11px;
-    background:#ea580c;
-    color:white;
-    font-size:16px;
-    font-weight:800;
-    cursor:pointer;
+    width: 100%;
+    padding: 16px;
+    border: 0;
+    border-radius: 11px;
+    background: #ea580c;
+    color: white;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
 }
 .vt-button:disabled {
-    opacity:.55;
-    cursor:not-allowed;
+    opacity: .55;
+    cursor: not-allowed;
 }
 .vt-back {
-    display:inline-block;
-    text-decoration:none;
-    font-weight:700;
-    color:#14532d;
-    margin-top:24px;
+    display: inline-block;
+    text-decoration: none;
+    font-weight: 700;
+    color: #14532d;
+    margin-top: 24px;
 }
-
-/* NUT THANH TOAN XANH */
 .vt-pay-button {
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    gap:9px;
-    width:100%;
-    padding:16px;
-    border:none;
-    border-radius:11px;
-    background:#166534;
-    color:#fff;
-    font-size:17px;
-    font-weight:800;
-    cursor:pointer;
-    transition:background .2s,transform .2s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 16px;
+    border: none;
+    border-radius: 11px;
+    background: #166534;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background .2s, transform .2s;
 }
 .vt-pay-button:hover {
-    background:#15803d;
-    transform:translateY(-1px);
+    background: #15803d;
+    transform: translateY(-1px);
 }
-
-/* MODAL THANH TOAN */
 .vt-modal-overlay {
-    position:fixed;
-    inset:0;
-    z-index:999999;
-    background:rgba(15,23,42,.68);
-    backdrop-filter:blur(5px);
-    display:none;
-    align-items:center;
-    justify-content:center;
-    padding:16px;
-    box-sizing:border-box;
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: rgba(15,23,42,.68);
+    backdrop-filter: blur(5px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
 }
 .vt-modal-overlay.open {
-    display:flex;
+    display: flex;
 }
 .vt-modal {
-    position:relative;
-    width:100%;
-    max-width:740px;
-    max-height:90vh;
-    overflow-y:auto;
-    background:#fff;
-    padding:30px;
-    border-radius:18px;
-    box-sizing:border-box;
-    box-shadow:0 25px 80px rgba(0,0,0,.3);
-    animation:vtModalAppear .2s ease;
+    position: relative;
+    width: 100%;
+    max-width: 740px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background: #fff;
+    padding: 30px;
+    border-radius: 18px;
+    box-sizing: border-box;
+    box-shadow: 0 25px 80px rgba(0,0,0,.3);
+    animation: vtModalAppear .2s ease;
 }
 @keyframes vtModalAppear {
-    from {
-        opacity:0;
-        transform:translateY(12px) scale(.97);
-    }
-    to {
-        opacity:1;
-        transform:translateY(0) scale(1);
-    }
+    from { opacity: 0; transform: translateY(12px) scale(.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .vt-modal-close {
-    position:absolute;
-    top:13px;
-    right:13px;
-    width:38px;
-    height:38px;
-    background:#f1f5f9;
-    color:#334155;
-    border:none;
-    border-radius:50%;
-    cursor:pointer;
-    font-size:23px;
-    line-height:1;
+    position: absolute;
+    top: 13px;
+    right: 13px;
+    width: 38px;
+    height: 38px;
+    background: #f1f5f9;
+    color: #334155;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 23px;
+    line-height: 1;
 }
 .vt-modal-close:hover {
-    background:#e2e8f0;
+    background: #e2e8f0;
 }
 .vt-modal-title {
-    text-align:center;
-    color:#14532d;
-    font-size:22px;
-    font-weight:800;
-    padding:0 35px;
-    margin:0 0 24px;
+    text-align: center;
+    color: #14532d;
+    font-size: 22px;
+    font-weight: 800;
+    padding: 0 35px;
+    margin: 0 0 24px;
 }
 .vt-payment {
-    display:grid;
-    grid-template-columns:minmax(0,250px) minmax(0,1fr);
-    gap:20px;
-    align-items:start;
+    display: grid;
+    grid-template-columns: minmax(0,250px) minmax(0,1fr);
+    gap: 20px;
+    align-items: start;
 }
 .vt-qr {
-    display:block;
-    width:100%;
-    height:auto;
-    border:1px solid #fbcfe8;
-    border-radius:12px;
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid #fbcfe8;
+    border-radius: 12px;
 }
 .vt-paybox {
-    border:1px solid #e2e8f0;
-    border-radius:12px;
-    padding:20px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
 }
 .vt-paybox h3 {
-    font-size:17px;
-    margin:0 0 13px;
-    color:#0f172a;
+    font-size: 17px;
+    margin: 0 0 13px;
+    color: #0f172a;
 }
 .vt-transfer {
-    margin:14px 0;
-    padding:14px;
-    border-radius:9px;
-    border:1px solid #fed7aa;
-    background:#fff7ed;
-    color:#c2410c;
-    font-size:14px;
-    font-weight:800;
-    overflow-wrap:anywhere;
-    user-select:all;
+    margin: 14px 0;
+    padding: 14px;
+    border-radius: 9px;
+    border: 1px solid #fed7aa;
+    background: #fff7ed;
+    color: #c2410c;
+    font-size: 14px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+    user-select: all;
 }
 .vt-copy {
-    background:#14532d;
-    color:white;
-    border:0;
-    border-radius:8px;
-    padding:12px 16px;
-    cursor:pointer;
-    font-weight:700;
+    background: #14532d;
+    color: white;
+    border: 0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    cursor: pointer;
+    font-weight: 700;
 }
 .vt-note {
-    margin-top:17px;
-    font-size:13px;
-    color:#475569;
-    line-height:1.8;
+    margin-top: 17px;
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.8;
 }
 .vt-modal-footer {
-    margin-top:21px;
-    display:flex;
-    justify-content:center;
+    margin-top: 21px;
+    display: flex;
+    justify-content: center;
 }
 .vt-modal-done {
-    border:0;
-    border-radius:9px;
-    padding:12px 28px;
-    background:#e2e8f0;
-    color:#334155;
-    font-weight:700;
-    cursor:pointer;
+    border: 0;
+    border-radius: 9px;
+    padding: 12px 28px;
+    background: #e2e8f0;
+    color: #334155;
+    font-weight: 700;
+    cursor: pointer;
 }
 body.vt-modal-active {
-    overflow:hidden;
+    overflow: hidden;
 }
 @media(max-width:700px) {
-    .vt-card {padding:20px}
+    .vt-card { padding: 20px; }
     .vt-grid,
-    .vt-payment {grid-template-columns:1fr}
-    .vt-row {gap:8px}
-    .vt-title {font-size:23px}
-    .vt-modal {padding:24px 16px}
-    .vt-payment {max-width:100%}
-    .vt-qr {max-width:270px;margin:auto}
+    .vt-payment { grid-template-columns: 1fr; }
+    .vt-row { gap: 8px; }
+    .vt-title { font-size: 23px; }
+    .vt-modal { padding: 24px 16px; }
+    .vt-payment { max-width: 100%; }
+    .vt-qr { max-width: 270px; margin: auto; }
 }
 </style>
 
 <section class="vt-page">
 <div class="vt-card">
 
-<?php if (!$tour): ?>
+<?php if ($blockedAccount): ?>
+
+    <h2 class="vt-title" style="color:#b91c1c">
+        Tài khoản không có quyền đăng ký tour
+    </h2>
+
+    <div class="vt-error" style="text-align:center">
+        <?= vt_h(
+            $roleCheckError ?:
+            'Tài khoản Admin, Quản lý và Nhân viên không được đăng ký tour. Chỉ tài khoản Khách hàng hoặc khách vãng lai chưa đăng nhập mới có thể đăng ký.'
+        ) ?>
+    </div>
+
+    <div style="text-align:center">
+        <a class="vt-back"
+           href="<?= vt_h($base) ?>tours/tour.php">
+            Quay về danh sách tour
+        </a>
+    </div>
+
+<?php elseif (!$tour): ?>
 
     <h2 class="vt-title">Không tìm thấy tour</h2>
-
     <p>Tour không tồn tại hoặc không còn hoạt động.</p>
 
     <a class="vt-back"
@@ -767,8 +797,6 @@ body.vt-modal-active {
 
 <?php elseif ($success && $payment): ?>
 
-    <!-- DANG KY THANH CONG: KHONG HIEN QR DAI BEN DUOI -->
-
     <h2 class="vt-title">
         ĐĂNG KÝ TOUR THÀNH CÔNG!
     </h2>
@@ -777,14 +805,9 @@ body.vt-modal-active {
         <i class="fa-solid fa-circle-check"></i>
         Đăng ký của bạn đã được ghi nhận thành công.
         Vui lòng chọn Thanh toán để xem thông tin chuyển khoản.
-        <?php if (!$user): ?>
-            Nhân viên sẽ liên hệ qua số điện thoại bạn đã cung cấp.
-            Nếu cần hỗ trợ, vui lòng gọi hotline trên website VNN Travel.
-        <?php endif; ?>
     </div>
 
     <div class="vt-summary">
-
         <div class="vt-row">
             <span>Mã đặt tour</span>
             <strong><?= vt_h($payment['code']) ?></strong>
@@ -797,9 +820,7 @@ body.vt-modal-active {
 
         <div class="vt-row">
             <span>Ngày khởi hành</span>
-            <strong>
-                <?= date('d/m/Y', strtotime($payment['date'])) ?>
-            </strong>
+            <strong><?= date('d/m/Y', strtotime($payment['date'])) ?></strong>
         </div>
 
         <div class="vt-row">
@@ -821,10 +842,8 @@ body.vt-modal-active {
             <span>Tổng tiền</span>
             <strong><?= vt_money($payment['total']) ?></strong>
         </div>
-
     </div>
 
-    <!-- NUT THANH TOAN -->
     <button
         type="button"
         class="vt-pay-button"
@@ -843,8 +862,6 @@ body.vt-modal-active {
     </div>
 
 <?php else: ?>
-
-    <!-- FORM DANG KY TOUR -->
 
     <h2 class="vt-title">
         ĐĂNG KÝ THAM GIA TOUR
@@ -872,7 +889,6 @@ body.vt-modal-active {
     <?php else: ?>
 
     <form method="POST" id="vtForm">
-
         <input
             type="hidden"
             name="booking_token"
@@ -880,7 +896,6 @@ body.vt-modal-active {
         >
 
         <div class="vt-departure vt-field">
-
             <label for="vtDeparture">
                 <i class="fa-solid fa-calendar-check"></i>
                 CHỌN NGÀY KHỞI HÀNH (CÁC ĐỢT TOUR CÓ SẴN):
@@ -891,39 +906,32 @@ body.vt-modal-active {
                 id="vtDeparture"
                 required
             >
+                <?php foreach ($departures as $dep): ?>
+                    <?php
+                    $date = (string)$dep['departure_date'];
+                    $remaining = (int)$dep['remaining'];
+                    ?>
 
-            <?php foreach ($departures as $dep): ?>
-
-                <?php
-                $date = (string)$dep['departure_date'];
-                $remaining = (int)$dep['remaining'];
-                ?>
-
-                <option
-                    value="<?= vt_h($date) ?>"
-                    data-remaining="<?= $remaining ?>"
-                    <?= $date === $selectedDate ? 'selected' : '' ?>
-                    <?= $remaining <= 0 ? 'disabled' : '' ?>
-                >
-                    Đợt khởi hành:
-                    <?= date('d/m/Y', strtotime($date)) ?>
-                    —
-                    <?= $remaining > 0
-                        ? 'Còn ' . $remaining . ' chỗ'
-                        : 'Đã hết chỗ' ?>
-                </option>
-
-            <?php endforeach; ?>
-
+                    <option
+                        value="<?= vt_h($date) ?>"
+                        data-remaining="<?= $remaining ?>"
+                        <?= $date === $selectedDate ? 'selected' : '' ?>
+                        <?= $remaining <= 0 ? 'disabled' : '' ?>
+                    >
+                        Đợt khởi hành:
+                        <?= date('d/m/Y', strtotime($date)) ?>
+                        —
+                        <?= $remaining > 0
+                            ? 'Còn ' . $remaining . ' chỗ'
+                            : 'Đã hết chỗ' ?>
+                    </option>
+                <?php endforeach; ?>
             </select>
-
         </div>
 
         <div class="vt-grid">
-
             <div class="vt-field">
                 <label>Họ và tên *</label>
-
                 <input
                     type="text"
                     name="fullname"
@@ -935,7 +943,6 @@ body.vt-modal-active {
 
             <div class="vt-field">
                 <label>Số điện thoại *</label>
-
                 <input
                     type="tel"
                     name="phone"
@@ -947,7 +954,6 @@ body.vt-modal-active {
 
             <div class="vt-field">
                 <label>Địa chỉ Email *</label>
-
                 <input
                     type="email"
                     name="email"
@@ -959,7 +965,6 @@ body.vt-modal-active {
 
             <div class="vt-field">
                 <label>SĐT liên hệ khẩn cấp *</label>
-
                 <input
                     type="tel"
                     name="emergency_contact"
@@ -968,11 +973,9 @@ body.vt-modal-active {
                     placeholder="Số điện thoại người thân"
                 >
             </div>
-
         </div>
 
         <div class="vt-field">
-
             <label for="vtPeople" id="vtPeopleLabel">
                 Số người tham gia *
             </label>
@@ -992,21 +995,17 @@ body.vt-modal-active {
                 id="vtPeopleError"
                 role="alert"
             ></div>
-
         </div>
 
         <div class="vt-field">
-
             <label>
                 Ghi chú (chế độ ăn, kích thước áo, lưu ý sức khỏe...)
             </label>
 
             <textarea name="notes" rows="3"><?= vt_h($old['notes']) ?></textarea>
-
         </div>
 
         <div class="vt-summary">
-
             <div class="vt-row">
                 <span>Đơn giá / người:</span>
                 <strong><?= vt_money($tour['price']) ?></strong>
@@ -1014,7 +1013,6 @@ body.vt-modal-active {
 
             <div class="vt-row vt-total">
                 <span>TỔNG TIỀN DỰ KIẾN:</span>
-
                 <strong id="vtTotal">
                     <?= vt_money(
                         (float)$tour['price'] *
@@ -1022,7 +1020,6 @@ body.vt-modal-active {
                     ) ?>
                 </strong>
             </div>
-
         </div>
 
         <button
@@ -1033,7 +1030,6 @@ body.vt-modal-active {
             <i class="fa-solid fa-check"></i>
             XÁC NHẬN ĐĂNG KÝ TOUR
         </button>
-
     </form>
 
     <?php endif; ?>
@@ -1043,9 +1039,7 @@ body.vt-modal-active {
 </div>
 </section>
 
-<?php if ($success && $payment): ?>
-
-<!-- MODAL THANH TOAN NAM NGOAI FORM -->
+<?php if ($success && $payment && !$blockedAccount): ?>
 
 <div
     class="vt-modal-overlay"
@@ -1074,9 +1068,6 @@ body.vt-modal-active {
         </h2>
 
         <div class="vt-payment">
-
-            <!-- ANH QR MOMO -->
-
             <div>
                 <img
                     src="<?= vt_h($qrImage) ?>"
@@ -1085,14 +1076,8 @@ body.vt-modal-active {
                 >
             </div>
 
-            <!-- NOI DUNG CHUYEN KHOAN -->
-
             <div class="vt-paybox">
-
-                <h3>
-                    Thanh toán bằng hình thức chuyển khoản
-                </h3>
-
+                <h3>Thanh toán bằng hình thức chuyển khoản</h3>
                 <p>Số tiền cần chuyển:</p>
 
                 <div class="vt-total">
@@ -1126,9 +1111,7 @@ body.vt-modal-active {
                     Hãy chờ bộ phận quản lý kiểm tra
                     và xác nhận giao dịch.
                 </p>
-
             </div>
-
         </div>
 
         <div class="vt-modal-footer">
@@ -1140,17 +1123,12 @@ body.vt-modal-active {
                 Đóng
             </button>
         </div>
-
     </div>
 </div>
 
 <?php endif; ?>
 
 <script>
-// ==========================================
-// DONG BO SO CHO TREN FORM
-// ==========================================
-
 (function() {
     const form = document.getElementById('vtForm');
     const departure = document.getElementById('vtDeparture');
@@ -1180,7 +1158,8 @@ body.vt-modal-active {
         people.max = String(slots);
 
         label.textContent =
-            'Số người tham gia * (Còn trống ' + slots + ' chỗ)';
+            'Số người tham gia * (Còn trống ' +
+            slots + ' chỗ)';
 
         const valid =
             Number.isInteger(count)
@@ -1247,10 +1226,6 @@ body.vt-modal-active {
     update();
 })();
 
-// ==========================================
-// MO VA DONG POPUP THANH TOAN
-// ==========================================
-
 const vtModal = document.getElementById('vtPaymentModal');
 let vtPreviousFocus = null;
 
@@ -1281,7 +1256,6 @@ function closePaymentModal() {
     }
 }
 
-// Nhan ESC de dong. Giu focus trong modal.
 document.addEventListener('keydown', function(e) {
     if (!vtModal || !vtModal.classList.contains('open')) {
         return;
@@ -1311,10 +1285,6 @@ document.addEventListener('keydown', function(e) {
         }
     }
 });
-
-// ==========================================
-// SAO CHEP NOI DUNG CHUYEN KHOAN
-// ==========================================
 
 async function copyTransfer() {
     const element = document.getElementById('vtTransfer');
