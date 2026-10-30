@@ -175,8 +175,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
         $success = $_SESSION['cod_completed']['order'];
     } elseif ($error !== '') {
         // Giu nguyen loi gio hang.
-    } elseif ($userId <= 0) {
-        $error = 'Vui lòng đăng nhập để đặt hàng.';
     } elseif (
         $token === '' ||
         !hash_equals((string)$_SESSION['cod_token'], $token)
@@ -204,14 +202,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
         try {
             $pdo->beginTransaction();
 
-            $checkUser = $pdo->prepare(
-                "SELECT id FROM users WHERE id = ? LIMIT 1"
-            );
-            $checkUser->execute([$userId]);
-            if (!$checkUser->fetchColumn()) {
-                throw new RuntimeException('Tài khoản không còn tồn tại.');
+            if ($userId > 0) {
+                $checkUser = $pdo->prepare(
+                    "SELECT id FROM users WHERE id = ? LIMIT 1"
+                );
+                $checkUser->execute([$userId]);
+                if (!$checkUser->fetchColumn()) {
+                    throw new RuntimeException('Tài khoản không còn tồn tại.');
+                }
+                $checkUser->closeCursor();
             }
-            $checkUser->closeCursor();
 
             $checkCode = $pdo->prepare(
                 "SELECT id FROM orders WHERE order_code = ? LIMIT 1"
@@ -281,7 +281,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
             ");
 
             $orderInsert->execute([
-                $orderCode, $userId, $fullname, $phone, $email,
+                $orderCode, $userId > 0 ? $userId : null, $fullname, $phone, $email,
                 $address, $paymentMethod, $verifiedShipping,
                 $verifiedTotal, $notes, $status
             ]);
@@ -416,6 +416,7 @@ require_once __DIR__ . '/../includes/header.php';
 <section class="ck-card ck-empty">
     <h3>Đặt hàng thành công!</h3>
     <p>Đơn hàng sẽ sớm được giao đến tay bạn.</p>
+    <?php if ($userId <= 0): ?><p>Khách vãng lai: nhân viên sẽ liên hệ bằng số điện thoại đã nhập. Nếu có thắc mắc, vui lòng liên hệ hotline trên website.</p><?php endif; ?>
     <button class="ck-btn" type="button" onclick="ckOpen()">
         <?= ($success['payment'] ?? 'COD') === 'MoMo'
             ? 'Xem mã QR thanh toán'
@@ -424,11 +425,6 @@ require_once __DIR__ . '/../includes/header.php';
     <a class="ck-link" href="<?= ckH($base) ?>shop/my-orders.php">
         Đơn mua thiết bị của tôi
     </a>
-</section>
-<?php elseif ($userId <= 0): ?>
-<section class="ck-card ck-empty">
-    <h3>Vui lòng đăng nhập để đặt hàng</h3>
-    <a href="<?= ckH($base) ?>auth/login.php">Đăng nhập</a>
 </section>
 <?php elseif (!$items && !$error): ?>
 <section class="ck-card ck-empty">
@@ -535,6 +531,7 @@ require_once __DIR__ . '/../includes/header.php';
     <button type="button" class="ck-close" onclick="ckClose()" aria-label="Đóng">&times;</button>
     <h2>Đặt hàng thành công!</h2>
     <p>Đơn hàng sẽ sớm được giao đến tay bạn.</p>
+    <?php if ($userId <= 0): ?><p>Đơn khách vãng lai: nhân viên sẽ liên hệ bằng điện thoại. Thắc mắc vui lòng liên hệ hotline trên website.</p><?php endif; ?>
 
     <?php if (($success['payment'] ?? 'COD') === 'MoMo'): ?>
         <p><strong>Quét mã MoMo để chuyển khoản</strong></p>
