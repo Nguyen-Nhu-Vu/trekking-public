@@ -1197,6 +1197,15 @@ textarea.tf-input {
         grid-template-columns: 1fr;
     }
 }
+
+/* Xem truoc album anh; khong thay doi cach luu URL. */
+.tf-album-preview-head { margin: 10px 0; font-size: 13px; color: #475569; }
+.tf-album-preview { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 12px; }
+.tf-album-item { min-width: 0; background: #f8fafc; border: 1px solid #dbe4ee; border-radius: 10px; overflow: hidden; }
+.tf-album-item img { display: block; width: 100%; height: 130px; object-fit: cover; }
+.tf-album-caption { padding: 8px; font-size: 12px; color: #475569; overflow-wrap: anywhere; }
+.tf-album-item.is-error { border-color: #fca5a5; background: #fff7f7; }
+.tf-album-item.is-error .tf-album-caption { color: #b91c1c; }
 </style>
 </head>
 
@@ -1594,6 +1603,13 @@ textarea.tf-input {
                         rows="<?= $field === 'schedule' ? '7' : '4' ?>"
                     ><?= tfH($tour[$field] ?? '') ?></textarea>
 
+                    <?php if ($field === 'gallery'): ?>
+                        <div class="tf-album-preview-head" aria-live="polite" id="tfAlbumSummary">
+                            Dán URL ảnh, hình xem trước sẽ xuất hiện ngay bên dưới.
+                        </div>
+                        <div class="tf-album-preview" id="tfAlbumPreview" aria-live="polite"></div>
+                    <?php endif; ?>
+
                 </div>
 
             <?php endforeach; ?>
@@ -1656,6 +1672,53 @@ textarea.tf-input {
     imagePreview?.addEventListener('error', () => {
         imagePreview.style.display = 'none';
     });
+
+
+    // Xem truoc album ngay khi nhap/dan URL, va khi mo form chinh sua.
+    const albumInput = document.getElementById('field-gallery');
+    const albumPreview = document.getElementById('tfAlbumPreview');
+    const albumSummary = document.getElementById('tfAlbumSummary');
+    let albumPreviewTimer;
+    function renderAlbumPreview() {
+        if (!albumInput || !albumPreview || !albumSummary) return;
+        const urls = albumInput.value.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+        albumPreview.replaceChildren();
+        if (!urls.length) {
+            albumSummary.textContent = 'Dán URL ảnh, hình xem trước sẽ xuất hiện ngay bên dưới.';
+            return;
+        }
+        albumSummary.textContent = 'Đang xem trước ' + urls.length + ' ảnh (tối đa 30 ảnh được lưu).';
+        urls.forEach((url, index) => {
+            const card = document.createElement('div');
+            card.className = 'tf-album-item';
+            const caption = document.createElement('div');
+            caption.className = 'tf-album-caption';
+            caption.textContent = 'Ảnh ' + (index + 1);
+            if (!/^https:\/\//i.test(url) && !/^http:\/\//i.test(url)) {
+                card.classList.add('is-error');
+                caption.textContent = 'URL ' + (index + 1) + ' không hợp lệ (cần HTTPS).';
+            } else {
+                const img = document.createElement('img');
+                img.alt = 'Xem trước ảnh album ' + (index + 1);
+                img.loading = 'lazy';
+                img.referrerPolicy = 'no-referrer';
+                img.addEventListener('error', () => {
+                    card.classList.add('is-error');
+                    img.remove();
+                    caption.textContent = 'Không tải được ảnh ' + (index + 1) + '. Kiểm tra URL hoặc quyền truy cập ảnh.';
+                });
+                img.src = url;
+                card.appendChild(img);
+            }
+            card.appendChild(caption);
+            albumPreview.appendChild(card);
+        });
+    }
+    albumInput?.addEventListener('input', () => {
+        clearTimeout(albumPreviewTimer);
+        albumPreviewTimer = setTimeout(renderAlbumPreview, 250);
+    });
+    renderAlbumPreview();
 
     // THEM DONG NGAY KHOI HANH
 
