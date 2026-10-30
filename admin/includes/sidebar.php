@@ -41,10 +41,37 @@ $isAdminHistory = in_array(
     true
 );
 
+
+if (!function_exists('vnnSideUnanswered')) {
+    function vnnSideUnanswered(PDO $pdo): int {
+        try {
+            // One badge for each customer whose latest message has no subsequent staff reply.
+            return (int)$pdo->query("SELECT COUNT(*) FROM (
+                SELECT m.sender_id AS customer_id, MAX(m.id) AS last_customer_id
+                FROM messages m JOIN users u ON u.id = m.sender_id
+                WHERE u.role = 'customer'
+                GROUP BY m.sender_id
+            ) last_message
+            WHERE NOT EXISTS (
+                SELECT 1 FROM messages reply
+                JOIN users staff ON staff.id = reply.sender_id
+                WHERE reply.receiver_id = last_message.customer_id
+                  AND reply.id > last_message.last_customer_id
+                  AND staff.role IN ('admin','manager','staff')
+            )")->fetchColumn();
+        } catch (Throwable $e) {
+            error_log('Chat unanswered badge: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
+$pendingChat = 0;
 $pendingTours = 0;
 $pendingOrders = 0;
 
 if ($role !== 'admin') {
+    $pendingChat = vnnSideUnanswered($pdo);
     $pendingTours = vnnSidePending($pdo, 'tour_bookings');
     $pendingOrders = vnnSidePending($pdo, 'orders');
 }
