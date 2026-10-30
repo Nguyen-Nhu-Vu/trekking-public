@@ -426,6 +426,16 @@ try {
 }
 
 $total = count($bookings);
+$bkPerPage = 10;
+$bkPageCount = max(1, (int)ceil($total / $bkPerPage));
+$bkPage = min($bkPageCount, max(1, (int)($_GET['page'] ?? 1)));
+$bookings = array_slice($bookings, ($bkPage - 1) * $bkPerPage, $bkPerPage);
+$vnnCounts = ['pending' => 0, 'unpaid' => 0];
+try {
+    $counts = $pdo->query("SELECT status, COUNT(*) AS total FROM tour_bookings WHERE status IN ('Chờ xác nhận','Đã xác nhận') GROUP BY status")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $vnnCounts['pending'] = (int)($counts['Chờ xác nhận'] ?? 0);
+    $vnnCounts['unpaid'] = (int)($counts['Đã xác nhận'] ?? 0);
+} catch (Throwable $e) { error_log('Booking pending count: ' . $e->getMessage()); }
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -556,7 +566,7 @@ $total = count($bookings);
 
 .bk-table {
     width: 100%;
-    min-width: 1260px;
+    min-width: 1100px;
     border-collapse: collapse;
     table-layout: fixed;
 }
@@ -638,7 +648,9 @@ $total = count($bookings);
 .bk-status {
     display: block;
     width: 100%;
-    min-width: 150px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
     height: 44px;
     padding: 0 9px;
 
@@ -806,7 +818,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
         <div style="padding:13px 17px;border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;margin-bottom:16px;line-height:1.8;color:#9a3412;font-size:13px">
             <strong><i class="fa-solid fa-bell"></i> Cần xử lý:</strong>
             <strong><?= (int)($vnnCounts['pending'] ?? 0) ?></strong> tour chờ xác nhận;
-            <strong><?= (int)($vnnCounts['unpaid'] ?? 0) ?></strong> tour đã xác nhận, chưa thanh toán.
+            <strong><?= (int)($vnnCounts['unpaid'] ?? 0) ?></strong> chưa thanh toán.
         </div>
 
 
@@ -869,13 +881,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
                              TRANG THAI 16% THAY VI 10% -->
 
                         <colgroup>
-                            <col style="width:16%">
-                            <col style="width:20%">
+                            <col style="width:15%">
+                            <col style="width:18%">
                             <col style="width:18%">
                             <col style="width:12%">
                             <col style="width:8%">
                             <col style="width:10%">
-                            <col style="width:16%">
+                            <col style="width:19%">
                         </colgroup>
 
                         <thead>
@@ -1064,6 +1076,13 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     </table>
 
                 </div>
+<?php if ($bkPageCount > 1): ?>
+<nav class="vnn-pagination" aria-label="Phân trang" style="display:flex;gap:7px;justify-content:center;align-items:center;flex-wrap:wrap;padding:18px 10px">
+<?php for ($n = 1; $n <= $bkPageCount; $n++): ?>
+<a href="?<?= http_build_query(['status' => $filter, 'page' => $n]) ?>" style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;border-radius:8px;padding:0 10px;text-decoration:none;border:1px solid #cbd5e1;background:<?= $n === $bkPage ? '#0f766e' : '#fff' ?>;color:<?= $n === $bkPage ? '#fff' : '#0f172a' ?>;font-weight:700" <?= $n === $bkPage ? 'aria-current="page"' : '' ?>><?= $n ?></a>
+<?php endfor; ?>
+</nav>
+<?php endif; ?>
 
                 <?php if (!$error && !$bookings): ?>
 
