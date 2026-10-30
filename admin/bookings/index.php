@@ -759,6 +759,11 @@ $total = count($bookings);
         flex: 1 1 100%;
     }
 }
+/* Danh dau don tour khach vang lai, khong anh huong cot/trang thai */
+.bk-guest-row { background:#fffbeb !important; }
+.bk-guest-row > td:first-child { border-left:4px solid #f59e0b; }
+.bk-guest-label { display:inline-block;margin-top:7px;padding:3px 9px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:800;font-size:11px; }
+.bk-guest-hint { color:#92400e;font-size:11px;margin-top:3px; }
 </style>
 </head>
 
@@ -954,7 +959,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                             );
                             ?>
 
-                            <tr class="bk-row">
+                            <tr class="bk-row <?= (!isset($booking['user_id']) || $booking['user_id'] === null || (int)$booking['user_id'] === 0) ? 'bk-guest-row' : '' ?>">
 
                                 <td>
                                     <span class="bk-code">
@@ -974,6 +979,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                             <?= bkEsc($phone) ?>
                                         </div>
 
+                                    <?php endif; ?>
+
+                                    <?php if (!isset($booking['user_id']) || $booking['user_id'] === null || (int)$booking['user_id'] === 0): ?>
+                                        <div class="bk-guest-label">Khách vãng lai</div>
+                                        <div class="bk-guest-hint">Chỉ liên hệ qua số điện thoại</div>
                                     <?php endif; ?>
 
                                 </td>
