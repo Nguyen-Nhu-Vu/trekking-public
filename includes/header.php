@@ -23,7 +23,6 @@ $navItems = [
     ['home', 'index.php', 'TRANG CHỦ'],
     ['tour', 'tours/tour.php', 'TOUR TREKKING'],
     ['leaders', 'pages/leaders.php', 'HƯỚNG DẪN VIÊN'],
-    ['location', 'pages/locations.php', 'ĐỊA ĐIỂM'],
     ['shop', 'shop/shop.php', 'CỬA HÀNG'],
     ['blog', 'pages/blog.php', 'BÀI VIẾT'],
     ['contact', 'pages/contact.php', 'LIÊN HỆ']
