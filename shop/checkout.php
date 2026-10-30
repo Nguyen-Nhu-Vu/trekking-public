@@ -81,22 +81,14 @@ if ($userId > 0) {
     }
 }
 
-// ==========================================
-// KIEM TRA QUYEN DAT HANG
-// ==========================================
-// Khach vang lai: duoc mua.
-// Customer: duoc mua.
-// Admin / Manager / Staff: khong duoc mua.
-
+// KHACH VANG LAI VA CUSTOMER DUOC MUA.
+// CAC TAI KHOAN KHAC BI CHAN.
 $blockedBuyer = $userId > 0 && (
     !$user ||
     strtolower(trim((string)($user['role'] ?? ''))) !== 'customer'
 );
 
 if ($blockedBuyer) {
-    // Khong goi http_response_code(403) de tranh canh bao
-    // headers already sent tren moi truong deploy hien tai.
-
     require_once __DIR__ . '/../includes/header.php';
     ?>
 
@@ -129,21 +121,9 @@ if ($blockedBuyer) {
                 <i class="fa-solid fa-user-lock"></i>
             </div>
 
-            <h2 style="color:#b91c1c;margin-bottom:14px">
+            <h2 style="color:#b91c1c;margin-bottom:24px">
                 Tài khoản không có quyền mua hàng
             </h2>
-
-            <p style="color:#475569;line-height:1.8">
-                Tài khoản Admin, Quản lý và Nhân viên
-                chỉ được dùng để quản trị hệ thống,
-                không được đặt hàng trên website.
-            </p>
-
-            <p style="color:#475569;line-height:1.8">
-                Chỉ tài khoản Khách hàng hoặc
-                khách vãng lai chưa đăng nhập
-                mới có thể mua hàng.
-            </p>
 
             <a href="<?= ckH($base) ?>shop/shop.php"
                class="btn btn-primary"
@@ -229,6 +209,7 @@ try {
 }
 
 $subtotal = array_sum(array_column($items, 'total'));
+
 $shippingFee = $subtotal > 0 && $subtotal < 1000000
     ? 35000
     : 0;
@@ -259,9 +240,10 @@ $old = [
 // XU LY DAT HANG
 // ==========================================
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['place_order'])) {
-
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['place_order'])
+) {
     $token = (string)($_POST['cod_token'] ?? '');
     $submittedCode = (string)($_POST['order_code'] ?? '');
 
