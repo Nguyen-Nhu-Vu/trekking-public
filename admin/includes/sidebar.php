@@ -41,6 +41,7 @@ $isAdminHistory = in_array(
     true
 );
 
+
 if (!function_exists('vnnSideUnanswered')) {
     function vnnSideUnanswered(PDO $pdo): int {
         try {
@@ -382,13 +383,6 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
                 'fa-warehouse',
                 'Dụng Cụ, Kho & Danh Mục',
                 $current_page === 'products'
-            );
-
-            vnnSideMenuLink(
-                $base.'admin/locations/',
-                'fa-map-location-dot',
-                'Điểm Đến Trekking',
-                $current_page === 'locations'
             );
 
             vnnSideMenuLink(
