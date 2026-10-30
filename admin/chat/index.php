@@ -226,6 +226,29 @@ function showCustomers() {
     }
 }
 
+// Menu badge and blue dots always use the exact same API result.
+function syncChatSidebarBadge() {
+    const count = customers.filter(c => Number(c.needs_reply) === 1).length;
+    const menu = Array.from(document.querySelectorAll('.vnn-nav-link'))
+        .find(a => {
+            try { return new URL(a.href, location.href).pathname.replace(/\/+$/, '') ===
+                new URL(<?= json_encode($base . 'admin/chat/', JSON_UNESCAPED_SLASHES) ?>, location.href).pathname.replace(/\/+$/, ''); }
+            catch (_) { return false; }
+        });
+    if (!menu) return;
+    let badge = menu.querySelector('.vnn-nav-count');
+    if (count === 0) {
+        if (badge) badge.remove();
+    } else {
+        if (!badge) {
+            badge = document.createElement('b');
+            badge.className = 'vnn-nav-count';
+            menu.appendChild(badge);
+        }
+        badge.textContent = count > 99 ? '99+' : String(count);
+    }
+}
+
 async function loadCustomers() {
     if (loadingCustomers) return;
     loadingCustomers = true;
@@ -233,6 +256,7 @@ async function loadCustomers() {
     try {
         const res = await request('get_conversations');
         customers = Array.isArray(res.data) ? res.data : [];
+        syncChatSidebarBadge();
         showCustomers();
 
         if (!selected && customers.length) {
