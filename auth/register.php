@@ -1,3 +1,4 @@
+
 <?php
 // trekking/auth/register.php
 $page_title = "Đăng Ký Tài Khoản Khách Hàng";
@@ -21,13 +22,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $chk = $pdo->prepare("SELECT id FROM users WHERE LOWER(email) = LOWER(?)");
         $chk->execute([$email]);
+
         if ($chk->fetch()) {
             $error = "Email này đã được đăng ký tài khoản!";
         } else {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare("INSERT INTO users (fullname, email, password, phone, role, status) VALUES (?, ?, ?, ?, 'customer', 1)");
-            $stmt->execute([$fullname, $email, $hashed, $phone]);
-            $msg = "Đăng ký tài khoản thành công! Bạn có thể đăng nhập ngay bây giờ.";
+
+            $stmt = $pdo->prepare("
+                INSERT INTO users
+                (fullname, email, password, phone, role, status)
+                VALUES (?, ?, ?, ?, 'customer', 1)
+            ");
+
+            $stmt->execute([
+                $fullname,
+                $email,
+                $hashed,
+                $phone
+            ]);
+
+            // Đăng ký thành công: tự động sang trang đăng nhập.
+            header("Location: " . rtrim(BASE_URL, '/') . "/auth/login.php", true, 303);
+            exit;
         }
     }
 }
@@ -39,38 +55,90 @@ require_once __DIR__ . '/../includes/header.php';
     <div style="max-width:480px; margin:0 auto; background:white; padding:35px; border-radius:12px; box-shadow:var(--shadow-lg);">
         <h2 style="text-align:center; color:var(--primary); margin-bottom:20px;">ĐĂNG KÝ THÀNH VIÊN</h2>
 
-        <?php if ($msg): ?><div class="alert alert-success"><?= $msg ?></div><?php endif; ?>
-        <?php if ($error): ?><div class="alert alert-error"><?= $error ?></div><?php endif; ?>
+        <?php if ($msg): ?>
+            <div class="alert alert-success">
+                <?= $msg ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($error): ?>
+            <div class="alert alert-error">
+                <?= $error ?>
+            </div>
+        <?php endif; ?>
 
         <form action="" method="POST">
             <div class="form-group">
                 <label>Họ và tên *</label>
-                <input type="text" name="fullname" class="form-control" required placeholder="Nguyễn Văn A">
-            </div>
-            <div class="form-group">
-                <label>Địa chỉ Email Google (Gmail) *</label>
-                <input type="email" name="email" class="form-control" required placeholder="taikhoan@gmail.com">
-            </div>
-            <div class="form-group">
-                <label>Số điện thoại</label>
-                <input type="tel" name="phone" class="form-control" placeholder="09xxxxxxxx">
-            </div>
-            <div class="form-group">
-                <label>Mật khẩu *</label>
-                <input type="password" name="password" class="form-control" required placeholder="Tối thiểu 6 ký tự">
-            </div>
-            <div class="form-group">
-                <label>Nhập lại mật khẩu *</label>
-                <input type="password" name="repassword" class="form-control" required placeholder="Nhập lại mật khẩu">
+                <input
+                    type="text"
+                    name="fullname"
+                    class="form-control"
+                    required
+                    placeholder="Nguyễn Văn A"
+                >
             </div>
 
-            <button type="submit" class="btn btn-accent" style="width:100%; padding:12px; font-size:1.05rem; margin-top:10px;">
+            <div class="form-group">
+                <label>Địa chỉ Email Google (Gmail) *</label>
+                <input
+                    type="email"
+                    name="email"
+                    class="form-control"
+                    required
+                    placeholder="taikhoan@gmail.com"
+                >
+            </div>
+
+            <div class="form-group">
+                <label>Số điện thoại</label>
+                <input
+                    type="tel"
+                    name="phone"
+                    class="form-control"
+                    placeholder="09xxxxxxxx"
+                >
+            </div>
+
+            <div class="form-group">
+                <label>Mật khẩu *</label>
+                <input
+                    type="password"
+                    name="password"
+                    class="form-control"
+                    required
+                    placeholder="Tối thiểu 6 ký tự"
+                >
+            </div>
+
+            <div class="form-group">
+                <label>Nhập lại mật khẩu *</label>
+                <input
+                    type="password"
+                    name="repassword"
+                    class="form-control"
+                    required
+                    placeholder="Nhập lại mật khẩu"
+                >
+            </div>
+
+            <button
+                type="submit"
+                class="btn btn-accent"
+                style="width:100%; padding:12px; font-size:1.05rem; margin-top:10px;"
+            >
                 ĐĂNG KÝ NGAY
             </button>
         </form>
 
         <div style="text-align:center; margin-top:20px; font-size:0.9rem;">
-            Đã có tài khoản? <a href="<?= BASE_URL ?>auth/login.php" style="color:var(--primary); font-weight:bold;">Đăng nhập tại đây</a>
+            Đã có tài khoản?
+            <a
+                href="<?= BASE_URL ?>auth/login.php"
+                style="color:var(--primary); font-weight:bold;"
+            >
+                Đăng nhập tại đây
+            </a>
         </div>
     </div>
 </div>
