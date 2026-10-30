@@ -292,7 +292,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             pfJson(
                 true,
-                'Đã lưu thay đổi sản phẩm thành công.'
+                'Cập nhật sản phẩm thành công!'
             );
 
         } else {
@@ -340,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             pfJson(
                 true,
-                'Đã thêm sản phẩm mới thành công.'
+                'Thêm sản phẩm thành công!'
             );
         }
 
@@ -1102,7 +1102,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
         saveSucceeded = success;
 
         popupTitle.textContent = success
-            ? 'Thành công!'
+            ? 'Cập nhật thành công!'
             : 'Không thành công';
 
         popupMessage.textContent = message;
