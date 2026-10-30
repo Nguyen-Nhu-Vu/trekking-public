@@ -80,6 +80,7 @@ $revenueDone = vnnDashSum(
 $baseUrl = rtrim(BASE_URL, '/') . '/';
 $adminUrl = $baseUrl . 'admin/';
 
+$role = getRole();
 $quickItems = [
     [
         'title' => 'Tư vấn khách hàng',
