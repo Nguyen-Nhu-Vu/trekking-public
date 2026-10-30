@@ -24,13 +24,13 @@ $apiUrl = $base . 'chat-api.php';
 <link rel="stylesheet" href="<?= htmlspecialchars($base) ?>assets/css/style.css">
 <link rel="stylesheet" href="<?= htmlspecialchars($base) ?>assets/css/admin.css">
 <style>
-.vc-layout{display:grid;grid-template-columns:320px minmax(0,1fr);height:calc(100vh - 140px);min-height:520px;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0}
-.vc-left{display:flex;flex-direction:column;min-width:0;border-right:1px solid #e2e8f0}
+.vc-layout{display:grid;grid-template-columns:320px minmax(0,1fr);height:100%;min-height:0;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0}
+.vc-left{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border-right:1px solid #e2e8f0}
 .vc-title{padding:19px;font-weight:800;background:#f8fafc;color:#0f172a}
 .vc-title i{color:#16a34a}
 .vc-search{padding:12px;border-bottom:1px solid #e2e8f0}
 .vc-search input,.vc-input{width:100%;min-width:0;padding:13px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;outline:none}
-.vc-list{flex:1;overflow-y:auto}
+.vc-list{flex:1 1 0;min-height:0;max-height:100%;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#94a3b8 #f8fafc}
 .vc-person{width:100%;border:0;border-bottom:1px solid #f1f5f9;background:#fff;padding:14px;display:flex;gap:10px;align-items:center;text-align:left;cursor:pointer}
  .vc-person:hover,.vc-person.active{background:#f0fdf4}
 .vc-person.unanswered{background:#eff6ff;border-left:4px solid #2563eb;padding-left:10px}
@@ -46,7 +46,7 @@ $apiUrl = $base . 'chat-api.php';
 .vc-right{display:flex;flex-direction:column;min-height:0;min-width:0;background:#f8fafc}
 .vc-head{padding:16px 20px;background:white;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;min-height:82px}
 .vc-online{color:#16a34a;font-size:12px;margin-top:5px}
-.vc-messages{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:20px}
+.vc-messages{flex:1 1 0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:20px}
 .vc-bubble{max-width:75%;padding:11px 15px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .vc-bubble.mine{align-self:flex-end;background:#16a34a;color:white}
 .vc-bubble.theirs{align-self:flex-start;background:white;color:#0f172a;border:1px solid #e2e8f0}
@@ -55,9 +55,9 @@ $apiUrl = $base . 'chat-api.php';
 .vc-state{font-size:11px;margin-top:5px}
 .vc-retry{margin-top:7px;border:1px solid #dc2626;background:white;color:#b91c1c;border-radius:7px;padding:5px 9px;cursor:pointer}
 .vc-empty{text-align:center;color:#94a3b8;padding:30px 10px}
-.vc-form{display:flex;gap:11px;padding:14px;background:white;border-top:1px solid #e2e8f0}
+.vc-form{display:flex !important;flex:0 0 auto;min-height:76px;align-items:center;gap:11px;padding:14px;background:white;border-top:1px solid #e2e8f0;position:relative;z-index:2}
 .vc-input{flex:1}
-.vc-send{padding:0 23px;background:#166534;color:white;border:0;border-radius:10px;font-weight:800;cursor:pointer}
+.vc-send{min-height:46px;padding:0 23px;background:#166534;color:white;border:0;border-radius:10px;font-weight:800;cursor:pointer}
 .vc-send:disabled{opacity:.5}
 @media(max-width:760px){
 .vc-layout{grid-template-columns:145px minmax(0,1fr)}
@@ -69,12 +69,17 @@ $apiUrl = $base . 'chat-api.php';
 .vc-send{padding:0 12px}
 .vc-messages{padding:10px}
 }
+/* Chat fills the available viewport; only conversation panes scroll. */
+body.admin-body{height:100vh;height:100dvh;min-height:0;overflow:hidden}
+.admin-main.vc-main{height:100vh;height:100dvh;min-height:0;overflow:hidden;display:flex;flex-direction:column;padding:24px !important}
+.admin-main.vc-main .vc-layout{flex:1 1 0;min-height:0;max-height:100%}
+@media(max-width:760px){.admin-main.vc-main{padding:10px !important}.vc-form{min-height:64px}}
 </style>
 </head>
 <body class="admin-body">
 <?php require_once __DIR__ . '/../includes/sidebar.php'; ?>
 
-<main class="admin-main" style="padding:24px">
+<main class="admin-main vc-main">
 <div class="vc-layout">
 
 <section class="vc-left">
@@ -260,7 +265,7 @@ function selectCustomer(id, name) {
     $('vcSend').disabled = false;
 
     showCustomers();
-    showMessages(true);
+    $('vcMessages').innerHTML = '<div class="vc-empty">Đang tải tin nhắn...</div>';
     loadMessages();
 }
 
