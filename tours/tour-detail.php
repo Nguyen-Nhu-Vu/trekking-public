@@ -1,3 +1,4 @@
+
 <?php
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -97,10 +98,27 @@ $page_title = $tour['title'];
 $active_menu = 'tour';
 $heroImage = (string)($tour['image'] ?? '');
 $description = (string)($tour['description'] ?? '');
+
+$tourGallery = array_values(array_filter(array_map(
+    'trim',
+    preg_split(
+        '/\r\n|\n|\r/',
+        (string)($tour['gallery'] ?? '')
+    )
+), static fn($url) =>
+    filter_var($url, FILTER_VALIDATE_URL)
+    && in_array(
+        strtolower((string)parse_url($url, PHP_URL_SCHEME)),
+        ['https', 'http'],
+        true
+    )
+));
+
 $schedule = trim((string)($tour['schedule'] ?? ''));
 
 function tdLines($value) {
     $lines = preg_split('/\r\n|\n|\r/', (string)$value);
+
     return array_values(array_filter(
         array_map('trim', $lines),
         fn($line) => $line !== ''
@@ -710,6 +728,28 @@ require_once __DIR__ . '/../includes/header.php';
             </aside>
 
         </section>
+
+        <?php if ($tourGallery): ?>
+        <section id="hinhanh" class="td-section">
+            <div class="td-box">
+                <h2>Hình ảnh hành trình</h2>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+                    <?php foreach ($tourGallery as $url): ?>
+                        <a href="<?= td_h($url) ?>"
+                           target="_blank"
+                           rel="noopener noreferrer">
+                            <img
+                                src="<?= td_h($url) ?>"
+                                loading="lazy"
+                                alt="Hình ảnh tour"
+                                style="width:100%;height:200px;object-fit:cover;border-radius:10px"
+                            >
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </section>
+        <?php endif; ?>
 
         <section id="lichtrinh" class="td-section">
 
