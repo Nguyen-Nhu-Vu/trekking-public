@@ -728,8 +728,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
 
         $successMessage = $isEdit
-            ? 'Đã lưu thay đổi tour và lịch khởi hành.'
-            : 'Đã tạo tour và lịch khởi hành thành công.';
+            ? 'Cập nhật tour thành công!'
+            : 'Thêm tour thành công!';
 
         if (
             ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')
