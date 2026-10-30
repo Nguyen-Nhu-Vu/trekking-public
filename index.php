@@ -1,3 +1,4 @@
+
 <?php
 $page_title = "Trang Chủ - VNN Travel";
 $active_menu = 'home';
@@ -570,6 +571,16 @@ require_once __DIR__ . '/includes/header.php';
 
         <?php endforeach; ?>
 
+    </div>
+
+    <div style="text-align:center;margin-top:35px">
+        <a
+            href="<?= BASE_URL ?>shop/shop.php"
+            class="btn btn-outline"
+            style="padding:12px 35px;border-radius:30px;font-weight:bold;"
+        >
+            Xem tất cả các sản phẩm &rarr;
+        </a>
     </div>
 
 </section>
