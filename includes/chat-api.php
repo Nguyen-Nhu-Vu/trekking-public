@@ -80,7 +80,16 @@ try {
                         OR
                         (m.receiver_id = u.id
                           AND s.role IN ('manager','staff','admin'))
-                ) AS last_message_id
+                ) AS last_message_id,
+                (
+                    SELECT CASE WHEN s.role = 'customer' THEN 1 ELSE 0 END
+                    FROM messages m
+                    JOIN users s ON s.id = m.sender_id
+                    JOIN users r ON r.id = m.receiver_id
+                    WHERE (m.sender_id = u.id AND r.role IN ('manager','staff','admin'))
+                       OR (m.receiver_id = u.id AND s.role IN ('manager','staff','admin'))
+                    ORDER BY m.id DESC LIMIT 1
+                ) AS needs_reply
             FROM users u
             WHERE u.role = 'customer'
             ORDER BY
