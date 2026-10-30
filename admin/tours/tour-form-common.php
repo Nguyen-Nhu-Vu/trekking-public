@@ -1,3 +1,4 @@
+
 <?php
 /*
  * VNN Travel - Form them / sua Tour
@@ -86,7 +87,8 @@ $defaults = [
     'includes' => '',
     'excludes' => '',
     'requirements' => '',
-    'safety_notes' => ''
+    'safety_notes' => '',
+    'gallery' => ''
 ];
 
 $tour = $defaults;
@@ -163,7 +165,8 @@ $fields = [
     'includes',
     'excludes',
     'requirements',
-    'safety_notes'
+    'safety_notes',
+    'gallery'
 ];
 
 $labels = [
@@ -184,7 +187,8 @@ $labels = [
     'includes' => 'Dịch vụ bao gồm',
     'excludes' => 'Không bao gồm',
     'requirements' => 'Đồ khách cần chuẩn bị',
-    'safety_notes' => 'Lưu ý và chính sách hoàn/hủy'
+    'safety_notes' => 'Lưu ý và chính sách hoàn/hủy',
+    'gallery' => 'Album ảnh Tour (mỗi dòng một URL HTTPS)'
 ];
 
 $textareas = [
@@ -193,7 +197,8 @@ $textareas = [
     'includes',
     'excludes',
     'requirements',
-    'safety_notes'
+    'safety_notes',
+    'gallery'
 ];
 
 $difficulties = [
@@ -301,6 +306,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (strlen($selectedImage) > 2000) {
             throw new RuntimeException('URL ảnh quá dài.');
         }
+
         $checkLeader = $pdo->prepare("
             SELECT fullname
             FROM trekking_leaders
@@ -425,6 +431,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
+        // Album ảnh tour, mỗi dòng một URL ảnh công khai.
+        $galleryUrls = preg_split('/\r\n|\n|\r/', (string)($tour['gallery'] ?? ''));
+        $galleryUrls = array_values(array_filter(array_map('trim', $galleryUrls)));
+        if (count($galleryUrls) > 30) {
+            throw new RuntimeException('Album tối đa 30 ảnh.');
+        }
+        foreach ($galleryUrls as $url) {
+            $parts = parse_url($url);
+            if (strlen($url) > 2048 || !filter_var($url, FILTER_VALIDATE_URL)
+                || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['https','http'], true)
+                || isset($parts['user']) || isset($parts['pass'])) {
+                throw new RuntimeException('URL ảnh trong album không hợp lệ: ' . $url);
+            }
+        }
+        $tour['gallery'] = implode("\n", $galleryUrls);
+
         /* ==================================
            TRANSACTION
            ================================== */
@@ -453,7 +475,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     includes = ?,
                     excludes = ?,
                     requirements = ?,
-                    safety_notes = ?
+                    safety_notes = ?,
+                    gallery = ?
                 WHERE id = ?
             ");
 
@@ -478,6 +501,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $tour['excludes'],
                 $tour['requirements'],
                 $tour['safety_notes'],
+                $tour['gallery'],
                 $tourId
             ]);
 
@@ -491,11 +515,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     meeting_point, transport, image,
                     description, schedule, includes,
                     excludes, requirements, safety_notes,
-                    status
+                    gallery, status
                 )
                 VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1
                 )
             ");
 
@@ -519,7 +543,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $tour['includes'],
                 $tour['excludes'],
                 $tour['requirements'],
-                $tour['safety_notes']
+                $tour['safety_notes'],
+                $tour['gallery']
             ]);
 
             $tourId = (int)$pdo->lastInsertId();
@@ -678,11 +703,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo->commit();
 
-        $_SESSION['tour_form_notice'] = $isEdit
+        require_once __DIR__ . '/../includes/audit.php';
+        vnnAuditChange(
+            $pdo,
+            'content',
+            $isEdit ? 'Sửa tour' : 'Thêm tour',
+            'tours',
+            $tourId,
+            $isEdit ? 'Thông tin tour cũ' : '',
+            'Đã cập nhật thông tin tour và lịch khởi hành'
+        );
+
+        $successMessage = $isEdit
             ? 'Đã lưu thay đổi tour và lịch khởi hành.'
             : 'Đã tạo tour và lịch khởi hành thành công.';
 
-        header('Location: index.php', true, 303);
+        if (
+            ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')
+            === 'XMLHttpRequest'
+        ) {
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            if (!headers_sent()) {
+                header(
+                    'Content-Type: application/json; charset=utf-8'
+                );
+            }
+
+            echo json_encode([
+                'success' => true,
+                'message' => $successMessage
+            ], JSON_UNESCAPED_UNICODE);
+
+            exit;
+        }
+
+        $_SESSION['tour_form_notice'] = $successMessage;
+
+        if (!headers_sent()) {
+            header('Location: index.php', true, 303);
+            exit;
+        }
+
+        echo '<script>location.replace("index.php")</script>';
         exit;
 
     } catch (Throwable $e) {
@@ -695,6 +760,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = $e instanceof RuntimeException
             ? $e->getMessage()
             : 'Không thể lưu tour. Vui lòng thử lại.';
+
+        if (
+            ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')
+            === 'XMLHttpRequest'
+        ) {
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            if (!headers_sent()) {
+                header(
+                    'Content-Type: application/json; charset=utf-8'
+                );
+                http_response_code(422);
+            }
+
+            echo json_encode([
+                'success' => false,
+                'message' => $error
+            ], JSON_UNESCAPED_UNICODE);
+
+            exit;
+        }
     }
 }
 
@@ -714,8 +802,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <link rel="stylesheet"
  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
-<link rel="stylesheet" href="../../assets/css/style.css">
-<link rel="stylesheet" href="../../assets/css/admin.css">
+<link rel="stylesheet"
+ href="../../assets/css/style.css">
+
+<link rel="stylesheet"
+ href="../../assets/css/admin.css">
 
 <style>
 * {
@@ -1527,6 +1618,11 @@ textarea.tf-input {
 </section>
 </main>
 
+<div class="tf-prompt" id="tourSavePopup"><div class="tf-prompt-box">
+<h2>Thông báo</h2><p id="tourSaveMessage"></p>
+<button type="button" class="tf-btn" id="tourSaveOK">Đồng ý</button>
+</div></div>
+
 <!-- POPUP LOI KIEM TRA -->
 <div class="tf-prompt" id="errorPopup">
     <div class="tf-prompt-box">
@@ -1545,16 +1641,19 @@ textarea.tf-input {
     const form = document.getElementById('tourForm');
     const urlInput = document.getElementById('tourImageUrl');
     const imagePreview = document.getElementById('tourPreview');
+
     urlInput?.addEventListener('input', () => {
         const value = urlInput.value.trim();
         imagePreview.src = value;
-        imagePreview.style.display = /^https?:\/\//i.test(value) ? 'block' : 'none';
+        imagePreview.style.display =
+            /^https?:\/\//i.test(value) ? 'block' : 'none';
     });
-    imagePreview?.addEventListener('error', () => { imagePreview.style.display = 'none'; });
 
-    // ======================================
+    imagePreview?.addEventListener('error', () => {
+        imagePreview.style.display = 'none';
+    });
+
     // THEM DONG NGAY KHOI HANH
-    // ======================================
 
     const departureContainer =
         document.getElementById('newDepartures');
@@ -1601,9 +1700,7 @@ textarea.tf-input {
         row.remove();
     };
 
-    // ======================================
     // KIEM TRA TRUOC KHI LUU
-    // ======================================
 
     function popup(message) {
         document.getElementById(
@@ -1623,7 +1720,9 @@ textarea.tf-input {
         ).classList.remove('open');
     });
 
-    form?.addEventListener('submit', function(event) {
+    form?.addEventListener('submit', async function(event) {
+        event.preventDefault();
+
         const dates = Array.from(
             form.querySelectorAll(
                 'input[name="new_departure_date[]"]'
@@ -1638,9 +1737,59 @@ textarea.tf-input {
 
         const save = document.getElementById('saveTour');
 
-        if (save && form.checkValidity()) {
+        if (!form.reportValidity()) return;
+
+        const original = save?.innerHTML || '';
+
+        if (save) {
             save.disabled = true;
             save.textContent = 'ĐANG LƯU...';
+        }
+
+        try {
+            const response = await fetch(location.href, {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: new FormData(form),
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            const raw = await response.text();
+            const data = JSON.parse(
+                raw.replace(/^\uFEFF/, "").trim()
+            );
+
+            document.getElementById(
+                'tourSaveMessage'
+            ).textContent =
+                data.message || 'Đã xử lý yêu cầu.';
+
+            document.getElementById(
+                'tourSavePopup'
+            ).classList.add('open');
+
+            document.getElementById(
+                'tourSaveOK'
+            ).onclick = () => {
+                document.getElementById(
+                    'tourSavePopup'
+                ).classList.remove('open');
+
+                if (data.success) {
+                    window.location.assign('index.php');
+                }
+            };
+
+        } catch (error) {
+            popup('Không thể lưu tour. Vui lòng thử lại.');
+        } finally {
+            if (save) {
+                save.disabled = false;
+                save.innerHTML = original;
+            }
         }
     });
 })();
