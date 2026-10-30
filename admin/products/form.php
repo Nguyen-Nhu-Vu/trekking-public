@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -235,14 +236,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($selectedImage === '') {
             throw new RuntimeException('Vui lòng nhập URL ảnh.');
         }
+
         if (!filter_var($selectedImage, FILTER_VALIDATE_URL) ||
             !in_array(strtolower((string)parse_url($selectedImage, PHP_URL_SCHEME)), ['http','https'], true)) {
             throw new RuntimeException('URL ảnh phải bắt đầu bằng http:// hoặc https:// và hợp lệ.');
         }
+
         if (strlen($selectedImage) > 2000) {
             throw new RuntimeException('URL ảnh quá dài.');
         }
-        
+
         /* CAP NHAT SAN PHAM */
 
         if ($isEdit) {
@@ -274,6 +277,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $status,
                 $id
             ]);
+
+            require_once __DIR__ . '/../includes/audit.php';
+
+            vnnAuditChange(
+                $pdo,
+                'inventory',
+                'Sửa sản phẩm',
+                'products',
+                $id,
+                (string)($record['name'] ?? ''),
+                $name
+            );
 
             pfJson(
                 true,
@@ -310,6 +325,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $description,
                 $status
             ]);
+
+            require_once __DIR__ . '/../includes/audit.php';
+
+            vnnAuditChange(
+                $pdo,
+                'inventory',
+                'Thêm sản phẩm',
+                'products',
+                (int)$pdo->lastInsertId(),
+                '',
+                $name
+            );
 
             pfJson(
                 true,
@@ -919,14 +946,34 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             <section class="pf-section">
                 <h2>Ảnh sản phẩm bằng URL</h2>
+
                 <div class="pf-field">
-                    <label for="productImageUrl">Dán đường dẫn ảnh *</label>
-                    <input class="pf-input" type="url" name="image" id="productImageUrl"
-                           maxlength="2000" required placeholder="https://example.com/san-pham.jpg"
-                           value="<?= pfh($currentImage) ?>">
-                    <p class="pf-note">Chỉ dùng URL ảnh công khai (HTTP/HTTPS). Khi sửa có thể thay URL hoặc giữ nguyên ảnh cũ.</p>
-                    <img id="productPreview" src="<?= pfh($currentImage) ?>" alt="Xem trước ảnh sản phẩm"
-                         style="display:<?= $currentImage ? 'block' : 'none' ?>;max-width:240px;max-height:175px;object-fit:cover;border-radius:10px;margin-top:12px">
+                    <label for="productImageUrl">
+                        Dán đường dẫn ảnh *
+                    </label>
+
+                    <input
+                        class="pf-input"
+                        type="url"
+                        name="image"
+                        id="productImageUrl"
+                        maxlength="2000"
+                        required
+                        placeholder="https://example.com/san-pham.jpg"
+                        value="<?= pfh($currentImage) ?>"
+                    >
+
+                    <p class="pf-note">
+                        Chỉ dùng URL ảnh công khai (HTTP/HTTPS).
+                        Khi sửa có thể thay URL hoặc giữ nguyên ảnh cũ.
+                    </p>
+
+                    <img
+                        id="productPreview"
+                        src="<?= pfh($currentImage) ?>"
+                        alt="Xem trước ảnh sản phẩm"
+                        style="display:<?= $currentImage ? 'block' : 'none' ?>;max-width:240px;max-height:175px;object-fit:cover;border-radius:10px;margin-top:12px"
+                    >
                 </div>
             </section>
 
@@ -953,15 +1000,12 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     class="pf-btn"
                     type="submit"
                     id="saveProduct"
-
                 >
-
                     <i class="fa-solid fa-floppy-disk"></i>
 
                     <?= $isEdit
                         ? 'Lưu thay đổi'
                         : 'Thêm sản phẩm' ?>
-
                 </button>
 
                 <a href="index.php" class="pf-btn gray">
@@ -1075,30 +1119,38 @@ require_once __DIR__ . '/../includes/sidebar.php';
         popup.hidden = false;
 
         popupOK.focus();
-
     }
 
     popupOK.addEventListener('click', function() {
 
         if (saveSucceeded) {
-
             window.location.assign('index.php');
-
         } else {
-
             popup.hidden = true;
-
         }
 
     });
 
-    const productUrlInput = document.getElementById('productImageUrl');
-    const productPreview = document.getElementById('productPreview');
+    const productUrlInput = document.getElementById(
+        'productImageUrl'
+    );
+
+    const productPreview = document.getElementById(
+        'productPreview'
+    );
+
     productUrlInput?.addEventListener('input', () => {
         productPreview.src = productUrlInput.value.trim();
-        productPreview.style.display = /^https?:\/\//i.test(productUrlInput.value.trim()) ? 'block' : 'none';
+
+        productPreview.style.display =
+            /^https?:\/\//i.test(productUrlInput.value.trim())
+                ? 'block'
+                : 'none';
     });
-    productPreview?.addEventListener('error', () => { productPreview.style.display = 'none'; });
+
+    productPreview?.addEventListener('error', () => {
+        productPreview.style.display = 'none';
+    });
 
     /* =====================================
        LUU BANG AJAX - KHONG CHUYEN TRANG
@@ -1157,16 +1209,12 @@ require_once __DIR__ . '/../includes/sidebar.php';
             let data;
 
             try {
-
                 data = JSON.parse(raw);
-
             } catch (parseError) {
-
                 throw new Error(
                     'Máy chủ trả về phản hồi không hợp lệ. ' +
                     'Vui lòng kiểm tra phiên đăng nhập hoặc lỗi PHP.'
                 );
-
             }
 
             showPopup(
@@ -1190,7 +1238,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
             saveButton.disabled = false;
 
             saveButton.innerHTML = originalHTML;
-
         }
 
     });
