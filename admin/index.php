@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -81,7 +82,40 @@ $baseUrl = rtrim(BASE_URL, '/') . '/';
 $adminUrl = $baseUrl . 'admin/';
 
 $role = getRole();
-$quickItems = [
+$isEmployee = ($role === 'staff');
+
+$quickItems = $isEmployee ? [
+    [
+        'title' => 'Chat Trực Tuyến',
+        'description' => 'Tiếp nhận và trả lời tin nhắn khách hàng.',
+        'icon' => 'fa-comments',
+        'link' => $adminUrl . 'chat/'
+    ],
+    [
+        'title' => 'Duyệt Tour',
+        'description' => 'Xử lý các đăng ký tour trekking.',
+        'icon' => 'fa-ticket',
+        'link' => $adminUrl . 'bookings/'
+    ],
+    [
+        'title' => 'Duyệt Đơn Hàng',
+        'description' => 'Kiểm tra và xử lý đơn mua hàng.',
+        'icon' => 'fa-box',
+        'link' => $adminUrl . 'orders/'
+    ],
+    [
+        'title' => 'Đánh Giá Từ Khách',
+        'description' => 'Xem và xử lý đánh giá của khách hàng.',
+        'icon' => 'fa-star',
+        'link' => $adminUrl . 'reviews/'
+    ],
+    [
+        'title' => 'Tin Nhắn Liên Hệ',
+        'description' => 'Theo dõi và xử lý nội dung liên hệ.',
+        'icon' => 'fa-envelope',
+        'link' => $adminUrl . 'contacts/'
+    ]
+] : [
     [
         'title' => 'Tư vấn khách hàng',
         'description' => 'Tiếp nhận và trả lời tin nhắn.',
@@ -411,7 +445,7 @@ $quickItems = [
 
 <main class="admin-main vnn-dashboard">
     <header class="vnn-dashboard-header">
-        <h1>HỆ THỐNG QUẢN LÝ VNN TRAVEL</h1>
+        <h1><?= $isEmployee ? 'HỆ THỐNG NHÂN VIÊN VNN TRAVEL' : 'HỆ THỐNG QUẢN LÝ VNN TRAVEL' ?></h1>
 
         <a href="<?= vnnDashH($baseUrl . 'auth/logout.php') ?>"
            class="vnn-dashboard-logout">
@@ -423,15 +457,20 @@ $quickItems = [
     <div class="vnn-dashboard-body">
         <section class="vnn-dashboard-hero">
             <span class="vnn-dashboard-hero-label">
-                TRANG QUẢN LÝ HỆ THỐNG
+                <?= $isEmployee ? 'TRANG LÀM VIỆC NHÂN VIÊN' : 'TRANG QUẢN LÝ HỆ THỐNG' ?>
             </span>
             <h2>Chào mừng trở lại!</h2>
             <p>
+                <?php if ($isEmployee): ?>
+                Tiếp nhận tin nhắn, duyệt đăng ký tour và đơn hàng, theo dõi đánh giá và liên hệ của khách hàng VNN Travel.
+                <?php else: ?>
                 Điều hành tour trekking, kho hàng dã ngoại,
                 đơn hàng và chăm sóc khách hàng của VNN Travel.
+                <?php endif; ?>
             </p>
         </section>
 
+        <?php if (!$isEmployee): ?>
         <section class="vnn-dashboard-stats">
             <div class="vnn-dashboard-stat">
                 <div class="vnn-dashboard-stat-label">Khách hàng</div>
@@ -475,6 +514,7 @@ $quickItems = [
                 </div>
             </div>
         </section>
+        <?php endif; ?>
 
         <section class="vnn-dashboard-section">
             <h3>
