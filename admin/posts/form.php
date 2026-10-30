@@ -49,47 +49,15 @@ if (!function_exists('postFormJson')) {
     }
 }
 
-if (!function_exists('postValidImageUrl')) {
-    function postValidImageUrl(string $url): bool {
-        if (
-            $url === '' ||
-            strlen($url) > 2048 ||
-            preg_match('/[\x00-\x20\x7f]/', $url)
-        ) {
-            return false;
-        }
-
-        $parts = parse_url($url);
-
-        if (!is_array($parts)) {
-            return false;
-        }
-
-        $scheme = strtolower($parts['scheme'] ?? '');
-        $host = $parts['host'] ?? '';
-
-        if (
-            !in_array($scheme, ['http', 'https'], true) ||
-            $host === '' ||
-            isset($parts['user']) ||
-            isset($parts['pass'])
-        ) {
-            return false;
-        }
-
-        return filter_var($url, FILTER_VALIDATE_URL) !== false;
-    }
-}
-
-/* ==========================================
+/* ============================================
    CSRF
-   ========================================== */
+   ============================================ */
 
-if (empty($_SESSION['post_csrf'])) {
-    $_SESSION['post_csrf'] = bin2hex(random_bytes(32));
+if (empty($_SESSION['posts_csrf'])) {
+    $_SESSION['posts_csrf'] = bin2hex(random_bytes(32));
 }
 
-$csrf = (string)$_SESSION['post_csrf'];
+$csrf = (string)$_SESSION['posts_csrf'];
 
 $id = filter_var(
     $_GET['id'] ?? $_POST['id'] ?? 0,
@@ -97,10 +65,12 @@ $id = filter_var(
 ) ?: 0;
 
 $isEdit = $id > 0;
+$error = '';
 
 $post = [
     'title' => '',
     'slug' => '',
+    'category' => 'Tin tức',
     'excerpt' => '',
     'content' => '',
     'image' => '',
@@ -108,11 +78,10 @@ $post = [
 ];
 
 $record = null;
-$error = '';
 
-/* ==========================================
-   TAI BAI VIET KHI CHINH SUA
-   ========================================== */
+/* ============================================
+   LAY BAI VIET KHI CHINH SUA
+   ============================================ */
 
 if ($isEdit) {
     try {
@@ -124,14 +93,9 @@ if ($isEdit) {
         ");
 
         $stmt->execute([$id]);
-
         $record = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$record) {
-            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-                postFormJson(false, 'Bài viết không tồn tại.');
-            }
-
             http_response_code(404);
             exit('Không tìm thấy bài viết.');
         }
@@ -139,22 +103,46 @@ if ($isEdit) {
         $post = array_merge($post, $record);
 
     } catch (Throwable $e) {
-        error_log('Post load: ' . $e->getMessage());
-
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            postFormJson(false, 'Không thể tải bài viết.');
-        }
-
-        $error = 'Không thể tải thông tin bài viết.';
+        error_log('Load post: ' . $e->getMessage());
+        $error = 'Không thể tải bài viết cần chỉnh sửa.';
     }
 }
 
-/* ==========================================
-   LUU THEM / SUA BAI VIET
-   ========================================== */
+/* ============================================
+   HAM TAO SLUG
+   ============================================ */
+
+if (!function_exists('postFormSlug')) {
+    function postFormSlug(string $text): string {
+        $text = trim($text);
+
+        if (function_exists('iconv')) {
+            $ascii = @iconv(
+                'UTF-8',
+                'ASCII//TRANSLIT//IGNORE',
+                $text
+            );
+
+            if ($ascii !== false) {
+                $text = $ascii;
+            }
+        }
+
+        $text = strtolower($text);
+        $text = preg_replace('/[^a-z0-9]+/', '-', $text);
+        $text = trim($text, '-');
+
+        return $text !== '' ? $text : 'bai-viet';
+    }
+}
+
+/* ============================================
+   XU LY LUU BAI VIET
+   ============================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
+
         if (!hash_equals(
             $csrf,
             (string)($_POST['csrf'] ?? '')
@@ -166,14 +154,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $title = trim((string)($_POST['title'] ?? ''));
         $slug = trim((string)($_POST['slug'] ?? ''));
+        $category = trim((string)($_POST['category'] ?? ''));
         $excerpt = trim((string)($_POST['excerpt'] ?? ''));
         $content = trim((string)($_POST['content'] ?? ''));
-        $image = trim((string)($_POST['image'] ?? ''));
+
         $status = isset($_POST['status']) ? 1 : 0;
 
-        if ($title === '' || mb_strlen($title) > 255) {
+        $selectedImage = trim(
+            (string)($_POST['image'] ?? '')
+        );
+
+        if ($title === '') {
             throw new RuntimeException(
-                'Tiêu đề bài viết không hợp lệ.'
+                'Vui lòng nhập tiêu đề bài viết.'
+            );
+        }
+
+        if (mb_strlen($title) > 255) {
+            throw new RuntimeException(
+                'Tiêu đề bài viết quá dài.'
+            );
+        }
+
+        if ($category === '') {
+            throw new RuntimeException(
+                'Vui lòng chọn danh mục bài viết.'
             );
         }
 
@@ -183,52 +188,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        /* KIEM TRA URL ANH */
-
-        if ($image === '') {
-            throw new RuntimeException(
-                'Vui lòng nhập URL ảnh đại diện.'
-            );
-        }
-
-        if (!postValidImageUrl($image)) {
-            throw new RuntimeException(
-                'URL ảnh không hợp lệ. Hãy sử dụng liên kết http:// hoặc https://.'
-            );
-        }
-
-        /* TU DONG TAO SLUG NEU DE TRONG */
-
         if ($slug === '') {
-            $slug = mb_strtolower($title, 'UTF-8');
-
-            $slug = preg_replace(
-                '/[\s_]+/u',
-                '-',
-                $slug
-            );
-
-            $slug = preg_replace(
-                '/[^\pL\pN-]/u',
-                '',
-                $slug
-            );
-
-            $slug = trim($slug, '-');
-            $slug = mb_substr($slug, 0, 200);
-
-            if ($slug === '') {
-                $slug = 'bai-viet-' . bin2hex(random_bytes(5));
-            }
+            $slug = postFormSlug($title);
+        } else {
+            $slug = postFormSlug($slug);
         }
-
-        if (mb_strlen($slug) > 255) {
-            throw new RuntimeException(
-                'Đường dẫn bài viết quá dài.'
-            );
-        }
-
-        /* KIEM TRA SLUG TRUNG */
 
         $checkSlug = $pdo->prepare("
             SELECT id
@@ -238,22 +202,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             LIMIT 1
         ");
 
-        $checkSlug->execute([$slug, $id]);
+        $baseSlug = $slug;
+        $suffix = 1;
 
-        if ($checkSlug->fetchColumn()) {
+        do {
+            $checkSlug->execute([$slug, $id]);
+            $exists = $checkSlug->fetchColumn();
+
+            if (!$exists) {
+                break;
+            }
+
+            $suffix++;
+            $slug = $baseSlug . '-' . $suffix;
+
+        } while ($suffix < 10000);
+
+        if ($exists) {
             throw new RuntimeException(
-                'Đường dẫn bài viết đã tồn tại. Hãy nhập slug khác.'
+                'Không thể tạo đường dẫn bài viết duy nhất.'
             );
         }
 
-        /* CAP NHAT BAI VIET */
+        /* ====================================
+           ANH DAI DIEN
+           ==================================== */
+
+        $oldImage = $isEdit
+            ? (string)($record['image'] ?? '')
+            : '';
+
+        if ($selectedImage === '' && $isEdit) {
+            $selectedImage = $oldImage;
+        }
+
+        if ($selectedImage === '') {
+            throw new RuntimeException(
+                'Vui lòng nhập URL ảnh đại diện bài viết.'
+            );
+        }
+
+        if (
+            !filter_var($selectedImage, FILTER_VALIDATE_URL) ||
+            !in_array(
+                strtolower(
+                    (string)parse_url(
+                        $selectedImage,
+                        PHP_URL_SCHEME
+                    )
+                ),
+                ['http', 'https'],
+                true
+            )
+        ) {
+            throw new RuntimeException(
+                'URL ảnh phải bắt đầu bằng http:// hoặc https:// và hợp lệ.'
+            );
+        }
+
+        if (strlen($selectedImage) > 2000) {
+            throw new RuntimeException(
+                'URL ảnh quá dài.'
+            );
+        }
+
+        /* ====================================
+           GHI DATABASE
+           ==================================== */
 
         if ($isEdit) {
+
             $stmt = $pdo->prepare("
                 UPDATE posts
                 SET
                     title = ?,
                     slug = ?,
+                    category = ?,
                     excerpt = ?,
                     content = ?,
                     image = ?,
@@ -264,50 +288,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([
                 $title,
                 $slug,
+                $category,
                 $excerpt,
                 $content,
-                $image,
+                $selectedImage,
                 $status,
                 $id
             ]);
+
+            require_once __DIR__ . '/../includes/audit.php';
+
+            vnnAuditChange(
+                $pdo,
+                'content',
+                'Sửa bài viết',
+                'posts',
+                $id,
+                (string)($record['title'] ?? ''),
+                $title
+            );
 
             postFormJson(
                 true,
                 'Đã lưu thay đổi bài viết thành công.'
             );
+
+        } else {
+
+            $stmt = $pdo->prepare("
+                INSERT INTO posts (
+                    title,
+                    slug,
+                    category,
+                    excerpt,
+                    content,
+                    image,
+                    status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
+
+            $stmt->execute([
+                $title,
+                $slug,
+                $category,
+                $excerpt,
+                $content,
+                $selectedImage,
+                $status
+            ]);
+
+            require_once __DIR__ . '/../includes/audit.php';
+
+            vnnAuditChange(
+                $pdo,
+                'content',
+                'Thêm bài viết',
+                'posts',
+                (int)$pdo->lastInsertId(),
+                '',
+                $title
+            );
+
+            postFormJson(
+                true,
+                'Đã thêm bài viết mới thành công.'
+            );
         }
 
-        /* THEM BAI VIET MOI */
-
-        $stmt = $pdo->prepare("
-            INSERT INTO posts (
-                title,
-                slug,
-                excerpt,
-                content,
-                image,
-                status,
-                views
-            )
-            VALUES (?, ?, ?, ?, ?, ?, 0)
-        ");
-
-        $stmt->execute([
-            $title,
-            $slug,
-            $excerpt,
-            $content,
-            $image,
-            $status
-        ]);
-
-        postFormJson(
-            true,
-            'Đã thêm bài viết mới thành công.'
-        );
-
     } catch (Throwable $e) {
-        error_log('Post save: ' . $e->getMessage());
+
+        error_log(
+            'Save post: ' . $e->getMessage()
+        );
 
         postFormJson(
             false,
@@ -319,305 +372,306 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $currentImage = (string)($post['image'] ?? '');
+
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1">
 
 <title><?= postFormH($page_title) ?></title>
 
 <link rel="stylesheet"
  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
-<link rel="stylesheet" href="../../assets/css/style.css">
-<link rel="stylesheet" href="../../assets/css/admin.css">
+<link rel="stylesheet"
+ href="../../assets/css/style.css">
+
+<link rel="stylesheet"
+ href="../../assets/css/admin.css">
 
 <style>
 * {
     box-sizing: border-box;
 }
 
-.po-page {
+.ps-page {
     flex: 1;
     min-width: 0;
     min-height: 100vh;
-    background: #f1f5f9;
     padding: 24px;
-    color: #102e52;
+    background: #f1f5f9;
+    color: #173454;
     font-size: 14px;
 }
 
-.po-header,
-.po-panel {
-    max-width: 1100px;
+.ps-header,
+.ps-panel {
+    max-width: 1200px;
     margin: 0 auto 18px;
     padding: 24px;
-    background: #fff;
+    background: white;
     border: 1px solid #e2e8f0;
     border-radius: 14px;
 }
 
-.po-header {
+.ps-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 15px;
     flex-wrap: wrap;
 }
 
-.po-header h1 {
+.ps-header h1 {
     margin: 0;
-    color: #102e52;
     font-size: 20px;
     font-weight: 800;
-}
-
-.po-section {
-    margin-bottom: 28px;
-}
-
-.po-section h2 {
-    margin: 0 0 18px;
     color: #102e52;
+}
+
+.ps-section {
+    margin-bottom: 26px;
+}
+
+.ps-section h2 {
     font-size: 18px;
+    color: #102e52;
+    margin: 0 0 18px;
 }
 
-.po-field {
-    margin-bottom: 20px;
+.ps-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 17px;
 }
 
-.po-field label {
+.ps-field {
+    min-width: 0;
+    margin-bottom: 13px;
+}
+
+.ps-field.full {
+    grid-column: 1 / -1;
+}
+
+.ps-field label {
     display: block;
     margin-bottom: 8px;
     font-size: 13px;
     font-weight: 800;
-    color: #173454;
+    color: #163455;
 }
 
-.po-input {
+.ps-input {
     display: block;
     width: 100%;
-    min-height: 44px;
     padding: 12px 13px;
     border: 1px solid #cbd5e1;
     border-radius: 9px;
+    background: white;
+    color: #173454;
     font: inherit;
     font-size: 13px;
-    color: #173454;
-    background: #fff;
 }
 
-.po-input:focus {
+.ps-input:focus {
     outline: none;
     border-color: #166534;
-    box-shadow: 0 0 0 3px rgba(22,101,52,.1);
+    box-shadow:
+        0 0 0 3px rgba(22,101,52,.09);
 }
 
-textarea.po-input {
-    min-height: 135px;
+textarea.ps-input {
+    min-height: 118px;
     resize: vertical;
     line-height: 1.7;
 }
 
-.po-note {
-    margin: 8px 0 0;
-    color: #64748b;
+.ps-content-editor {
+    min-height: 360px !important;
+    font-family:
+        'Consolas',
+        'Courier New',
+        monospace;
+    line-height: 1.75;
+    tab-size: 4;
+}
+
+.ps-editor-note {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    border-radius: 9px;
+    padding: 13px 15px;
     font-size: 12px;
     line-height: 1.8;
+    margin-bottom: 14px;
 }
 
-.po-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    min-height: 43px;
-    padding: 11px 17px;
-    border: none;
-    border-radius: 9px;
-    background: #166534;
-    color: white !important;
-    text-decoration: none;
-    font-size: 13px;
+.ps-editor-note code {
     font-weight: 800;
-    cursor: pointer;
 }
 
-.po-btn:hover {
-    background: #14532d;
-}
-
-.po-btn.gray {
-    background: #e2e8f0;
-    color: #334155 !important;
-}
-
-.po-btn:disabled {
-    opacity: .6;
-    cursor: not-allowed;
-}
-
-.po-divider {
-    height: 1px;
-    margin: 25px 0;
-    border: 0;
-    background: #e2e8f0;
-}
-
-.po-image-box {
-    padding: 20px;
-    border: 1px solid #dbe5ee;
-    border-radius: 12px;
-    background: #f8fafc;
-}
-
-.po-url-row {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-.po-url-row .po-input {
-    flex: 1;
-    min-width: 0;
-}
-
-.po-preview {
-    margin-top: 17px;
-    padding: 17px;
-    border: 1px dashed #cbd5e1;
-    border-radius: 11px;
-    background: white;
-    text-align: center;
-}
-
-.po-preview img {
+.ps-photo-preview {
+    width: 250px;
+    max-width: 100%;
+    height: 170px;
     display: block;
-    width: 100%;
-    max-width: 450px;
-    max-height: 280px;
-    margin: 0 auto;
+    object-fit: cover;
     border-radius: 10px;
-    object-fit: contain;
+    border: 1px solid #e2e8f0;
     background: #f1f5f9;
+    margin: 14px 0 0;
 }
 
-.po-preview-empty {
-    padding: 40px 12px;
-    color: #94a3b8;
-}
-
-.po-preview-empty i {
-    display: block;
-    font-size: 35px;
-    margin-bottom: 12px;
-}
-
-.po-preview-message {
-    margin-top: 12px;
+.ps-note {
     color: #64748b;
     font-size: 12px;
+    line-height: 1.7;
+    margin: 8px 0 0;
 }
 
-.po-status {
+.ps-divider {
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 27px 0;
+}
+
+.ps-status {
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 14px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 800;
+    color: #173454;
 }
 
-.po-status input {
+.ps-status input {
     width: 18px;
     height: 18px;
     accent-color: #166534;
 }
 
-.po-actions {
+.ps-actions {
     display: flex;
-    gap: 12px;
     flex-wrap: wrap;
-    margin-top: 24px;
+    align-items: center;
+    gap: 12px;
+    margin-top: 26px;
 }
 
-.po-error {
-    padding: 14px;
-    margin-bottom: 18px;
+.ps-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 44px;
+    padding: 11px 17px;
+    border: none;
     border-radius: 9px;
+    background: #166534;
+    color: white !important;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.ps-btn:hover {
+    background: #14532d;
+}
+
+.ps-btn.gray {
+    background: #e2e8f0;
+    color: #334155 !important;
+}
+
+.ps-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.ps-error {
+    border-radius: 9px;
+    padding: 14px 16px;
     background: #fee2e2;
     color: #991b1b;
+    margin-bottom: 18px;
 }
 
-.po-overlay {
+.ps-overlay {
     position: fixed;
     inset: 0;
     z-index: 999999;
     display: flex;
-    align-items: center;
     justify-content: center;
-    padding: 18px;
-    background: rgba(15,23,42,.6);
+    align-items: center;
+    padding: 17px;
+    background: rgba(15,23,42,.65);
 }
 
-.po-overlay[hidden] {
+.ps-overlay[hidden] {
     display: none !important;
 }
 
-.po-modal {
+.ps-modal {
     width: 100%;
-    max-width: 420px;
-    padding: 30px 25px;
+    max-width: 430px;
     border-radius: 17px;
-    background: #fff;
+    padding: 27px;
+    background: white;
     text-align: center;
-    box-shadow: 0 25px 70px rgba(0,0,0,.2);
+    box-shadow:
+        0 22px 70px rgba(0,0,0,.2);
 }
 
-.po-modal-icon {
+.ps-modal-icon {
+    width: 68px;
+    height: 68px;
+    margin: 0 auto 17px;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 68px;
-    height: 68px;
-    margin: 0 auto 16px;
-    border-radius: 50%;
     background: #dcfce7;
     color: #166534;
+    border-radius: 50%;
     font-size: 30px;
 }
 
-.po-modal-icon.error {
-    color: #dc2626;
+.ps-modal-icon.error {
     background: #fee2e2;
+    color: #dc2626;
 }
 
-.po-modal h2 {
-    margin: 0 0 10px;
+.ps-modal h2 {
+    margin: 0 0 11px;
     font-size: 21px;
     color: #102e52;
 }
 
-.po-modal p {
-    margin: 0 0 22px;
+.ps-modal p {
+    margin: 0 0 23px;
+    font-size: 14px;
     color: #64748b;
     line-height: 1.7;
 }
 
-@media(max-width:700px) {
-    .po-page {
+@media(max-width:760px) {
+    .ps-page {
         padding: 12px;
     }
 
-    .po-header,
-    .po-panel {
-        padding: 15px;
+    .ps-header,
+    .ps-panel {
+        padding: 16px;
     }
 
-    .po-url-row {
-        flex-direction: column;
-        align-items: stretch;
+    .ps-grid {
+        grid-template-columns: 1fr;
     }
 }
 </style>
@@ -629,28 +683,37 @@ textarea.po-input {
 require_once __DIR__ . '/../includes/sidebar.php';
 ?>
 
-<main class="admin-main po-page">
+<main class="admin-main ps-page">
 
-    <div class="po-header">
+    <div class="ps-header">
+
         <h1>
-            <i class="fa-solid fa-pen-to-square"></i>
+            <i class="fa-solid fa-newspaper"></i>
+
             <?= $isEdit
                 ? 'CHỈNH SỬA BÀI VIẾT'
                 : 'THÊM BÀI VIẾT MỚI' ?>
         </h1>
 
-        <a href="index.php" class="po-btn gray">
+        <a
+            href="index.php"
+            class="ps-btn gray"
+        >
             <i class="fa-solid fa-arrow-left"></i>
             Quay lại danh sách
         </a>
+
     </div>
 
-    <section class="po-panel">
+    <section class="ps-panel">
 
         <?php if ($error): ?>
-            <div class="po-error">
+
+            <div class="ps-error">
+                <i class="fa-solid fa-circle-exclamation"></i>
                 <?= postFormH($error) ?>
             </div>
+
         <?php endif; ?>
 
         <form method="POST" id="postForm">
@@ -667,162 +730,133 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 value="<?= (int)$id ?>"
             >
 
-            <section class="po-section">
+            <section class="ps-section">
 
                 <h2>Thông tin bài viết</h2>
 
-                <div class="po-field">
-                    <label for="postTitle">
-                        Tiêu đề bài viết *
-                    </label>
+                <div class="ps-grid">
 
-                    <input
-                        class="po-input"
-                        type="text"
-                        name="title"
-                        id="postTitle"
-                        maxlength="255"
-                        required
-                        value="<?= postFormH($post['title']) ?>"
-                        placeholder="Nhập tiêu đề bài viết..."
-                    >
-                </div>
+                    <div class="ps-field full">
 
-                <div class="po-field">
-                    <label for="postSlug">
-                        Đường dẫn bài viết (Slug)
-                    </label>
-
-                    <input
-                        class="po-input"
-                        type="text"
-                        name="slug"
-                        id="postSlug"
-                        maxlength="255"
-                        value="<?= postFormH($post['slug']) ?>"
-                        placeholder="Để trống để tự tạo từ tiêu đề"
-                    >
-
-                    <p class="po-note">
-                        Slug được sử dụng trong đường dẫn bài viết.
-                        Nếu để trống, hệ thống sẽ tự tạo.
-                    </p>
-                </div>
-
-                <div class="po-field">
-                    <label for="postExcerpt">
-                        Mô tả ngắn
-                    </label>
-
-                    <textarea
-                        class="po-input"
-                        name="excerpt"
-                        id="postExcerpt"
-                        rows="3"
-                        placeholder="Giới thiệu ngắn về bài viết..."
-                    ><?= postFormH($post['excerpt']) ?></textarea>
-                </div>
-
-                <div class="po-field">
-                    <label for="postContent">
-                        Nội dung bài viết *
-                    </label>
-
-                    <textarea
-                        class="po-input"
-                        name="content"
-                        id="postContent"
-                        rows="15"
-                        required
-                        placeholder="Nhập nội dung bài viết..."
-                    ><?= postFormH($post['content']) ?></textarea>
-
-                    <p class="po-note">
-                        Có thể nhập nội dung HTML nếu cần định dạng
-                        bài viết. Chỉ sử dụng HTML đáng tin cậy,
-                        không chèn mã JavaScript.
-                    </p>
-                </div>
-
-            </section>
-
-            <hr class="po-divider">
-
-            <!-- =================================
-                 ANH DAI DIEN BANG URL
-                 ================================= -->
-
-            <section class="po-section">
-
-                <h2>
-                    <i class="fa-regular fa-image"></i>
-                    Ảnh đại diện bài viết
-                </h2>
-
-                <div class="po-image-box">
-
-                    <div class="po-field">
-
-                        <label for="postImage">
-                            URL ảnh đại diện *
+                        <label for="title">
+                            Tiêu đề bài viết *
                         </label>
 
-                        <div class="po-url-row">
+                        <input
+                            type="text"
+                            class="ps-input"
+                            name="title"
+                            id="title"
+                            required
+                            maxlength="255"
+                            value="<?= postFormH(
+                                $post['title']
+                            ) ?>"
+                        >
 
-                            <input
-                                class="po-input"
-                                type="url"
-                                name="image"
-                                id="postImage"
-                                required
-                                maxlength="2048"
-                                value="<?= postFormH($currentImage) ?>"
-                                placeholder="https://example.com/hinh-anh.jpg"
-                                autocomplete="off"
-                            >
+                    </div>
 
-                            <button
-                                type="button"
-                                class="po-btn"
-                                id="previewButton"
-                            >
-                                <i class="fa-regular fa-eye"></i>
-                                Xem trước
-                            </button>
+                    <div class="ps-field">
 
-                        </div>
+                        <label for="slug">
+                            Đường dẫn bài viết (Slug)
+                        </label>
 
-                        <p class="po-note">
-                            Dán đường dẫn trực tiếp đến ảnh.
-                            Nên dùng URL HTTPS của ảnh JPG,
-                            PNG hoặc WebP từ nguồn cho phép
-                            hiển thị trên website khác.
+                        <input
+                            type="text"
+                            class="ps-input"
+                            name="slug"
+                            id="slug"
+                            placeholder="Tu dong tao neu bo trong"
+                            value="<?= postFormH(
+                                $post['slug']
+                            ) ?>"
+                        >
+
+                        <p class="ps-note">
+                            Để trống để tự tạo từ tiêu đề.
                         </p>
 
                     </div>
 
-                    <div class="po-preview" id="imagePreviewBox">
+                    <div class="ps-field">
 
-                        <img
-                            id="imagePreview"
-                            src=""
-                            alt="Xem trước ảnh đại diện"
-                            hidden
+                        <label for="category">
+                            Danh mục *
+                        </label>
+
+                        <select
+                            class="ps-input"
+                            name="category"
+                            id="category"
+                            required
                         >
 
-                        <div
-                            class="po-preview-empty"
-                            id="previewEmpty"
-                        >
-                            <i class="fa-regular fa-image"></i>
-                            Dán URL để xem trước ảnh bài viết.
-                        </div>
+                            <?php
+                            $postCategories = [
+                                'Tin tức',
+                                'Kinh nghiệm',
+                                'Hướng dẫn',
+                                'Cẩm nang',
+                                'Khuyến mãi',
+                                'Thông báo'
+                            ];
+                            ?>
 
-                        <div
-                            class="po-preview-message"
-                            id="previewMessage"
-                            aria-live="polite"
-                        ></div>
+                            <?php foreach ($postCategories as $category): ?>
+
+                                <option
+                                    value="<?= postFormH($category) ?>"
+                                    <?= $post['category'] === $category
+                                        ? 'selected'
+                                        : '' ?>
+                                >
+                                    <?= postFormH($category) ?>
+                                </option>
+
+                            <?php endforeach; ?>
+
+                            <?php if (
+                                $post['category'] !== '' &&
+                                !in_array(
+                                    $post['category'],
+                                    $postCategories,
+                                    true
+                                )
+                            ): ?>
+
+                                <option
+                                    value="<?= postFormH(
+                                        $post['category']
+                                    ) ?>"
+                                    selected
+                                >
+                                    <?= postFormH(
+                                        $post['category']
+                                    ) ?>
+                                </option>
+
+                            <?php endif; ?>
+
+                        </select>
+
+                    </div>
+
+                    <div class="ps-field full">
+
+                        <label for="excerpt">
+                            Mô tả ngắn
+                        </label>
+
+                        <textarea
+                            name="excerpt"
+                            id="excerpt"
+                            class="ps-input"
+                            rows="3"
+                            placeholder="Tóm tắt ngắn nội dung bài viết..."
+                        ><?= postFormH(
+                            $post['excerpt']
+                        ) ?></textarea>
 
                     </div>
 
@@ -830,32 +864,120 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             </section>
 
-            <hr class="po-divider">
+            <hr class="ps-divider">
 
-            <section class="po-section">
+            <section class="ps-section">
 
-                <label class="po-status">
+                <h2>Ảnh đại diện bài viết bằng URL</h2>
+
+                <div class="ps-field">
+
+                    <label for="postImageUrl">
+                        URL ảnh đại diện *
+                    </label>
 
                     <input
-                        type="checkbox"
-                        name="status"
-                        value="1"
-                        <?= (int)$post['status'] === 1
-                            ? 'checked'
-                            : '' ?>
+                        type="url"
+                        class="ps-input"
+                        name="image"
+                        id="postImageUrl"
+                        required
+                        maxlength="2000"
+                        placeholder="https://example.com/anh-bai-viet.jpg"
+                        value="<?= postFormH(
+                            $currentImage
+                        ) ?>"
                     >
 
-                    Xuất bản bài viết trên website
+                    <p class="ps-note">
+                        Dán URL ảnh công khai (http hoặc https).
+                        Khi sửa bài viết, bạn có thể giữ hoặc thay URL cũ.
+                    </p>
 
-                </label>
+                    <img
+                        class="ps-photo-preview"
+                        id="postPreview"
+                        alt="Ảnh đại diện bài viết"
+                        src="<?= postFormH($currentImage) ?>"
+                        style="display:<?= $currentImage !== ''
+                            ? 'block'
+                            : 'none' ?>"
+                    >
+
+                </div>
 
             </section>
 
-            <div class="po-actions">
+            <hr class="ps-divider">
+
+            <section class="ps-section">
+
+                <h2>Nội dung bài viết</h2>
+
+                <div class="ps-editor-note">
+
+                    Bạn có thể nhập nội dung có định dạng HTML.
+
+                    <strong>Ví dụ:</strong>
+
+                    <code>&lt;h2&gt;Tiêu đề phụ&lt;/h2&gt;</code>,
+
+                    <code>&lt;p&gt;Đoạn văn&lt;/p&gt;</code>,
+
+                    <code>&lt;br&gt;</code>,
+
+                    <code>&lt;strong&gt;Chữ đậm&lt;/strong&gt;</code>,
+
+                    <code>&lt;ul&gt;&lt;li&gt;Danh sách&lt;/li&gt;&lt;/ul&gt;</code>.
+
+                    Hãy sử dụng HTML hợp lệ, tránh đưa mã JavaScript
+                    hoặc thẻ script vào nội dung.
+
+                </div>
+
+                <div class="ps-field full">
+
+                    <label for="content">
+                        Nội dung chi tiết *
+                    </label>
+
+                    <textarea
+                        name="content"
+                        id="content"
+                        class="ps-input ps-content-editor"
+                        rows="16"
+                        required
+                        placeholder="Nhập nội dung bài viết..."
+                    ><?= postFormH(
+                        $post['content']
+                    ) ?></textarea>
+
+                </div>
+
+            </section>
+
+            <hr class="ps-divider">
+
+            <label class="ps-status">
+
+                <input
+                    type="checkbox"
+                    name="status"
+                    value="1"
+                    <?= (int)$post['status'] === 1
+                        ? 'checked'
+                        : '' ?>
+                >
+
+                Hiển thị bài viết trên website
+
+            </label>
+
+            <div class="ps-actions">
 
                 <button
-                    class="po-btn"
                     type="submit"
+                    class="ps-btn"
                     id="savePost"
                 >
                     <i class="fa-solid fa-floppy-disk"></i>
@@ -863,10 +985,12 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     <?= $isEdit
                         ? 'Lưu thay đổi'
                         : 'Thêm bài viết' ?>
-
                 </button>
 
-                <a href="index.php" class="po-btn gray">
+                <a
+                    href="index.php"
+                    class="ps-btn gray"
+                >
                     Hủy
                 </a>
 
@@ -878,167 +1002,111 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
 </main>
 
-<!-- =================================
+<!-- ===================================
      POPUP THONG BAO
-     ================================= -->
+     =================================== -->
 
-<div class="po-overlay" id="postPopup" hidden>
-
+<div
+    class="ps-overlay"
+    id="postPopup"
+    hidden
+>
     <div
-        class="po-modal"
+        class="ps-modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="popupTitle"
+        aria-labelledby="postPopupTitle"
     >
 
-        <div class="po-modal-icon" id="popupIcon">
+        <div
+            class="ps-modal-icon"
+            id="postPopupIcon"
+        >
             <i class="fa-solid fa-circle-check"></i>
         </div>
 
-        <h2 id="popupTitle">
-            Thành công!
+        <h2 id="postPopupTitle">
+            Thông báo
         </h2>
 
-        <p id="popupMessage">
-            Đã lưu bài viết thành công.
-        </p>
+        <p id="postPopupMessage"></p>
 
         <button
-            class="po-btn"
             type="button"
-            id="popupOK"
+            class="ps-btn"
+            id="postPopupOK"
         >
             Đồng ý
         </button>
 
     </div>
-
 </div>
 
 <script>
 (function() {
 
-    /* =====================================
-       XEM TRUOC ANH TU URL
-       ===================================== */
+    const form = document.getElementById('postForm');
+
+    const saveButton = document.getElementById(
+        'savePost'
+    );
+
+    const popup = document.getElementById(
+        'postPopup'
+    );
+
+    const popupIcon = document.getElementById(
+        'postPopupIcon'
+    );
+
+    const popupTitle = document.getElementById(
+        'postPopupTitle'
+    );
+
+    const popupMessage = document.getElementById(
+        'postPopupMessage'
+    );
+
+    const popupOK = document.getElementById(
+        'postPopupOK'
+    );
+
+    let saveSucceeded = false;
+    let submitting = false;
+
+    /* ===================================
+       XEM TRUOC ANH
+       =================================== */
 
     const imageInput = document.getElementById(
-        'postImage'
+        'postImageUrl'
     );
 
-    const previewImage = document.getElementById(
-        'imagePreview'
+    const preview = document.getElementById(
+        'postPreview'
     );
 
-    const previewEmpty = document.getElementById(
-        'previewEmpty'
-    );
-
-    const previewMessage = document.getElementById(
-        'previewMessage'
-    );
-
-    const previewButton = document.getElementById(
-        'previewButton'
-    );
-
-    function validImageUrl(value) {
-        try {
-            const url = new URL(value);
-
-            return ['http:', 'https:'].includes(url.protocol) &&
-                !url.username &&
-                !url.password;
-        } catch (_) {
-            return false;
-        }
-    }
-
-    function showImagePreview() {
+    imageInput?.addEventListener('input', function() {
         const url = imageInput.value.trim();
 
-        previewImage.hidden = true;
-        previewImage.removeAttribute('src');
+        preview.src = url;
 
-        if (!url) {
-            previewEmpty.hidden = false;
-            previewMessage.textContent = '';
-            return;
-        }
-
-        if (!validImageUrl(url)) {
-            previewEmpty.hidden = false;
-            previewMessage.textContent =
-                'URL không hợp lệ. Vui lòng nhập http:// hoặc https://.';
-            return;
-        }
-
-        previewEmpty.hidden = true;
-        previewMessage.textContent = 'Đang kiểm tra ảnh...';
-
-        const testImage = new Image();
-
-        testImage.onload = function() {
-            if (imageInput.value.trim() !== url) return;
-
-            previewImage.src = url;
-            previewImage.hidden = false;
-            previewEmpty.hidden = true;
-            previewMessage.textContent =
-                'Ảnh xem trước đã tải thành công.';
-        };
-
-        testImage.onerror = function() {
-            if (imageInput.value.trim() !== url) return;
-
-            previewImage.hidden = true;
-            previewEmpty.hidden = false;
-            previewMessage.textContent =
-                'Không tải được ảnh. Hãy kiểm tra URL hoặc quyền truy cập ảnh.';
-        };
-
-        testImage.src = url;
-    }
-
-    previewButton.addEventListener(
-        'click',
-        showImagePreview
-    );
-
-    imageInput.addEventListener('change', showImagePreview);
-
-    imageInput.addEventListener('paste', function() {
-        setTimeout(showImagePreview, 0);
+        preview.style.display = /^https?:\/\//i.test(url)
+            ? 'block'
+            : 'none';
     });
 
-    if (imageInput.value.trim()) {
-        showImagePreview();
-    }
+    preview?.addEventListener('error', function() {
+        preview.style.display = 'none';
+    });
 
-    /* =====================================
-       LUU BAI VIET BANG AJAX
-       ===================================== */
-
-    const form = document.getElementById('postForm');
-    const saveButton = document.getElementById('savePost');
-
-    const popup = document.getElementById('postPopup');
-    const popupTitle = document.getElementById('popupTitle');
-    const popupMessage = document.getElementById('popupMessage');
-    const popupIcon = document.getElementById('popupIcon');
-    const popupOK = document.getElementById('popupOK');
-
-    let saving = false;
-    let saveSucceeded = false;
+    /* ===================================
+       HIEN POPUP
+       =================================== */
 
     function showPopup(success, message) {
-        saveSucceeded = !!success;
 
-        popupTitle.textContent = success
-            ? 'Thành công!'
-            : 'Không thành công';
-
-        popupMessage.textContent = message;
+        saveSucceeded = success;
 
         popupIcon.classList.toggle(
             'error',
@@ -1049,44 +1117,54 @@ require_once __DIR__ . '/../includes/sidebar.php';
             ? '<i class="fa-solid fa-circle-check"></i>'
             : '<i class="fa-solid fa-circle-xmark"></i>';
 
+        popupTitle.textContent = success
+            ? 'Thành công!'
+            : 'Không thành công';
+
+        popupMessage.textContent = message;
+
         popup.hidden = false;
         popupOK.focus();
     }
 
     popupOK.addEventListener('click', function() {
+
         if (saveSucceeded) {
             window.location.assign('index.php');
         } else {
             popup.hidden = true;
         }
+
     });
 
+    /* ===================================
+       LUU BAI VIET AJAX
+       =================================== */
+
     form.addEventListener('submit', async function(event) {
+
         event.preventDefault();
 
-        if (saving || !form.reportValidity()) {
+        if (submitting) {
             return;
         }
 
-        if (!validImageUrl(imageInput.value.trim())) {
-            showPopup(
-                false,
-                'Vui lòng nhập URL ảnh hợp lệ.'
-            );
+        if (!form.reportValidity()) {
             return;
         }
 
-        saving = true;
+        submitting = true;
+        saveButton.disabled = true;
 
         const originalHTML = saveButton.innerHTML;
 
-        saveButton.disabled = true;
         saveButton.innerHTML =
             '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu...';
 
         try {
+
             const response = await fetch(
-                window.location.href,
+                form.action || window.location.href,
                 {
                     method: 'POST',
                     body: new FormData(form),
@@ -1101,35 +1179,38 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             const raw = await response.text();
 
-            let result;
+            let data;
 
             try {
-                result = JSON.parse(raw);
-            } catch (_) {
+                data = JSON.parse(raw);
+            } catch (parseError) {
                 throw new Error(
-                    'Máy chủ không trả về dữ liệu hợp lệ. ' +
+                    'Máy chủ trả về dữ liệu không hợp lệ. ' +
                     'Vui lòng kiểm tra phiên đăng nhập hoặc lỗi PHP.'
                 );
             }
 
             showPopup(
-                !!result.success,
-                result.message ||
-                    'Không có thông báo từ máy chủ.'
+                !!data.success,
+                data.message || 'Đã xử lý yêu cầu.'
             );
 
         } catch (error) {
+
             showPopup(
                 false,
                 error.message ||
-                    'Không thể kết nối máy chủ.'
+                'Không thể kết nối máy chủ.'
             );
 
         } finally {
-            saving = false;
+
+            submitting = false;
             saveButton.disabled = false;
             saveButton.innerHTML = originalHTML;
+
         }
+
     });
 
 })();
