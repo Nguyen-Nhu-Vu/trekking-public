@@ -771,13 +771,6 @@ body.vt-modal-active {
         Tài khoản không có quyền đăng ký tour
     </h2>
 
-    <div class="vt-error" style="text-align:center">
-        <?= vt_h(
-            $roleCheckError ?:
-            'Tài khoản Admin, Quản lý và Nhân viên không được đăng ký tour. Chỉ tài khoản Khách hàng hoặc khách vãng lai chưa đăng nhập mới có thể đăng ký.'
-        ) ?>
-    </div>
-
     <div style="text-align:center">
         <a class="vt-back"
            href="<?= vt_h($base) ?>tours/tour.php">
