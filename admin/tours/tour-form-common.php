@@ -44,24 +44,13 @@ $success = '';
    DU LIEU DANH MUC
    ====================================== */
 
-$locations = [];
 $leaders = [];
-
 try {
-    $locations = $pdo->query("
-        SELECT id, name
-        FROM locations
-        ORDER BY name
-    ")->fetchAll(PDO::FETCH_ASSOC);
-
-    $leaders = $pdo->query("
-        SELECT id, fullname, status
-        FROM trekking_leaders
-        ORDER BY fullname
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    $leaders = $pdo->query("SELECT id, fullname, status FROM trekking_leaders ORDER BY fullname")
+        ->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
-    error_log('Tour options: ' . $e->getMessage());
-    $error = 'Không thể tải danh sách địa điểm hoặc Leader.';
+    error_log('Tour leaders: ' . $e->getMessage());
+    $error = 'Không thể tải danh sách Leader.';
 }
 
 /* ======================================
@@ -71,6 +60,7 @@ try {
 $defaults = [
     'title' => '',
     'location_id' => '',
+    'location_name' => '',
     'leader_id' => '',
     'price' => '',
     'duration' => '2N1Đ',
@@ -111,6 +101,9 @@ if ($isEdit) {
     }
 
     $tour = array_merge($tour, $existingTour);
+    $locStmt = $pdo->prepare('SELECT name FROM locations WHERE id = ? LIMIT 1');
+    $locStmt->execute([(int)$tour['location_id']]);
+    $tour['location_name'] = (string)($locStmt->fetchColumn() ?: '');
 
     $stmt = $pdo->prepare("
         SELECT
@@ -149,7 +142,7 @@ if ($isEdit) {
 
 $fields = [
     'title',
-    'location_id',
+    'location_name',
     'leader_id',
     'price',
     'duration',
@@ -171,7 +164,7 @@ $fields = [
 
 $labels = [
     'title' => 'Tên tour *',
-    'location_id' => 'Địa điểm *',
+    'location_name' => 'Địa điểm *',
     'leader_id' => 'Leader cố định *',
     'price' => 'Giá tour (VNĐ) *',
     'duration' => 'Thời lượng',
@@ -241,10 +234,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FILTER_VALIDATE_INT
         );
 
-        $locationId = filter_var(
-            $tour['location_id'],
-            FILTER_VALIDATE_INT
-        );
+        $locationName = trim((string)$tour['location_name']);
+        $locationId = 0;
 
         $maxSlots = filter_var(
             $tour['max_slots'],
@@ -265,8 +256,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Tên tour không hợp lệ.');
         }
 
-        if (!$locationId || $locationId <= 0) {
-            throw new RuntimeException('Hãy chọn địa điểm.');
+        if ($locationName === '' || mb_strlen($locationName) > 255) {
+            throw new RuntimeException('Vui lòng nhập tên địa điểm (tối đa 255 ký tự).');
         }
 
         if (!$leaderId || $leaderId <= 0) {
@@ -342,17 +333,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException(
                 'Leader đã chọn hiện không hoạt động.'
             );
-        }
-
-        $checkLocation = $pdo->prepare("
-            SELECT id FROM locations
-            WHERE id = ?
-            LIMIT 1
-        ");
-        $checkLocation->execute([$locationId]);
-
-        if (!$checkLocation->fetchColumn()) {
-            throw new RuntimeException('Địa điểm không tồn tại.');
         }
 
         /* ==================================
@@ -452,6 +432,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
            ================================== */
 
         $pdo->beginTransaction();
+
+        // Giu bang locations nhu khoa ngoai noi bo, khong con danh muc chon san.
+        // Khi sua tour, giu ID cu neu ten dia diem khong thay doi.
+        if ($isEdit && (int)$existingTour['location_id'] > 0) {
+            $currentLocation = $pdo->prepare('SELECT name FROM locations WHERE id = ? LIMIT 1');
+            $currentLocation->execute([(int)$existingTour['location_id']]);
+            if (trim((string)$currentLocation->fetchColumn()) === $locationName) {
+                $locationId = (int)$existingTour['location_id'];
+            }
+        }
+        if (!$locationId) {
+            $findLocation = $pdo->prepare('SELECT id FROM locations WHERE name = ? ORDER BY id ASC LIMIT 1');
+            $findLocation->execute([$locationName]);
+            $locationId = (int)$findLocation->fetchColumn();
+        }
+        if (!$locationId) {
+            $newLocation = $pdo->prepare("INSERT INTO locations
+                (name, region, altitude, difficulty, distance, description, image)
+                VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $newLocation->execute([
+                $locationName, 'Khác',
+                (string)($tour['altitude'] ?: 'Đang cập nhật'),
+                (string)($tour['difficulty'] ?: 'Vừa phải'),
+                (string)($tour['distance'] ?: 'Đang cập nhật'),
+                'Địa điểm của tour ' . $tour['title'],
+                'default_location.jpg'
+            ]);
+            $locationId = (int)$pdo->lastInsertId();
+            if (!$locationId) {
+                throw new RuntimeException('Không thể tạo địa điểm của tour.');
+            }
+        }
+
 
         if ($isEdit) {
             $update = $pdo->prepare("
@@ -1278,19 +1291,10 @@ textarea.tf-input {
                 <div class="tf-field">
                     <label>Địa điểm *</label>
 
-                    <select class="tf-input" name="location_id" required>
-                        <option value="">-- Chọn địa điểm --</option>
-
-                        <?php foreach ($locations as $location): ?>
-                            <option
-                                value="<?= (int)$location['id'] ?>"
-                                <?= (int)$tour['location_id'] === (int)$location['id']
-                                    ? 'selected' : '' ?>
-                            >
-                                <?= tfH($location['name']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
+                    <input class="tf-input" type="text"
+                           name="location_name" maxlength="255" required
+                           placeholder="Nhập địa điểm tour, ví dụ: Sa Pa, Lào Cai"
+                           value="<?= tfH($tour['location_name']) ?>">
                 </div>
 
                 <div class="tf-field">
