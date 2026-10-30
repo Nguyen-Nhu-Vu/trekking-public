@@ -589,7 +589,12 @@ $totalOrders = count($orders);
                 padding: 13px 10px;
             }
         }
-    </style>
+    /* Danh dau don mua hang khach vang lai */
+.vnn-guest-row { background:#fffbeb !important; }
+.vnn-guest-row > td:first-child { border-left:4px solid #f59e0b; }
+.vnn-guest-label { display:inline-block;margin-top:7px;padding:3px 9px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:800;font-size:11px; }
+.vnn-guest-hint { color:#92400e;font-size:11px;margin-top:3px; }
+</style>
 </head>
 
 <body class="admin-body">
@@ -759,7 +764,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
                             <?php foreach ($orders as $order): ?>
 
-                                <tr>
+                                <tr class="<?= (!isset($order['user_id']) || $order['user_id'] === null || (int)$order['user_id'] === 0) ? 'vnn-guest-row' : '' ?>">
 
                                     <td>
                                         <input
@@ -790,6 +795,11 @@ require_once __DIR__ . '/../includes/sidebar.php';
                                                 $order['phone']
                                             ) ?>
                                         </small>
+
+                                        <?php if (!isset($order['user_id']) || $order['user_id'] === null || (int)$order['user_id'] === 0): ?>
+                                            <div class="vnn-guest-label">Khách vãng lai</div>
+                                            <div class="vnn-guest-hint">Chỉ liên hệ qua số điện thoại</div>
+                                        <?php endif; ?>
                                     </td>
 
                                     <td class="vnn-order-price">
