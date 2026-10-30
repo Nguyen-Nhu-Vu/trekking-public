@@ -90,11 +90,8 @@ if (!in_array($source, ['all', 'tour', 'shop'], true)) {
     $source = 'all';
 }
 
-$chartSource = (string)($_GET['chart'] ?? 'all');
-
-if (!in_array($chartSource, ['all', 'tour', 'shop'], true)) {
-    $chartSource = 'all';
-}
+// Một bộ lọc duy nhất điều khiển cả thống kê, biểu đồ và bảng.
+$chartSource = $source;
 
 $filterTour = filter_input(
     INPUT_GET,
@@ -179,6 +176,8 @@ $errors = [];
 $tourRevenue = 0;
 $shopRevenue = 0;
 $processingValue = 0;
+$tourProcessingValue = 0;
+$shopProcessingValue = 0;
 
 $chartTour = array_fill(1, 12, 0);
 $chartShop = array_fill(1, 12, 0);
@@ -274,7 +273,7 @@ try {
             $tourReport[$id]['revenue'] += $amount;
 
         } elseif ($status !== 'Đã hủy') {
-            $processingValue += $amount;
+            $tourProcessingValue += $amount;
         }
     }
 
@@ -324,7 +323,7 @@ try {
             }
 
         } elseif ($status !== 'Đã hủy') {
-            $processingValue += $amount;
+            $shopProcessingValue += $amount;
         }
     }
 
@@ -408,6 +407,18 @@ try {
     $errors[] = 'Không thể tải chi tiết sản phẩm trong đơn hàng.';
 }
 
+// Số liệu tổng hợp phải khớp với nguồn doanh thu đang chọn.
+if ($source === 'tour') {
+    $shopRevenue = 0;
+    $chartShop = array_fill(1, 12, 0);
+    $processingValue = $tourProcessingValue;
+} elseif ($source === 'shop') {
+    $tourRevenue = 0;
+    $chartTour = array_fill(1, 12, 0);
+    $processingValue = $shopProcessingValue;
+} else {
+    $processingValue = $tourProcessingValue + $shopProcessingValue;
+}
 $totalRevenue = $tourRevenue + $shopRevenue;
 
 // =========================================
@@ -827,9 +838,6 @@ for ($i = 1; $i <= 12; $i++) {
                     <?php endforeach; ?>
                 </select>
             </div>
-
-            <input type="hidden" name="chart"
-                   value="<?= rvH($chartSource) ?>">
 
             <button class="rv-submit" type="submit">
                 <i class="fa-solid fa-filter"></i>
@@ -1287,9 +1295,15 @@ for ($i = 1; $i <= 12; $i++) {
         }
     });
 
+    // Đổi nguồn ở biểu đồ cũng làm mới các ô số liệu và bảng dưới.
     select.addEventListener('change', function() {
-        chart.data.datasets = getDatasets(select.value);
-        chart.update();
+        const url = new URL(window.location.href);
+        url.searchParams.set('source', select.value);
+        url.searchParams.delete('chart');
+        if (select.value === 'shop') {
+            url.searchParams.delete('tour_id');
+        }
+        window.location.assign(url.toString());
     });
 
 })();
