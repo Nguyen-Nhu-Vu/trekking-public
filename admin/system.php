@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -1450,10 +1451,7 @@ try {
 
                         <td>
                             <?= vnnSysH(
-                                date(
-                                    'd/m/Y H:i:s',
-                                    strtotime($row['created_at'])
-                                )
+                                vnnSysLoginTime($row['created_at'])
                             ) ?>
                         </td>
 
