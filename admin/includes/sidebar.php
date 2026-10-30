@@ -1,3 +1,4 @@
+
 <?php
 $current_page = $current_page ?? '';
 $role = getRole();
@@ -44,20 +45,20 @@ $isAdminHistory = in_array(
 if (!function_exists('vnnSideUnanswered')) {
     function vnnSideUnanswered(PDO $pdo): int {
         try {
-            // One badge for each customer whose latest message has no subsequent staff reply.
-            return (int)$pdo->query("SELECT COUNT(*) FROM (
-                SELECT m.sender_id AS customer_id, MAX(m.id) AS last_customer_id
-                FROM messages m JOIN users u ON u.id = m.sender_id
+            // Count using the same latest support-message definition as chat-api.php.
+            // A customer needs a reply only when their latest staff/customer
+            // conversation message was sent by that customer.
+            return (int) $pdo->query("SELECT COUNT(*) FROM users u
                 WHERE u.role = 'customer'
-                GROUP BY m.sender_id
-            ) last_message
-            WHERE NOT EXISTS (
-                SELECT 1 FROM messages reply
-                JOIN users staff ON staff.id = reply.sender_id
-                WHERE reply.receiver_id = last_message.customer_id
-                  AND reply.id > last_message.last_customer_id
-                  AND staff.role IN ('admin','manager','staff')
-            )")->fetchColumn();
+                  AND (
+                    SELECT m.sender_id
+                    FROM messages m
+                    JOIN users sender ON sender.id = m.sender_id
+                    JOIN users receiver ON receiver.id = m.receiver_id
+                    WHERE (m.sender_id = u.id AND receiver.role IN ('manager','staff','admin'))
+                       OR (m.receiver_id = u.id AND sender.role IN ('manager','staff','admin'))
+                    ORDER BY m.id DESC LIMIT 1
+                  ) = u.id")->fetchColumn();
         } catch (Throwable $e) {
             error_log('Chat unanswered badge: ' . $e->getMessage());
             return 0;
