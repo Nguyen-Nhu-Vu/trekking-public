@@ -41,7 +41,6 @@ $isAdminHistory = in_array(
     true
 );
 
-
 if (!function_exists('vnnSideUnanswered')) {
     function vnnSideUnanswered(PDO $pdo): int {
         try {
@@ -245,6 +244,15 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
 
         <?php
         vnnSideMenuLink(
+            $base.'admin/system-dashboard.php',
+            'fa-gauge',
+            'Dashboard Bàn Làm Việc',
+            $current_page === 'system-dashboard'
+        );
+        ?>
+
+        <?php
+        vnnSideMenuLink(
             $base.'admin/system.php?tab=users',
             'fa-users-gear',
             'Quản lý & Cấp quyền tài khoản',
@@ -287,6 +295,10 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
             );
             ?>
         </div>
+
+        <a class="vnn-nav-link" href="<?= vnnSideH($base) ?>admin/logout.php" style="color:#fca5a5">
+            <span class="vnn-nav-label"><i class="fa-solid fa-right-from-bracket"></i><span>Đăng xuất</span></span>
+        </a>
 
         <div class="vnn-nav-note">
             <i class="fa-solid fa-shield-halved"></i>
