@@ -32,7 +32,13 @@ $apiUrl = $base . 'chat-api.php';
 .vc-search input,.vc-input{width:100%;min-width:0;padding:13px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;outline:none}
 .vc-list{flex:1;overflow-y:auto}
 .vc-person{width:100%;border:0;border-bottom:1px solid #f1f5f9;background:#fff;padding:14px;display:flex;gap:10px;align-items:center;text-align:left;cursor:pointer}
-.vc-person:hover,.vc-person.active{background:#f0fdf4}
+ .vc-person:hover,.vc-person.active{background:#f0fdf4}
+.vc-person.unanswered{background:#eff6ff;border-left:4px solid #2563eb;padding-left:10px}
+.vc-person.unanswered .vc-name{font-weight:900;color:#0f172a}
+.vc-person.unanswered .vc-preview{font-weight:700;color:#1d4ed8}
+.vc-unanswered-dot{flex:none;width:10px;height:10px;border-radius:50%;background:#2563eb;margin-left:auto}
+.vc-person.unanswered.active{background:#dbeafe}
+.vc-error{padding:14px;color:#b91c1c;text-align:center;font-size:13px}
 .vc-avatar{width:42px;height:42px;min-width:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#ea580c;color:white;font-weight:800}
 .vc-detail{min-width:0;flex:1}
 .vc-name{color:#0f172a;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -132,6 +138,8 @@ let seq = 0;
 let version = 0;
 let loadingCustomers = false;
 let loadingMessages = false;
+let messageRequestToken = 0;
+let loadingForCustomer = 0;
 
 async function request(action, options = {}) {
     const url = API + (API.includes('?') ? '&' : '?') +
@@ -181,7 +189,8 @@ function showCustomers() {
         const row = document.createElement('button');
         row.type = 'button';
         row.className = 'vc-person' +
-            (Number(c.id) === selected ? ' active' : '');
+            (Number(c.id) === selected ? ' active' : '') +
+            (Number(c.needs_reply) === 1 ? ' unanswered' : '');
 
         const avatar = document.createElement('div');
         avatar.className = 'vc-avatar';
@@ -200,6 +209,13 @@ function showCustomers() {
 
         detail.append(name, preview);
         row.append(avatar, detail);
+        if (Number(c.needs_reply) === 1) {
+            const dot = document.createElement('span');
+            dot.className = 'vc-unanswered-dot';
+            dot.title = 'Khách hàng đang chờ phản hồi';
+            dot.setAttribute('aria-label', 'Đang chờ phản hồi');
+            row.appendChild(dot);
+        }
         row.onclick = () => selectCustomer(c.id, c.fullname);
         list.appendChild(row);
     }
@@ -231,6 +247,7 @@ function selectCustomer(id, name) {
 
     if (selected !== next) {
         version++;
+        messageRequestToken++;
         messages = [];
     }
 
@@ -322,18 +339,22 @@ function showMessages(toBottom = false) {
 }
 
 async function loadMessages() {
-    if (!selected || loadingMessages) return;
-
-    loadingMessages = true;
+    if (!selected) return;
+    // Only one in-flight request per selected conversation. A new selection
+    // must not be blocked by a previous customer's request.
     const id = selected;
+    if (loadingMessages && loadingForCustomer === id) return;
     const v = version;
+    const token = ++messageRequestToken;
+    loadingMessages = true;
+    loadingForCustomer = id;
 
     try {
         const res = await request(
             'get&with_id=' + encodeURIComponent(id)
         );
 
-        if (id !== selected || v !== version) return;
+        if (id !== selected || v !== version || token !== messageRequestToken) return;
 
         messages = Array.isArray(res.data) ? res.data : [];
 
@@ -348,8 +369,19 @@ async function loadMessages() {
         showMessages();
     } catch (e) {
         console.warn('Chat messages:', e.message);
+        if (id === selected && token === messageRequestToken) {
+            const area = $('vcMessages');
+            area.replaceChildren();
+            const error = document.createElement('div');
+            error.className = 'vc-error';
+            error.textContent = 'Không tải được hội thoại: ' + e.message;
+            area.appendChild(error);
+        }
     } finally {
-        loadingMessages = false;
+        if (token === messageRequestToken) {
+            loadingMessages = false;
+            loadingForCustomer = 0;
+        }
     }
 }
 
