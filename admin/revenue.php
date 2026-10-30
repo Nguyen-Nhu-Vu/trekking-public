@@ -1213,6 +1213,16 @@ for ($i = 1; $i <= 12; $i++) {
         return 'Tổng doanh thu';
     }
 
+
+    function getDatasets(source) {
+        const common = {stack: 'revenue', maxBarThickness: 50};
+        if (source === 'all') return [
+            {...common, label: 'Doanh thu Tour', data: chartTour, backgroundColor: '#166534'},
+            {...common, label: 'Doanh thu Đơn hàng', data: chartShop, backgroundColor: '#ea580c'}
+        ];
+        return [{...common, label: getLabel(source), data: getData(source), backgroundColor: source === 'tour' ? '#166534' : '#ea580c', borderRadius: 5}];
+    }
+
     const canvas = document.getElementById(
         'rvRevenueChart'
     );
@@ -1231,13 +1241,7 @@ for ($i = 1; $i <= 12; $i++) {
         data: {
             labels: labels,
 
-            datasets: [{
-                label: getLabel(select.value),
-                data: getData(select.value),
-                backgroundColor: '#ea580c',
-                borderRadius: 5,
-                maxBarThickness: 50
-            }]
+            datasets: getDatasets(select.value)
         },
 
         options: {
@@ -1266,7 +1270,9 @@ for ($i = 1; $i <= 12; $i++) {
             },
 
             scales: {
+                x: { stacked: true },
                 y: {
+                    stacked: true,
                     beginAtZero: true,
 
                     ticks: {
@@ -1282,21 +1288,7 @@ for ($i = 1; $i <= 12; $i++) {
     });
 
     select.addEventListener('change', function() {
-        const source = select.value;
-
-        chart.data.datasets[0].label =
-            getLabel(source);
-
-        chart.data.datasets[0].data =
-            getData(source);
-
-        chart.data.datasets[0].backgroundColor =
-            source === 'tour'
-                ? '#166534'
-                : source === 'shop'
-                    ? '#0284c7'
-                    : '#ea580c';
-
+        chart.data.datasets = getDatasets(select.value);
         chart.update();
     });
 
