@@ -1,4 +1,3 @@
-
 <?php
 ob_start();
 
@@ -34,7 +33,28 @@ unset($_SESSION['product_notice']);
 
 function productRedirect(string $message): void {
     $_SESSION['product_notice'] = $message;
-    header('Location: index.php', true, 303);
+
+    // Khong de HTML/khoang trang da buffer can tro HTTP redirect.
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+
+    if (!headers_sent()) {
+        header('Location: index.php', true, 303);
+        exit;
+    }
+
+    // Du phong khi file da in ky tu truoc the mo PHP.
+    echo '<!doctype html><html lang="vi"><head><meta charset="utf-8">';
+    echo '<meta http-equiv="refresh" content="0;url=index.php">';
+    echo '<title>Đang chuyển trang</title></head><body>';
+    echo '<script>window.location.replace("index.php");</script>';
+    echo '<a href="index.php">Quay lại danh sách sản phẩm</a>';
+    echo '</body></html>';
     exit;
 }
 
