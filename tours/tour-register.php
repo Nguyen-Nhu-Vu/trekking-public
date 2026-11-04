@@ -13,6 +13,15 @@ if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
+function vt_vietqr($amount, $description) {
+    $params = http_build_query([
+        'amount' => (string)max(0, (int)round((float)$amount)),
+        'addInfo' => trim((string)$description),
+        'accountName' => 'NGUYEN NHU VU'
+    ], '', '&', PHP_QUERY_RFC3986);
+    return 'https://img.vietqr.io/image/MB-0372469967-compact2.png?' . $params;
+}
+
 function vt_h($v) {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
@@ -171,7 +180,7 @@ $base = rtrim(
     '/'
 ) . '/';
 
-$qrImage = $base . 'assets/images/momo-qr-vu.jpg';
+// QR duoc tao theo so tien va ma dat tour sau khi dat thanh cong.
 
 $tourId = (int)($_GET['id'] ?? 0);
 $error = '';
@@ -229,6 +238,8 @@ if (!empty($_SESSION['user_id'])) {
     }
 }
 
+// Thong tin dang ky duoc tu dong dien tu HO SO CA NHAN (users).
+// Khong su dung thong tin tu booking truoc. Khach vang lai de trong.
 $tokenKey = 'vnn_booking_token_' . $tourId;
 $doneKey = 'vnn_last_booking_' . $tourId;
 
@@ -252,13 +263,10 @@ $selectedDate = (string)(
 );
 
 $old = [
-    'fullname' => $_POST['fullname']
-        ?? ($user['fullname'] ?? ''),
-    'phone' => $_POST['phone']
-        ?? ($user['phone'] ?? ''),
-    'email' => $_POST['email']
-        ?? ($user['email'] ?? ''),
-    'emergency_contact' => $_POST['emergency_contact'] ?? '',
+    'fullname' => $_POST['fullname'] ?? ($user['fullname'] ?? ''),
+    'phone' => $_POST['phone'] ?? ($user['phone'] ?? ''),
+    'email' => $_POST['email'] ?? ($user['email'] ?? ''),
+    'emergency_contact' => $_POST['emergency_contact'] ?? ($user['emergency_contact'] ?? ''),
     'number_people' => $_POST['number_people'] ?? 1,
     'notes' => $_POST['notes'] ?? ''
 ];
@@ -426,12 +434,13 @@ if (
                     'phone' => $phone,
                     'people' => $people,
                     'total' => $totalPrice,
-                    'transfer' =>
-                        'TOUR ' .
-                        $bookingCode . ' ' .
-                        substr(vt_token($tour['title']), 0, 22) . ' ' .
-                        vt_token($name) . ' ' .
-                        $phone
+                    'transfer' => substr(
+                        'TOUR ' . $bookingCode . ' ' .
+                        substr(vt_token($tour['title']), 0, 12) . ' ' .
+                        substr(vt_token($name), 0, 10),
+                        0,
+                        50
+                    )
                 ];
 
                 $success = true;
@@ -1063,14 +1072,15 @@ body.vt-modal-active {
         <div class="vt-payment">
             <div>
                 <img
-                    src="<?= vt_h($qrImage) ?>"
+                    src="<?= vt_h(vt_vietqr($payment['total'], $payment['transfer'])) ?>"
                     class="vt-qr"
-                    alt="Mã QR MoMo thanh toán tour"
+                    alt="VietQR MB Bank tự điền số tiền và nội dung đặt tour"
                 >
             </div>
 
             <div class="vt-paybox">
-                <h3>Thanh toán bằng hình thức chuyển khoản</h3>
+                <h3>Chuyển khoản MB Bank bằng VietQR</h3>
+                <p>MB Bank · 0372469967 · NGUYEN NHU VU</p>
                 <p>Số tiền cần chuyển:</p>
 
                 <div class="vt-total">
@@ -1098,8 +1108,7 @@ body.vt-modal-active {
                 </button>
 
                 <p class="vt-note">
-                    Vui lòng chuyển đúng số tiền và
-                    nội dung chuyển khoản. Nếu đã thanh toán,
+                    Quét QR bằng ứng dụng ngân hàng để điền sẵn số tiền và nội dung. Hãy kiểm tra thông tin người nhận trước khi xác nhận. Nếu đã thanh toán,
                     bạn không cần chuyển lại.
                     Hãy chờ bộ phận quản lý kiểm tra
                     và xác nhận giao dịch.
