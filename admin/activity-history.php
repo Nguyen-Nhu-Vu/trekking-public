@@ -15,20 +15,24 @@ if (getRole() !== 'manager') {
 $current_page = 'activity-history';
 $page_title = 'Lịch sử xử lý giao dịch - VNN Travel';
 
-if (!function_exists('activityH')) {
-    function activityH($value): string
+if (!function_exists('vnnActivityEscape')) {
+    function vnnActivityEscape($value): string
     {
         return htmlspecialchars(
             (string)($value ?? ''),
-            ENT_QUOTES,
+            ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
     }
 }
 
-if (!function_exists('activityDateValid')) {
-    function activityDateValid(string $value): bool
+if (!function_exists('vnnActivityValidDate')) {
+    function vnnActivityValidDate(string $value): bool
     {
+        if ($value === '') {
+            return false;
+        }
+
         $date = DateTimeImmutable::createFromFormat(
             '!Y-m-d',
             $value
@@ -39,10 +43,10 @@ if (!function_exists('activityDateValid')) {
     }
 }
 
-if (!function_exists('activityTypeName')) {
-    function activityTypeName(string $type): string
+if (!function_exists('vnnActivityTargetName')) {
+    function vnnActivityTargetName(string $target): string
     {
-        return match ($type) {
+        return match ($target) {
             'orders' => 'Đơn hàng',
             'tour_bookings' => 'Đăng ký tour',
             'products' => 'Kho hàng',
@@ -51,143 +55,55 @@ if (!function_exists('activityTypeName')) {
     }
 }
 
-if (!function_exists('activityActionClass')) {
-    function activityActionClass(string $action): string
+if (!function_exists('vnnActivityActionStyle')) {
+    function vnnActivityActionStyle(string $action): string
     {
         $action = mb_strtolower($action, 'UTF-8');
 
         if (str_contains($action, 'hủy')) {
-            return 'danger';
+            return 'cancel';
+        }
+
+        if (str_contains($action, 'nhập thêm')) {
+            return 'stock';
         }
 
         if (
             str_contains($action, 'thanh toán') ||
-            str_contains($action, 'hoàn tất') ||
-            str_contains($action, 'hoàn thành')
+            str_contains($action, 'hoàn thành') ||
+            str_contains($action, 'hoàn tất')
         ) {
-            return 'success';
+            return 'payment';
         }
 
-        if (
-            str_contains($action, 'nhập thêm') ||
-            str_contains($action, 'nhập kho')
-        ) {
-            return 'inventory';
-        }
-
-        return 'normal';
+        return 'update';
     }
 }
 
-if (!function_exists('activityRows')) {
-    function activityRows(array $rows): void
+if (!function_exists('vnnActivityTime')) {
+    function vnnActivityTime($value): array
     {
-        if (empty($rows)) {
-            echo '<tr><td colspan="7" class="ah-empty">';
-            echo 'Chưa có lịch sử giao dịch phù hợp.';
-            echo '</td></tr>';
-            return;
+        $timestamp = strtotime((string)$value);
+
+        if (!$timestamp) {
+            return [
+                'date' => '—',
+                'time' => ''
+            ];
         }
 
-        foreach ($rows as $row) {
-            $timestamp = strtotime(
-                (string)($row['created_at'] ?? '')
-            );
-
-            $date = $timestamp
-                ? date('d/m/Y', $timestamp)
-                : '—';
-
-            $time = $timestamp
-                ? date('H:i:s', $timestamp)
-                : '';
-
-            $action = (string)($row['action'] ?? '');
-
-            $type = (string)(
-                $row['target_type'] ?? ''
-            );
-
-            $targetId = (string)(
-                $row['target_id'] ?? ''
-            );
-
-            $actor = trim(
-                (string)($row['actor_name'] ?? '')
-            );
-
-            if ($actor === '') {
-                $actor = 'Không xác định';
-            }
-
-            $oldValue = (string)(
-                $row['old_value'] ?? ''
-            );
-
-            $newValue = (string)(
-                $row['new_value'] ?? ''
-            );
-
-            $badgeClass = activityActionClass($action);
-            ?>
-            <tr>
-                <td class="ah-date-cell">
-                    <strong><?= activityH($date) ?></strong>
-                    <span><?= activityH($time) ?></span>
-                </td>
-
-                <td>
-                    <div class="ah-actor">
-                        <i class="fa-solid fa-user"></i>
-                        <span><?= activityH($actor) ?></span>
-                    </div>
-                </td>
-
-                <td>
-                    <span class="ah-action <?= activityH($badgeClass) ?>">
-                        <?= activityH($action) ?>
-                    </span>
-                </td>
-
-                <td>
-                    <span class="ah-type">
-                        <?= activityH(activityTypeName($type)) ?>
-                    </span>
-                </td>
-
-                <td class="ah-id">
-                    #<?= activityH($targetId) ?>
-                </td>
-
-                <td>
-                    <div class="ah-value old">
-                        <?= $oldValue !== ''
-                            ? activityH($oldValue)
-                            : '—' ?>
-                    </div>
-                </td>
-
-                <td>
-                    <div class="ah-value new">
-                        <?= $newValue !== ''
-                            ? activityH($newValue)
-                            : '—' ?>
-                    </div>
-                </td>
-            </tr>
-            <?php
-        }
+        return [
+            'date' => date('d/m/Y', $timestamp),
+            'time' => date('H:i:s', $timestamp)
+        ];
     }
 }
 
 /*
  * BO LOC
  *
- * Giu nguyen:
- * - Loc loai giao dich
- * - Tim kiem
- * - Loc ngay
- * - Phan trang
+ * Giu nguyen chuc nang loc loai giao dich,
+ * tim kiem va loc theo khoang ngay.
  */
 
 $types = [
@@ -215,25 +131,25 @@ $end = (string)($_GET['end'] ?? '');
 
 if (
     $start !== '' &&
-    !activityDateValid($start)
+    !vnnActivityValidDate($start)
 ) {
     $start = '';
 }
 
 if (
     $end !== '' &&
-    !activityDateValid($end)
+    !vnnActivityValidDate($end)
 ) {
     $end = '';
 }
 
 /*
- * CHI HIEN THI LICH SU GIAO DICH
+ * LOC LICH SU
  *
- * Loai cac ban ghi co nguoi thuc hien
- * hien la Admin, hoac co ten ghi ro Admin.
- *
- * Khong xoa ban ghi nao khoi database.
+ * - Chi lay giao dich don hang, tour va kho.
+ * - Khong hien thi ban ghi cua tai khoan
+ *   dang co vai tro Admin.
+ * - Khong xoa du lieu lich su cu.
  */
 
 $where = [
@@ -293,27 +209,29 @@ if ($end !== '') {
 $whereSql = implode(' AND ', $where);
 
 /*
- * PHAN TRANG
+ * LAY DU LIEU VA PHAN TRANG
  */
+
+$pageSize = 20;
 
 $page = max(
     1,
     (int)($_GET['page'] ?? 1)
 );
 
-$pageSize = 20;
 $total = 0;
 $pageCount = 1;
 $rows = [];
 $loadError = '';
 
 try {
-    $countStmt = $pdo->prepare("
+    $countSql = "
         SELECT COUNT(*)
         FROM admin_audit_logs a
         WHERE $whereSql
-    ");
+    ";
 
+    $countStmt = $pdo->prepare($countSql);
     $countStmt->execute($params);
 
     $total = (int)$countStmt->fetchColumn();
@@ -340,7 +258,9 @@ try {
             a.created_at
         FROM admin_audit_logs a
         WHERE $whereSql
-        ORDER BY a.created_at DESC, a.id DESC
+        ORDER BY
+            a.created_at DESC,
+            a.id DESC
         LIMIT $pageSize
         OFFSET $offset
     ";
@@ -352,59 +272,42 @@ try {
 
 } catch (Throwable $e) {
     error_log(
-        'Activity history: ' . $e->getMessage()
+        'VNN activity history: ' .
+        $e->getMessage()
     );
 
     $loadError = 'Không thể tải lịch sử giao dịch.';
 }
 
 /*
- * DU LIEU LAM MOI DINH KY
- *
- * Xoa output buffer truoc khi tra HTML,
- * tranh Warning / HTML tu file include
- * chen vao ket qua AJAX.
+ * TAO LINK PHAN TRANG
  */
 
-if (
-    ($_GET['partial'] ?? '') === '1'
-) {
-    while (ob_get_level() > 0) {
-        ob_end_clean();
+if (!function_exists('vnnActivityPageUrl')) {
+    function vnnActivityPageUrl(int $number): string
+    {
+        $query = $_GET;
+        unset($query['partial']);
+
+        $query['page'] = $number;
+
+        return 'activity-history.php?' .
+            http_build_query($query);
     }
-
-    header(
-        'Content-Type: text/html; charset=utf-8'
-    );
-
-    header(
-        'Cache-Control: no-store, no-cache, must-revalidate'
-    );
-
-    if ($loadError !== '') {
-        http_response_code(500);
-        echo '<tr><td colspan="7" class="ah-empty">';
-        echo activityH($loadError);
-        echo '</td></tr>';
-        exit;
-    }
-
-    activityRows($rows);
-    exit;
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
 
     <meta
         name="viewport"
-        content="width=device-width,initial-scale=1"
+        content="width=device-width, initial-scale=1"
     >
 
-    <title><?= activityH($page_title) ?></title>
+    <title><?= vnnActivityEscape($page_title) ?></title>
 
     <link
         rel="stylesheet"
@@ -426,116 +329,143 @@ if (
             box-sizing: border-box;
         }
 
-        .ah-page {
-            flex: 1;
+        .vnn-history-page {
+            flex: 1 1 auto;
             min-width: 0;
+            max-width: 100%;
+            min-height: 100vh;
             padding: 24px;
             background: #f1f5f9;
             color: #173454;
+            font-family: Arial, Helvetica, sans-serif;
             font-size: 13px;
         }
 
-        .ah-panel {
-            background: white;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 22px;
-            margin-bottom: 17px;
+        .vnn-history-page,
+        .vnn-history-page input,
+        .vnn-history-page select,
+        .vnn-history-page button {
+            font-family: inherit;
         }
 
-        .ah-header h1 {
+        .vnn-history-panel {
+            width: 100%;
+            min-width: 0;
+            margin-bottom: 18px;
+            padding: 22px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 13px;
+        }
+
+        .vnn-history-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
             margin: 0 0 10px;
             font-size: 21px;
-            color: #102e52;
+            line-height: 1.4;
             font-weight: 800;
+            color: #102e52;
         }
 
-        .ah-header h1 i {
-            margin-right: 8px;
+        .vnn-history-title i {
             color: #166534;
         }
 
-        .ah-header p {
+        .vnn-history-description {
             margin: 0;
-            color: #64748b;
             line-height: 1.7;
+            color: #64748b;
+            font-size: 13px;
         }
 
-        .ah-form {
+        /* BO LOC */
+
+        .vnn-history-filter {
             display: flex;
-            flex-wrap: wrap;
-            gap: 13px;
             align-items: flex-end;
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
-        .ah-field {
-            flex: 1;
-            min-width: 145px;
+        .vnn-history-field {
+            flex: 1 1 150px;
+            min-width: 150px;
         }
 
-        .ah-field.search {
-            flex: 2;
-            min-width: 220px;
+        .vnn-history-field.search {
+            flex: 2 1 260px;
+            min-width: 230px;
         }
 
-        .ah-field label {
+        .vnn-history-field label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 7px;
+            color: #334155;
             font-size: 12px;
             font-weight: 700;
-            color: #334155;
         }
 
-        .ah-input {
+        .vnn-history-input {
             display: block;
             width: 100%;
             height: 43px;
             padding: 10px 12px;
             border: 1px solid #cbd5e1;
-            border-radius: 9px;
-            background: white;
+            border-radius: 8px;
+            background: #fff;
             color: #173454;
-            font: inherit;
             font-size: 13px;
+            outline: none;
         }
 
-        .ah-btn {
+        .vnn-history-input:focus {
+            border-color: #16a34a;
+            box-shadow: 0 0 0 3px rgba(22,163,74,.1);
+        }
+
+        .vnn-history-button {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
-            min-height: 43px;
-            padding: 11px 16px;
-            border: 0;
-            border-radius: 9px;
+            height: 43px;
+            padding: 0 17px;
+            border: none;
+            border-radius: 8px;
             background: #166534;
-            color: white !important;
-            text-decoration: none;
+            color: #ffffff !important;
             font-size: 13px;
-            font-weight: 800;
+            font-weight: 700;
+            text-decoration: none;
             cursor: pointer;
+            white-space: nowrap;
         }
 
-        .ah-btn.gray {
+        .vnn-history-button.reset {
             background: #e2e8f0;
             color: #334155 !important;
         }
 
-        .ah-table-head {
+        /* THONG KE VA CAP NHAT */
+
+        .vnn-history-table-header {
             display: flex;
-            align-items: center;
             justify-content: space-between;
+            align-items: center;
             flex-wrap: wrap;
             gap: 12px;
-            margin-bottom: 18px;
+            margin-bottom: 17px;
         }
 
-        .ah-table-head strong {
-            font-size: 15px;
-            color: #102e52;
+        .vnn-history-total {
+            color: #173454;
+            font-size: 16px;
+            font-weight: 800;
         }
 
-        .ah-sync {
+        .vnn-history-sync {
             display: inline-flex;
             align-items: center;
             gap: 7px;
@@ -543,192 +473,261 @@ if (
             font-size: 12px;
         }
 
-        .ah-sync i {
+        .vnn-history-sync i {
             color: #16a34a;
         }
 
-        .ah-table-wrap {
+        /* BANG LICH SU */
+
+        .vnn-history-scroll {
             width: 100%;
+            max-width: 100%;
+            min-width: 0;
             overflow-x: auto;
+            overflow-y: hidden;
             border: 1px solid #e2e8f0;
-            border-radius: 11px;
+            border-radius: 10px;
+            background: #ffffff;
         }
 
-        .ah-table {
+        .vnn-history-table {
             width: 100%;
-            min-width: 1220px;
-            table-layout: fixed;
+            min-width: 1240px;
+            margin: 0;
             border-collapse: collapse;
-            background: white;
+            border-spacing: 0;
+            table-layout: fixed;
+            background: #ffffff;
         }
 
-        .ah-table th,
-        .ah-table td {
+        .vnn-history-table th,
+        .vnn-history-table td {
+            margin: 0;
             padding: 15px 13px;
-            border-bottom: 1px solid #e2e8f0;
             text-align: left;
             vertical-align: middle;
+            border: 0;
+            border-bottom: 1px solid #e2e8f0;
             font-size: 12px;
             line-height: 1.6;
-            overflow-wrap: break-word;
-            word-break: normal;
+            color: #334155;
+            font-weight: 400;
         }
 
-        .ah-table th {
+        .vnn-history-table th {
             background: #f8fafc;
-            color: #102e52;
-            font-weight: 800;
+            color: #173454;
             font-size: 12px;
+            font-weight: 800;
             white-space: nowrap;
         }
 
-        .ah-table tbody tr:hover {
-            background: #f8fafc;
-        }
-
-        .ah-table tbody tr:last-child td {
+        .vnn-history-table tbody tr:last-child td {
             border-bottom: 0;
         }
 
-        .ah-date-cell strong {
-            display: block;
-            white-space: nowrap;
-            font-weight: 800;
-            color: #173454;
+        .vnn-history-table tbody tr:hover {
+            background: #f8fafc;
         }
 
-        .ah-date-cell span {
-            display: block;
-            margin-top: 3px;
-            color: #64748b;
-            white-space: nowrap;
+        .vnn-history-table .col-time {
+            width: 13%;
         }
 
-        .ah-actor {
+        .vnn-history-table .col-actor {
+            width: 15%;
+        }
+
+        .vnn-history-table .col-action {
+            width: 18%;
+        }
+
+        .vnn-history-table .col-target {
+            width: 12%;
+        }
+
+        .vnn-history-table .col-id {
+            width: 7%;
+        }
+
+        .vnn-history-table .col-before {
+            width: 17.5%;
+        }
+
+        .vnn-history-table .col-after {
+            width: 17.5%;
+        }
+
+        .vnn-history-date {
             display: flex;
-            gap: 8px;
-            align-items: center;
-            font-weight: 700;
-            color: #173454;
+            flex-direction: column;
+            gap: 4px;
         }
 
-        .ah-actor i {
+        .vnn-history-date strong {
+            color: #173454;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        .vnn-history-date small {
+            color: #64748b;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .vnn-history-actor {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            color: #173454;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .vnn-history-actor i {
             flex-shrink: 0;
+            margin-top: 4px;
             color: #64748b;
         }
 
-        .ah-action {
+        .vnn-history-actor span {
+            min-width: 0;
+            overflow-wrap: break-word;
+        }
+
+        .vnn-history-action {
             display: inline-block;
             max-width: 100%;
             padding: 7px 10px;
-            border-radius: 8px;
-            background: #eff6ff;
-            color: #1d4ed8;
+            border-radius: 7px;
             font-size: 12px;
             font-weight: 700;
-            line-height: 1.5;
+            line-height: 1.55;
+            overflow-wrap: break-word;
         }
 
-        .ah-action.success {
-            background: #dcfce7;
+        .vnn-history-action.update {
+            color: #1d4ed8;
+            background: #eff6ff;
+        }
+
+        .vnn-history-action.payment {
             color: #166534;
+            background: #dcfce7;
         }
 
-        .ah-action.danger {
-            background: #fee2e2;
+        .vnn-history-action.cancel {
             color: #b91c1c;
+            background: #fee2e2;
         }
 
-        .ah-action.inventory {
-            background: #fef3c7;
+        .vnn-history-action.stock {
             color: #92400e;
+            background: #fef3c7;
         }
 
-        .ah-type {
+        .vnn-history-target {
+            display: block;
             color: #475569;
             font-weight: 700;
         }
 
-        .ah-id {
-            font-weight: 800;
+        .vnn-history-id {
             color: #173454;
+            font-size: 13px;
+            font-weight: 800;
             white-space: nowrap;
         }
 
-        .ah-value {
-            line-height: 1.6;
-            padding: 9px 11px;
-            border-radius: 8px;
+        .vnn-history-value {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            padding: 10px 11px;
+            border-radius: 7px;
+            line-height: 1.65;
             white-space: pre-wrap;
-            overflow-wrap: anywhere;
+            overflow-wrap: break-word;
+            word-break: normal;
+            font-size: 12px;
+            text-align: left;
         }
 
-        .ah-value.old {
-            background: #f1f5f9;
+        .vnn-history-value.before {
             color: #475569;
+            background: #f1f5f9;
         }
 
-        .ah-value.new {
-            background: #f0fdf4;
+        .vnn-history-value.after {
             color: #166534;
+            background: #f0fdf4;
         }
 
-        .ah-empty {
+        .vnn-history-empty {
             padding: 35px 15px !important;
             text-align: center !important;
-            color: #64748b;
+            color: #64748b !important;
         }
 
-        .ah-error {
-            padding: 14px 16px;
-            margin-bottom: 16px;
+        .vnn-history-error {
+            margin-bottom: 18px;
+            padding: 13px 15px;
+            border-radius: 8px;
             background: #fee2e2;
             color: #991b1b;
-            border-radius: 9px;
         }
 
-        .ah-pagination {
+        /* PHAN TRANG */
+
+        .vnn-history-pages {
             display: flex;
-            align-items: center;
             justify-content: center;
-            gap: 8px;
+            align-items: center;
             flex-wrap: wrap;
+            gap: 8px;
             margin-top: 20px;
         }
 
-        .ah-pagination a {
+        .vnn-history-pages a {
             display: inline-flex;
-            align-items: center;
             justify-content: center;
+            align-items: center;
             min-width: 36px;
             height: 36px;
             padding: 0 11px;
             border: 1px solid #cbd5e1;
             border-radius: 8px;
-            color: #173454;
             background: white;
+            color: #173454;
+            font-size: 13px;
             font-weight: 700;
             text-decoration: none;
         }
 
-        .ah-pagination a[aria-current="page"] {
+        .vnn-history-pages a[aria-current="page"] {
             background: #166534;
-            color: white;
             border-color: #166534;
+            color: white;
         }
 
-        @media(max-width:750px) {
-            .ah-page {
+        @media (max-width: 750px) {
+            .vnn-history-page {
                 padding: 12px;
             }
 
-            .ah-panel {
+            .vnn-history-panel {
                 padding: 15px;
             }
 
-            .ah-field,
-            .ah-field.search {
+            .vnn-history-field,
+            .vnn-history-field.search {
                 flex: 1 1 100%;
+                min-width: 0;
+            }
+
+            .vnn-history-title {
+                font-size: 17px;
             }
         }
     </style>
@@ -740,98 +739,121 @@ if (
 require_once __DIR__ . '/includes/sidebar.php';
 ?>
 
-<main class="admin-main ah-page">
+<main class="admin-main vnn-history-page">
 
-    <section class="ah-panel ah-header">
-        <h1>
+    <section class="vnn-history-panel">
+
+        <h1 class="vnn-history-title">
             <i class="fa-solid fa-clock-rotate-left"></i>
             LỊCH SỬ XỬ LÝ GIAO DỊCH
         </h1>
 
-        <p>
-            Theo dõi lịch sử duyệt đơn hàng,
-            xác nhận thanh toán, hủy đơn,
-            xử lý đặt tour và nhập thêm hàng vào kho.
-            Dữ liệu được làm mới tự động mỗi 10 giây.
+        <p class="vnn-history-description">
+            Theo dõi xử lý đơn hàng, duyệt tour,
+            thanh toán, hủy đơn và nhập thêm hàng vào kho.
+            Dữ liệu tự động làm mới sau mỗi 10 giây.
         </p>
+
     </section>
 
-    <section class="ah-panel">
+    <section class="vnn-history-panel">
 
-        <form class="ah-form" method="GET">
+        <form
+            class="vnn-history-filter"
+            method="GET"
+            action="activity-history.php"
+        >
 
-            <div class="ah-field">
-                <label for="type">
+            <div class="vnn-history-field">
+
+                <label for="historyType">
                     Loại giao dịch
                 </label>
 
                 <select
-                    class="ah-input"
-                    id="type"
+                    class="vnn-history-input"
+                    id="historyType"
                     name="type"
                 >
+
                     <?php foreach ($types as $value => $label): ?>
+
                         <option
-                            value="<?= activityH($value) ?>"
+                            value="<?= vnnActivityEscape($value) ?>"
                             <?= $type === $value
                                 ? 'selected'
                                 : '' ?>
                         >
-                            <?= activityH($label) ?>
+                            <?= vnnActivityEscape($label) ?>
                         </option>
+
                     <?php endforeach; ?>
+
                 </select>
+
             </div>
 
-            <div class="ah-field search">
-                <label for="keyword">
-                    Tìm kiếm lịch sử
+            <div class="vnn-history-field search">
+
+                <label for="historyKeyword">
+                    Tìm kiếm
                 </label>
 
                 <input
-                    class="ah-input"
-                    id="keyword"
-                    name="keyword"
+                    class="vnn-history-input"
                     type="search"
+                    id="historyKeyword"
+                    name="keyword"
                     placeholder="Người xử lý, mã đơn, trạng thái..."
-                    value="<?= activityH($keyword) ?>"
+                    value="<?= vnnActivityEscape($keyword) ?>"
                 >
+
             </div>
 
-            <div class="ah-field">
-                <label for="start">
+            <div class="vnn-history-field">
+
+                <label for="historyStart">
                     Từ ngày
                 </label>
 
                 <input
-                    class="ah-input"
-                    id="start"
-                    name="start"
+                    class="vnn-history-input"
                     type="date"
-                    value="<?= activityH($start) ?>"
+                    id="historyStart"
+                    name="start"
+                    value="<?= vnnActivityEscape($start) ?>"
                 >
+
             </div>
 
-            <div class="ah-field">
-                <label for="end">
+            <div class="vnn-history-field">
+
+                <label for="historyEnd">
                     Đến ngày
                 </label>
 
                 <input
-                    class="ah-input"
-                    id="end"
-                    name="end"
+                    class="vnn-history-input"
                     type="date"
-                    value="<?= activityH($end) ?>"
+                    id="historyEnd"
+                    name="end"
+                    value="<?= vnnActivityEscape($end) ?>"
                 >
+
             </div>
 
-            <button type="submit" class="ah-btn">
+            <button
+                class="vnn-history-button"
+                type="submit"
+            >
                 <i class="fa-solid fa-filter"></i>
                 Lọc
             </button>
 
-            <a href="activity-history.php" class="ah-btn gray">
+            <a
+                class="vnn-history-button reset"
+                href="activity-history.php"
+            >
                 Xóa lọc
             </a>
 
@@ -839,39 +861,52 @@ require_once __DIR__ . '/includes/sidebar.php';
 
     </section>
 
-    <section class="ah-panel">
+    <section class="vnn-history-panel">
 
-        <div class="ah-table-head">
-            <strong>
-                <i class="fa-solid fa-list"></i>
-                <?= number_format($total, 0, ',', '.') ?>
-                bản ghi
+        <div class="vnn-history-table-header">
+
+            <strong
+                class="vnn-history-total"
+                id="historyTotal"
+            >
+                <?= number_format(
+                    $total,
+                    0,
+                    ',',
+                    '.'
+                ) ?> bản ghi
             </strong>
 
-            <span class="ah-sync" id="lastSync">
+            <span
+                class="vnn-history-sync"
+                id="historySync"
+            >
                 <i class="fa-solid fa-circle-check"></i>
                 Dữ liệu hiện tại
             </span>
+
         </div>
 
         <?php if ($loadError !== ''): ?>
-            <div class="ah-error">
-                <?= activityH($loadError) ?>
+
+            <div class="vnn-history-error">
+                <?= vnnActivityEscape($loadError) ?>
             </div>
+
         <?php endif; ?>
 
-        <div class="ah-table-wrap">
+        <div class="vnn-history-scroll">
 
-            <table class="ah-table">
+            <table class="vnn-history-table">
 
                 <colgroup>
-                    <col style="width:12%">
-                    <col style="width:16%">
-                    <col style="width:19%">
-                    <col style="width:12%">
-                    <col style="width:7%">
-                    <col style="width:17%">
-                    <col style="width:17%">
+                    <col class="col-time">
+                    <col class="col-actor">
+                    <col class="col-action">
+                    <col class="col-target">
+                    <col class="col-id">
+                    <col class="col-before">
+                    <col class="col-after">
                 </colgroup>
 
                 <thead>
@@ -886,8 +921,133 @@ require_once __DIR__ . '/includes/sidebar.php';
                     </tr>
                 </thead>
 
-                <tbody id="activityRows">
-                    <?php activityRows($rows); ?>
+                <tbody id="historyRows">
+
+                    <?php if (empty($rows)): ?>
+
+                        <tr>
+                            <td
+                                colspan="7"
+                                class="vnn-history-empty"
+                            >
+                                Chưa có lịch sử giao dịch phù hợp.
+                            </td>
+                        </tr>
+
+                    <?php else: ?>
+
+                        <?php foreach ($rows as $row): ?>
+
+                            <?php
+                            $datetime = vnnActivityTime(
+                                $row['created_at'] ?? ''
+                            );
+
+                            $action = (string)(
+                                $row['action'] ?? ''
+                            );
+
+                            $actor = trim(
+                                (string)(
+                                    $row['actor_name'] ?? ''
+                                )
+                            );
+
+                            if ($actor === '') {
+                                $actor = 'Không xác định';
+                            }
+
+                            $target = (string)(
+                                $row['target_type'] ?? ''
+                            );
+
+                            $targetId = (string)(
+                                $row['target_id'] ?? ''
+                            );
+
+                            $before = (string)(
+                                $row['old_value'] ?? ''
+                            );
+
+                            $after = (string)(
+                                $row['new_value'] ?? ''
+                            );
+                            ?>
+
+                            <tr>
+
+                                <td>
+                                    <div class="vnn-history-date">
+                                        <strong>
+                                            <?= vnnActivityEscape(
+                                                $datetime['date']
+                                            ) ?>
+                                        </strong>
+
+                                        <small>
+                                            <?= vnnActivityEscape(
+                                                $datetime['time']
+                                            ) ?>
+                                        </small>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <div class="vnn-history-actor">
+                                        <i class="fa-solid fa-user"></i>
+
+                                        <span>
+                                            <?= vnnActivityEscape($actor) ?>
+                                        </span>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <span
+                                        class="vnn-history-action <?= vnnActivityEscape(
+                                            vnnActivityActionStyle($action)
+                                        ) ?>"
+                                    >
+                                        <?= vnnActivityEscape($action) ?>
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <span class="vnn-history-target">
+                                        <?= vnnActivityEscape(
+                                            vnnActivityTargetName($target)
+                                        ) ?>
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <span class="vnn-history-id">
+                                        #<?= vnnActivityEscape($targetId) ?>
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <span class="vnn-history-value before">
+                                        <?= $before !== ''
+                                            ? vnnActivityEscape($before)
+                                            : '—' ?>
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <span class="vnn-history-value after">
+                                        <?= $after !== ''
+                                            ? vnnActivityEscape($after)
+                                            : '—' ?>
+                                    </span>
+                                </td>
+
+                            </tr>
+
+                        <?php endforeach; ?>
+
+                    <?php endif; ?>
+
                 </tbody>
 
             </table>
@@ -897,24 +1057,17 @@ require_once __DIR__ . '/includes/sidebar.php';
         <?php if ($pageCount > 1): ?>
 
             <nav
-                class="ah-pagination"
+                class="vnn-history-pages"
+                id="historyPagination"
                 aria-label="Phân trang lịch sử"
             >
 
                 <?php for ($n = 1; $n <= $pageCount; $n++): ?>
 
-                    <?php
-                    $queryParams = $_GET;
-                    unset($queryParams['partial']);
-                    $queryParams['page'] = $n;
-
-                    $url = '?' . http_build_query(
-                        $queryParams
-                    );
-                    ?>
-
                     <a
-                        href="<?= activityH($url) ?>"
+                        href="<?= vnnActivityEscape(
+                            vnnActivityPageUrl($n)
+                        ) ?>"
                         <?= $n === $page
                             ? 'aria-current="page"'
                             : '' ?>
@@ -934,8 +1087,23 @@ require_once __DIR__ . '/includes/sidebar.php';
 
 <script>
 (function() {
-    const tbody = document.getElementById('activityRows');
-    const sync = document.getElementById('lastSync');
+    'use strict';
+
+    const rows = document.getElementById(
+        'historyRows'
+    );
+
+    const total = document.getElementById(
+        'historyTotal'
+    );
+
+    const sync = document.getElementById(
+        'historySync'
+    );
+
+    const pagination = document.getElementById(
+        'historyPagination'
+    );
 
     let loading = false;
 
@@ -944,7 +1112,7 @@ require_once __DIR__ . '/includes/sidebar.php';
         if (
             document.hidden ||
             loading ||
-            !tbody
+            !rows
         ) {
             return;
         }
@@ -952,11 +1120,20 @@ require_once __DIR__ . '/includes/sidebar.php';
         loading = true;
 
         try {
+
+            /*
+             * Lay toan bo trang HTML.
+             *
+             * Khong su dung ?partial=1,
+             * khong yeu cau PHP gui header AJAX,
+             * tranh loi headers already sent.
+             */
+
             const url = new URL(
                 window.location.href
             );
 
-            url.searchParams.set('partial', '1');
+            url.searchParams.delete('partial');
 
             const response = await fetch(
                 url.toString(),
@@ -972,7 +1149,7 @@ require_once __DIR__ . '/includes/sidebar.php';
 
             if (!response.ok) {
                 throw new Error(
-                    'Không tải được lịch sử.'
+                    'Không thể tải dữ liệu lịch sử.'
                 );
             }
 
@@ -987,7 +1164,57 @@ require_once __DIR__ . '/includes/sidebar.php';
                 );
             }
 
-            tbody.innerHTML = html;
+            const parser = new DOMParser();
+
+            const updatedDocument = parser.parseFromString(
+                html,
+                'text/html'
+            );
+
+            const updatedRows =
+                updatedDocument.getElementById(
+                    'historyRows'
+                );
+
+            const updatedTotal =
+                updatedDocument.getElementById(
+                    'historyTotal'
+                );
+
+            const updatedPagination =
+                updatedDocument.getElementById(
+                    'historyPagination'
+                );
+
+            if (!updatedRows || !updatedTotal) {
+                throw new Error(
+                    'Không tìm thấy dữ liệu lịch sử.'
+                );
+            }
+
+            /*
+             * Chi cap nhat noi dung bang,
+             * khong tai lai menu va giao dien.
+             */
+
+            rows.innerHTML = updatedRows.innerHTML;
+
+            total.textContent =
+                updatedTotal.textContent;
+
+            /*
+             * Dong bo phan trang neu tong so
+             * ban ghi thay doi.
+             */
+
+            if (pagination && updatedPagination) {
+                pagination.innerHTML =
+                    updatedPagination.innerHTML;
+            }
+
+            if (pagination && !updatedPagination) {
+                pagination.innerHTML = '';
+            }
 
             sync.innerHTML =
                 '<i class="fa-solid fa-circle-check"></i>' +
@@ -1001,11 +1228,24 @@ require_once __DIR__ . '/includes/sidebar.php';
                 ' Chưa thể làm mới dữ liệu';
 
         } finally {
+
             loading = false;
+
         }
     }
 
-    setInterval(refreshHistory, 10000);
+    /*
+     * Tu dong cap nhat moi 10 giay.
+     */
+
+    setInterval(
+        refreshHistory,
+        10000
+    );
+
+    /*
+     * Khi quay lai tab, cap nhat ngay.
+     */
 
     document.addEventListener(
         'visibilitychange',
