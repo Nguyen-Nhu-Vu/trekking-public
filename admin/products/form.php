@@ -262,7 +262,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     category_id = ?,
                     brand = ?,
                     price = ?,
-                    stock = ?,
                     image = ?,
                     specs = ?,
                     size_chart = ?,
@@ -276,7 +275,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $categoryId,
                 $brand,
                 $price,
-                $stock,
                 $selectedImage,
                 $specs,
                 $sizeChart,
@@ -910,6 +908,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                             type="number"
                             name="stock"
                             id="stock"
+                            <?= $isEdit ? 'readonly' : '' ?>
                             min="0"
                             required
                             value="<?= pfh($product['stock']) ?>"
