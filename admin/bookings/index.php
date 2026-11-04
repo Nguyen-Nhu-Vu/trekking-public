@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -201,7 +202,7 @@ if (!function_exists('bkLog')) {
                 $actorId ?: null,
                 $actorName,
                 'transactions',
-                'Cập nhật trạng thái đăng ký tour',
+                ($new === 'Đã thanh toán' ? 'Xác nhận thanh toán tour' : ($new === 'Đã hủy' ? 'Hủy đăng ký tour' : 'Cập nhật trạng thái đăng ký tour')),
                 'tour_bookings',
                 (string)$id,
                 $old,
@@ -417,7 +418,6 @@ try {
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-
     $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Throwable $e) {
@@ -430,12 +430,23 @@ $bkPerPage = 10;
 $bkPageCount = max(1, (int)ceil($total / $bkPerPage));
 $bkPage = min($bkPageCount, max(1, (int)($_GET['page'] ?? 1)));
 $bookings = array_slice($bookings, ($bkPage - 1) * $bkPerPage, $bkPerPage);
+
 $vnnCounts = ['pending' => 0, 'unpaid' => 0];
+
 try {
-    $counts = $pdo->query("SELECT status, COUNT(*) AS total FROM tour_bookings WHERE status IN ('Chờ xác nhận','Đã xác nhận') GROUP BY status")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $counts = $pdo->query("
+        SELECT status, COUNT(*) AS total
+        FROM tour_bookings
+        WHERE status IN ('Chờ xác nhận','Đã xác nhận')
+        GROUP BY status
+    ")->fetchAll(PDO::FETCH_KEY_PAIR);
+
     $vnnCounts['pending'] = (int)($counts['Chờ xác nhận'] ?? 0);
     $vnnCounts['unpaid'] = (int)($counts['Đã xác nhận'] ?? 0);
-} catch (Throwable $e) { error_log('Booking pending count: ' . $e->getMessage()); }
+
+} catch (Throwable $e) {
+    error_log('Booking pending count: ' . $e->getMessage());
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -1083,6 +1094,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                     </table>
 
                 </div>
+
 <?php if ($bkPageCount > 1): ?>
 <nav class="vnn-pagination" aria-label="Phân trang" style="display:flex;gap:7px;justify-content:center;align-items:center;flex-wrap:wrap;padding:18px 10px">
 <?php for ($n = 1; $n <= $bkPageCount; $n++): ?>
