@@ -1,4 +1,4 @@
-<?php
+    <?php
 ob_start();
 
 require_once __DIR__ . '/../../config/database.php';
@@ -85,6 +85,24 @@ $editing['experience_years'] = 0;
 $error = '';
 $record = null;
 
+// Cac tour dang hien thi tren website, co the gan cho Leader.
+$availableTours = [];
+$selectedTourIds = [];
+try {
+    $availableTours = $pdo->query("
+        SELECT t.id, t.title, t.leader_id, l.fullname AS current_leader
+        FROM tours t
+        LEFT JOIN trekking_leaders l ON l.id = t.leader_id
+        WHERE t.status = 1
+        ORDER BY t.title ASC, t.id DESC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    error_log('Load active tours in Leader form: ' . $e->getMessage());
+    http_response_code(500);
+    exit('Không tải được danh sách tour đang hoạt động.');
+}
+
+
 // ==========================================
 // LAY THONG TIN KHI SUA LEADER
 // ==========================================
@@ -113,6 +131,10 @@ if ($id > 0) {
             $editing,
             $record
         );
+
+        $tourStatement = $pdo->prepare('SELECT id FROM tours WHERE leader_id = ? AND status = 1');
+        $tourStatement->execute([$id]);
+        $selectedTourIds = array_map('intval', $tourStatement->fetchAll(PDO::FETCH_COLUMN));
 
     } catch (Throwable $e) {
 
@@ -163,6 +185,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $editing['status'] =
             isset($_POST['status']) ? 1 : 0;
+
+        $requestedTourIds = $_POST['assigned_tours'] ?? [];
+        if (!is_array($requestedTourIds)) {
+            throw new RuntimeException('Danh sách tour được chọn không hợp lệ.');
+        }
+        $selectedTourIds = [];
+        foreach ($requestedTourIds as $tourId) {
+            if (!is_scalar($tourId) || !ctype_digit((string)$tourId) || (int)$tourId <= 0) {
+                throw new RuntimeException('Mã tour không hợp lệ.');
+            }
+            $selectedTourIds[] = (int)$tourId;
+        }
+        $selectedTourIds = array_values(array_unique($selectedTourIds));
+        $allowedTourIds = array_map('intval', array_column($availableTours, 'id'));
+        foreach ($selectedTourIds as $tourId) {
+            if (!in_array($tourId, $allowedTourIds, true)) {
+                throw new RuntimeException('Tour đã chọn không còn hoạt động trên website.');
+            }
+        }
 
         if ($values['fullname'] === '') {
             throw new RuntimeException(
@@ -299,6 +340,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $status = (int)$editing['status'];
 
+        $pdo->beginTransaction();
+        $savedLeaderId = $id;
+
         if ($id > 0) {
 
             $set = implode(
@@ -356,10 +400,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare($sql);
             $stmt->execute($params);
+            $savedLeaderId = (int)$pdo->lastInsertId();
 
             $_SESSION['leader_notice'] =
                 'Đã thêm Leader mới thành công.';
         }
+
+        // Chi bo lien ket cac tour dang hoat dong cua Leader nay.
+        // Tour an / ngung hoat dong khong bi sua doi.
+        $clearTours = $pdo->prepare('
+            UPDATE tours
+            SET leader_id = NULL
+            WHERE leader_id = ? AND status = 1
+        ');
+        $clearTours->execute([$savedLeaderId]);
+
+        if ($selectedTourIds) {
+            $placeholders = implode(',', array_fill(0, count($selectedTourIds), '?'));
+            $assignTours = $pdo->prepare("
+                UPDATE tours SET leader_id = ?
+                WHERE status = 1 AND id IN ($placeholders)
+            ");
+            $assignTours->execute(array_merge([$savedLeaderId], $selectedTourIds));
+        }
+
+        $pdo->commit();
 
         require_once __DIR__ . '/../includes/audit.php';
 
@@ -384,6 +449,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
 
     } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
 
         error_log(
             'Save Leader: ' . $e->getMessage()
@@ -427,6 +495,17 @@ $selectedFilename = $selectedImage !== ''
  href="../../assets/css/admin.css">
 
 <style>
+.lf-tour-search-wrap { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+.lf-tour-search-wrap input { min-width:230px; flex:1; max-width:480px; padding:11px 13px; border-radius:9px; border:1px solid #cbd5e1; font:inherit; }
+#lfTourCount { font-size:13px; color:#475569; }
+.lf-tour-list { border:1px solid #dce6f0; border-radius:11px; padding:8px; max-height:290px; overflow:auto; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.lf-tour-option { display:flex; align-items:flex-start; gap:11px; padding:11px; border-radius:9px; cursor:pointer; background:#f8fafc; border:1px solid transparent; }
+.lf-tour-option:has(input:checked) { background:#effaf2; border-color:#86cba4; }
+.lf-tour-option input { margin-top:3px; width:17px; height:17px; accent-color:#166534; flex-shrink:0; }
+.lf-tour-details { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.lf-tour-details strong { color:#173452; font-size:13px; overflow-wrap:anywhere; }
+.lf-tour-details small { color:#64748b; font-size:11px; }
+@media(max-width:650px){ .lf-tour-list{grid-template-columns:1fr;} }
 * {
     box-sizing: border-box;
 }
@@ -954,6 +1033,32 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
             <hr class="lf-divider">
 
+            <h2 class="lf-section-title">Các Tour Đang Phụ Trách</h2>
+            <p class="lf-photo-note">Chọn nhiều tour đã có trên website. Tour được chọn sẽ xuất hiện trong trang chi tiết của Leader này. Một tour chỉ có thể thuộc một Leader; chọn tour đang thuộc người khác sẽ chuyển sang Leader này khi lưu.</p>
+            <?php if (!$availableTours): ?>
+                <p class="lf-photo-note">Hiện chưa có tour đang hoạt động để liên kết.</p>
+            <?php else: ?>
+                <div class="lf-tour-search-wrap">
+                    <input id="lfTourSearch" type="search" placeholder="Tìm tên tour..." autocomplete="off" aria-label="Tìm tour để gán">
+                    <span id="lfTourCount"></span>
+                </div>
+                <div class="lf-tour-list" id="lfTourList">
+                    <?php foreach ($availableTours as $tour): ?>
+                        <label class="lf-tour-option" data-search="<?= leaderFormH(mb_strtolower((string)$tour['title'], 'UTF-8')) ?>">
+                            <input type="checkbox" name="assigned_tours[]" value="<?= (int)$tour['id'] ?>" <?= in_array((int)$tour['id'], $selectedTourIds, true) ? 'checked' : '' ?>>
+                            <span class="lf-tour-details">
+                                <strong><?= leaderFormH($tour['title']) ?></strong>
+                                <?php if (!empty($tour['current_leader']) && (int)$tour['leader_id'] !== $id): ?>
+                                    <small>Đang phụ trách: <?= leaderFormH($tour['current_leader']) ?></small>
+                                <?php endif; ?>
+                            </span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
+            <hr class="lf-divider">
+
             <h2 class="lf-section-title">
                 Ảnh đại diện Leader bằng URL
             </h2>
@@ -1042,6 +1147,23 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
 <script>
 (() => {
+    const tourSearch = document.getElementById('lfTourSearch');
+    const tourRows = Array.from(document.querySelectorAll('.lf-tour-option'));
+    const tourCount = document.getElementById('lfTourCount');
+    const updateTourFilter = () => {
+        const search = (tourSearch?.value || '').trim().toLocaleLowerCase('vi');
+        tourRows.forEach(row => {
+            row.hidden = !row.dataset.search.includes(search);
+            if (row.hidden) row.style.display = 'none';
+            else row.style.display = '';
+        });
+        const selected = tourRows.filter(row => row.querySelector('input')?.checked).length;
+        if (tourCount) tourCount.textContent = 'Đã chọn ' + selected + ' tour';
+    };
+    tourSearch?.addEventListener('input', updateTourFilter);
+    tourRows.forEach(row => row.querySelector('input')?.addEventListener('change', updateTourFilter));
+    updateTourFilter();
+
     const input = document.getElementById('leaderImageUrl');
     const preview = document.getElementById('leaderPreview');
     const form = document.getElementById('leaderForm');
