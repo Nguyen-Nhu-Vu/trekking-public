@@ -316,6 +316,11 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
         );
         ?>
 
+        <?php if ($role === 'staff'): ?>
+        <div class="vnn-nav-heading">NỘI DUNG BÀI VIẾT</div>
+        <?php vnnSideMenuLink($base.'admin/posts/', 'fa-newspaper', 'Bài Viết & Cẩm Nang', $current_page === 'posts'); ?>
+        <?php endif; ?>
+
         <div class="vnn-nav-heading">XỬ LÝ KHÁCH HÀNG</div>
 
         <?php
@@ -396,6 +401,13 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
                 'fa-chart-line',
                 'Doanh Thu & Báo Cáo',
                 $current_page === 'revenue'
+            );
+
+            vnnSideMenuLink(
+                $base.'admin/activity-history.php',
+                'fa-clock-rotate-left',
+                'Lịch sử xử lý giao dịch',
+                $current_page === 'activity-history'
             );
             ?>
 
