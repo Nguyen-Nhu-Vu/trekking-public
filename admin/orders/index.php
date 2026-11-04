@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -154,7 +155,7 @@ if (
         );
 
         $checkStmt = $pdo->prepare("
-            SELECT id
+            SELECT id, status
             FROM orders
             WHERE id IN ($placeholders)
             FOR UPDATE
@@ -162,9 +163,8 @@ if (
 
         $checkStmt->execute($ids);
 
-        $foundIds = $checkStmt->fetchAll(
-            PDO::FETCH_COLUMN
-        );
+        $foundRows = $checkStmt->fetchAll(PDO::FETCH_ASSOC);
+        $foundIds = array_column($foundRows, 'id');
 
         $checkStmt->closeCursor();
 
@@ -184,6 +184,21 @@ if (
             array_merge([$target], $ids)
         );
 
+        // Ghi chi tiet thay doi tung don, trong cung giao dich.
+        $logStmt = $pdo->prepare('INSERT INTO admin_audit_logs
+            (actor_id,actor_name,category,action,target_type,target_id,old_value,new_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        $actorId = (int)($_SESSION['user_id'] ?? 0);
+        $actorName = (string)($_SESSION['fullname'] ?? 'Nhân viên');
+        foreach ($foundRows as $oldRow) {
+            $oldStatus = (string)$oldRow['status'];
+            if ($oldStatus === $target) continue;
+            $logStmt->execute([
+                $actorId ?: null, $actorName, 'transactions',
+                ($target === 'Đã hủy' ? 'Hủy đơn hàng' : ($target === 'Đã giao' || $target === 'Đã thanh toán' ? 'Xác nhận thanh toán/hoàn tất đơn hàng' : 'Cập nhật trạng thái đơn hàng')),
+                'orders', (string)$oldRow['id'], $oldStatus, $target
+            ]);
+        }
         $pdo->commit();
 
         $_SESSION['orders_popup'] = [
