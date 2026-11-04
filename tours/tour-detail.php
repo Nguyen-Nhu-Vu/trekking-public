@@ -777,7 +777,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                     <?php
                     $days = preg_split(
-                        '/(?=NGÀY\s+\d+)/u',
+                        '/(?=NGÀY\s+\d+)/iu',
                         $schedule,
                         -1,
                         PREG_SPLIT_NO_EMPTY
@@ -838,7 +838,7 @@ require_once __DIR__ . '/../includes/header.php';
                     ['Dịch Vụ Tour Bao Gồm', $tour['includes'] ?? ''],
                     ['Dịch Vụ Tour Không Bao Gồm', $tour['excludes'] ?? ''],
                     ['Bạn Cần Chuẩn Bị Những Gì?', $tour['requirements'] ?? ''],
-                    ['Quy Định & Lưu Ý An Toàn', $tour['safety_notes'] ?? '']
+                    ['Lưu Ý & Chính Sách Hoàn/Hủy', $tour['safety_notes'] ?? '']
                 ];
                 ?>
 
