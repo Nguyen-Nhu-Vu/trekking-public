@@ -492,10 +492,7 @@ textarea.ps-input {
 
 .ps-content-editor {
     min-height: 360px !important;
-    font-family:
-        'Consolas',
-        'Courier New',
-        monospace;
+    font-family: inherit;
     line-height: 1.75;
     tab-size: 4;
 }
@@ -915,24 +912,10 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 <h2>Nội dung bài viết</h2>
 
                 <div class="ps-editor-note">
-
-                    Bạn có thể nhập nội dung có định dạng HTML.
-
-                    <strong>Ví dụ:</strong>
-
-                    <code>&lt;h2&gt;Tiêu đề phụ&lt;/h2&gt;</code>,
-
-                    <code>&lt;p&gt;Đoạn văn&lt;/p&gt;</code>,
-
-                    <code>&lt;br&gt;</code>,
-
-                    <code>&lt;strong&gt;Chữ đậm&lt;/strong&gt;</code>,
-
-                    <code>&lt;ul&gt;&lt;li&gt;Danh sách&lt;/li&gt;&lt;/ul&gt;</code>.
-
-                    Hãy sử dụng HTML hợp lệ, tránh đưa mã JavaScript
-                    hoặc thẻ script vào nội dung.
-
+                    Bạn chỉ cần nhập nội dung bằng chữ bình thường như khi soạn văn bản.
+                    Nhấn Enter để xuống dòng; có thể cách một dòng để ngăn các đoạn.
+                    Không cần dùng thẻ HTML hay ký tự đặc biệt.
+                    Những bài viết cũ sử dụng HTML vẫn được giữ nguyên.
                 </div>
 
                 <div class="ps-field full">
