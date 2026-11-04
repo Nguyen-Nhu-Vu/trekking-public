@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -65,28 +66,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($action === 'update_stock') {
-            $stock = filter_var(
-                $_POST['stock'] ?? null,
-                FILTER_VALIDATE_INT
-            );
-
-            if ($stock === false || $stock < 0) {
-                throw new RuntimeException(
-                    'Số lượng tồn kho phải từ 0 trở lên.'
-                );
+            $added = filter_var($_POST['stock'] ?? null, FILTER_VALIDATE_INT);
+            if ($added === false || $added < 1 || $added > 1000000) {
+                throw new RuntimeException('Số lượng nhập thêm phải từ 1 đến 1.000.000.');
             }
-
-            $stmt = $pdo->prepare("
-                UPDATE products
-                SET stock = ?
-                WHERE id = ?
-            ");
-
-            $stmt->execute([$stock, $id]);
-
-            productRedirect(
-                'Đã cập nhật số lượng tồn kho thành công.'
-            );
+            $pdo->beginTransaction();
+            $beforeQuery = $pdo->prepare('SELECT name, stock FROM products WHERE id = ? FOR UPDATE');
+            $beforeQuery->execute([$id]);
+            $before = $beforeQuery->fetch(PDO::FETCH_ASSOC);
+            $beforeQuery->closeCursor();
+            if (!$before) {
+                throw new RuntimeException('Không tìm thấy sản phẩm.');
+            }
+            // Cong truc tiep trong DB duoi khoa giao dich, khong doc-so-roi-ghi-de.
+            $upd = $pdo->prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+            $upd->execute([$added, $id]);
+            $after = (int)$before['stock'] + $added;
+            $actorId = (int)($_SESSION['user_id'] ?? 0);
+            $actorName = (string)($_SESSION['fullname'] ?? 'Quản lý');
+            $log = $pdo->prepare('INSERT INTO admin_audit_logs
+                (actor_id,actor_name,category,action,target_type,target_id,old_value,new_value)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $log->execute([
+                $actorId ?: null, $actorName, 'inventory', 'Nhập thêm hàng',
+                'products', (string)$id,
+                (string)$before['name'].' | Tồn trước: '.(int)$before['stock'],
+                'Nhập thêm: '.$added.' | Tồn sau: '.$after
+            ]);
+            $pdo->commit();
+            productRedirect('Đã nhập thêm '.$added.' sản phẩm. Tồn kho mới: '.$after.'.');
         }
 
         if ($action === 'delete') {
@@ -115,6 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
 
     } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         error_log('Product index: ' . $e->getMessage());
 
         $popupType = 'error';
@@ -544,7 +553,7 @@ foreach ($products as $p) {
                 QUẢN LÝ DỤNG CỤ & TỒN KHO
             </h1>
             <p>
-                Danh sách sản phẩm trekking và số lượng tồn kho.
+                Danh sách sản phẩm và chức năng nhập thêm hàng (tự cộng vào tồn kho).
             </p>
         </div>
 
@@ -672,11 +681,13 @@ foreach ($products as $p) {
                                        name="product_id"
                                        value="<?= (int)$p['id'] ?>">
 
+                                <small style="font-size:11px;color:#64748b;white-space:nowrap">Hiện: <?= (int)$p['stock'] ?></small>
                                 <input class="pr-input"
                                        type="number"
                                        name="stock"
-                                       min="0"
-                                       value="<?= (int)$p['stock'] ?>"
+                                       min="1"
+                                       max="1000000"
+                                       placeholder="Nhập thêm"
                                        required>
 
                                 <button
@@ -684,9 +695,9 @@ foreach ($products as $p) {
                                     type="submit"
                                     name="action"
                                     value="update_stock"
-                                    title="Lưu tồn kho"
+                                    title="Cộng thêm vào tồn kho"
                                 >
-                                    <i class="fa-solid fa-floppy-disk"></i>
+                                    <i class="fa-solid fa-plus"></i> Nhập thêm
                                 </button>
                             </form>
                         </td>
