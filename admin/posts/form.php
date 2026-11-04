@@ -5,7 +5,11 @@ ob_start();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
-requireManager();
+requireLogin();
+if (!in_array(getRole(), ['manager', 'staff'], true)) {
+    http_response_code(403);
+    exit('Chỉ quản lý và nhân viên được quản lý bài viết.');
+}
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
