@@ -1,3 +1,4 @@
+
 <?php
 /**
  * VNN TRAVEL - DATABASE AND SESSION
@@ -23,7 +24,19 @@ define('VNN_DATABASE_LOADED', true);
  */
 $host = getenv('DB_HOST') ?: 'localhost';
 $port = getenv('DB_PORT') ?: '3306';
-$dbname = getenv('DB_NAME') ?: 'trekking_db';
+
+// Localhost dung ban sao database Aiven da import.
+// Vercel giu nguyen database cau hinh tu Environment Variables.
+$isLocal = in_array(
+    strtolower((string) ($_SERVER['SERVER_NAME'] ?? '')),
+    ['localhost', '127.0.0.1'],
+    true
+);
+
+$dbname = $isLocal
+    ? 'trekking_local_copy'
+    : (getenv('DB_NAME') ?: 'trekking_db');
+
 $username = getenv('DB_USER') ?: 'root';
 
 $password = getenv('DB_PASSWORD');
@@ -83,12 +96,41 @@ try {
 if (!defined('BASE_URL')) {
     $base = getenv('BASE_URL');
 
-    define(
-        'BASE_URL',
-        ($base !== false && $base !== '')
-            ? rtrim($base, '/') . '/'
-            : '/'
-    );
+    if ($base === false || trim($base) === '') {
+        // Tu dong nhan / tren Vercel,
+        // /trekking_new/ khi chay XAMPP.
+        $root = realpath(dirname(__DIR__));
+
+        $documentRoot = isset($_SERVER['DOCUMENT_ROOT'])
+            ? realpath($_SERVER['DOCUMENT_ROOT'])
+            : false;
+
+        $rootNorm = str_replace('\\', '/', (string)$root);
+        $docNorm = str_replace('\\', '/', (string)$documentRoot);
+
+        if (
+            $root &&
+            $documentRoot &&
+            str_starts_with(
+                strtolower($rootNorm),
+                strtolower(rtrim($docNorm, '/') . '/')
+            )
+        ) {
+            $base = '/'
+                . trim(
+                    substr(
+                        $rootNorm,
+                        strlen(rtrim($docNorm, '/'))
+                    ),
+                    '/'
+                )
+                . '/';
+        } else {
+            $base = '/';
+        }
+    }
+
+    define('BASE_URL', rtrim((string)$base, '/') . '/');
 }
 
 /**
