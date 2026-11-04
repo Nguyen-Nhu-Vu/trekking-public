@@ -1,3 +1,4 @@
+
 <?php
 // VNN Travel - Chi tiet san pham
 // shop/product-detail.php
@@ -64,6 +65,22 @@ if ($is_footwear) {
     $sizes = ['M', 'L', 'XL'];
 } elseif ($is_clothing) {
     $sizes = ['S', 'M', 'L', 'XL', 'XXL'];
+}
+
+// Bang size rieng cua san pham: neu rong thi khong hien bang size.
+$sizeChartText = trim((string)($product['size_chart'] ?? ''));
+$sizeChartRows = [];
+$sizeChartIsTable = false;
+if ($sizeChartText !== '') {
+    $lines = preg_split('/\R/u', $sizeChartText) ?: [];
+    foreach ($lines as $line) {
+        if (trim($line) === '') {
+            continue;
+        }
+        $sizeChartRows[] = array_map('trim', explode('|', $line));
+    }
+    // Chi coi la bang khi co dong tieu de va it nhat mot dong du lieu.
+    $sizeChartIsTable = count($sizeChartRows) >= 2 && count($sizeChartRows[0]) >= 2;
 }
 
 $defaultSize = $is_footwear ? '40' : 'L';
@@ -579,12 +596,14 @@ require_once __DIR__ . '/../includes/header.php';
                                 <?php endforeach; ?>
                             </div>
 
+                            <?php if ($sizeChartText !== ''): ?>
                             <a
                                 href="#size-chart"
                                 style="display:inline-block;margin-top:12px;color:#ea580c"
                             >
                                 Xem bảng size tham khảo ↓
                             </a>
+                            <?php endif; ?>
                         </div>
 
                     <?php endif; ?>
@@ -680,103 +699,38 @@ require_once __DIR__ . '/../includes/header.php';
 
     </section>
 
-    <!-- BANG SIZE -->
+    <!-- BANG SIZE DO QUAN LY NHAP (NEU CO) -->
 
-    <?php if ($has_size): ?>
-
+    <?php if ($sizeChartText !== ''): ?>
         <section class="pd-section" id="size-chart">
-
             <h2>
-                <i
-                    class="fa-solid fa-ruler-combined"
-                    style="color:#ea580c"
-                ></i>
+                <i class="fa-solid fa-ruler-combined" style="color:#ea580c"></i>
                 Bảng size tham khảo
             </h2>
 
-            <div class="pd-table-wrap">
-
-                <?php if ($is_clothing): ?>
-
-                    <p class="pd-description">
-                        Nếu số đo nằm giữa hai size, nên chọn size lớn
-                        hơn để thoải mái vận động và mặc áo giữ nhiệt.
-                    </p>
-
+            <?php if ($sizeChartIsTable): ?>
+                <div class="pd-table-wrap">
                     <table class="pd-table">
-                        <thead>
-                            <tr>
-                                <th>Size</th>
-                                <th>Chiều cao</th>
-                                <th>Cân nặng</th>
-                                <th>Vòng ngực</th>
-                                <th>Vòng eo</th>
-                            </tr>
-                        </thead>
+                        <thead><tr>
+                            <?php foreach ($sizeChartRows[0] as $heading): ?>
+                                <th><?= pdh($heading) ?></th>
+                            <?php endforeach; ?>
+                        </tr></thead>
                         <tbody>
-                            <tr><td>S</td><td>1m55–1m64</td><td>48–56 kg</td><td>86–90 cm</td><td>72–76 cm</td></tr>
-                            <tr><td>M</td><td>1m65–1m70</td><td>57–65 kg</td><td>91–95 cm</td><td>77–81 cm</td></tr>
-                            <tr><td>L</td><td>1m71–1m76</td><td>66–74 kg</td><td>96–101 cm</td><td>82–86 cm</td></tr>
-                            <tr><td>XL</td><td>1m77–1m82</td><td>75–83 kg</td><td>102–107 cm</td><td>87–92 cm</td></tr>
-                            <tr><td>XXL</td><td>1m83–1m90</td><td>84–95 kg</td><td>108–114 cm</td><td>93–98 cm</td></tr>
+                            <?php foreach (array_slice($sizeChartRows, 1) as $cells): ?>
+                                <tr>
+                                    <?php foreach ($sizeChartRows[0] as $columnIndex => $heading): ?>
+                                        <td><?= pdh($cells[$columnIndex] ?? '') ?></td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
                         </tbody>
                     </table>
-
-                <?php elseif ($is_footwear): ?>
-
-                    <p class="pd-description">
-                        Khi trekking nên chọn giày rộng hơn một chút
-                        để mang tất dày và tránh đau chân khi xuống dốc.
-                    </p>
-
-                    <table class="pd-table">
-                        <thead>
-                            <tr>
-                                <th>Size EU</th>
-                                <th>Chiều dài chân</th>
-                                <th>Size US</th>
-                                <th>Size UK</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td>38</td><td>23.5–24.0 cm</td><td>6.0</td><td>5.5</td></tr>
-                            <tr><td>39</td><td>24.1–24.5 cm</td><td>6.5</td><td>6.0</td></tr>
-                            <tr><td>40</td><td>24.6–25.0 cm</td><td>7.5</td><td>7.0</td></tr>
-                            <tr><td>41</td><td>25.1–25.5 cm</td><td>8.0</td><td>7.5</td></tr>
-                            <tr><td>42</td><td>25.6–26.0 cm</td><td>8.5</td><td>8.0</td></tr>
-                            <tr><td>43</td><td>26.1–26.5 cm</td><td>9.5</td><td>9.0</td></tr>
-                            <tr><td>44</td><td>26.6–27.2 cm</td><td>10.0</td><td>9.5</td></tr>
-                        </tbody>
-                    </table>
-
-                <?php elseif ($is_gloves): ?>
-
-                    <p class="pd-description">
-                        Dùng thước dây đo chu vi lòng bàn tay,
-                        không tính ngón tay cái.
-                    </p>
-
-                    <table class="pd-table">
-                        <thead>
-                            <tr>
-                                <th>Size</th>
-                                <th>Chu vi lòng bàn tay</th>
-                                <th>Chiều dài bàn tay</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td>M</td><td>18–20 cm</td><td>17–18 cm</td></tr>
-                            <tr><td>L</td><td>20–22 cm</td><td>19–20 cm</td></tr>
-                            <tr><td>XL</td><td>22–24 cm</td><td>21–22 cm</td></tr>
-                        </tbody>
-                    </table>
-
-                <?php endif; ?>
-
-            </div>
-
+                </div>
+            <?php else: ?>
+                <div class="pd-description"><?= nl2br(pdh($sizeChartText)) ?></div>
+            <?php endif; ?>
         </section>
-
     <?php endif; ?>
 
     <!-- DANH GIA SAN PHAM -->
