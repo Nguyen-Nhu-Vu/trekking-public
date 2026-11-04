@@ -75,6 +75,7 @@ $product = [
     'stock' => 0,
     'image' => '',
     'specs' => '',
+    'size_chart' => '',
     'description' => '',
     'status' => 1
 ];
@@ -152,6 +153,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim((string)($_POST['name'] ?? ''));
         $brand = trim((string)($_POST['brand'] ?? ''));
         $specs = trim((string)($_POST['specs'] ?? ''));
+        $sizeChart = trim((string)($_POST['size_chart'] ?? ''));
+        if (mb_strlen($sizeChart, 'UTF-8') > 20000) {
+            throw new RuntimeException('Bảng size quá dài (tối đa 20.000 ký tự).');
+        }
         $description = trim(
             (string)($_POST['description'] ?? '')
         );
@@ -260,6 +265,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     stock = ?,
                     image = ?,
                     specs = ?,
+                    size_chart = ?,
                     description = ?,
                     status = ?
                 WHERE id = ?
@@ -273,6 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stock,
                 $selectedImage,
                 $specs,
+                $sizeChart,
                 $description,
                 $status,
                 $id
@@ -308,10 +315,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     stock,
                     image,
                     specs,
+                    size_chart,
                     description,
                     status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
@@ -322,6 +330,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stock,
                 $selectedImage,
                 $specs,
+                $sizeChart,
                 $description,
                 $status
             ]);
@@ -920,6 +929,27 @@ require_once __DIR__ . '/../includes/sidebar.php';
                             id="specs"
                             rows="4"
                         ><?= pfh($product['specs']) ?></textarea>
+
+                    </div>
+
+                    <div class="pf-field full">
+
+                        <label for="size_chart">
+                            Bảng size (nếu có)
+                        </label>
+
+                        <textarea
+                            class="pf-input"
+                            name="size_chart"
+                            id="size_chart"
+                            rows="6"
+                            placeholder="Size | Chiều cao | Cân nặng&#10;S | 155–165 cm | 45–55 kg&#10;M | 165–175 cm | 55–65 kg&#10;L | 175–185 cm | 65–75 kg"
+                        ><?= pfh($product['size_chart']) ?></textarea>
+
+                        <small style="color:#64748b;line-height:1.7;display:block;margin-top:7px">
+                            Không bắt buộc. Mỗi dòng là một hàng, dùng dấu | để ngăn các cột;
+                            dòng đầu tiên là tiêu đề cột. Để trống thì website không hiện bảng size.
+                        </small>
 
                     </div>
 
