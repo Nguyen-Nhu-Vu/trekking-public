@@ -66,7 +66,7 @@ $success = null;
 if ($userId > 0) {
     try {
         $q = $pdo->prepare("
-            SELECT id, fullname, phone, email, role
+            SELECT id, fullname, phone, email, address, role
             FROM users WHERE id = ? LIMIT 1
         ");
         $q->execute([$userId]);
@@ -227,11 +227,13 @@ if (empty($_SESSION['cod_order_code'])) {
 
 $orderCode = $_SESSION['cod_order_code'];
 
+// Khach dang nhap: lay THONG TIN CA NHAN trong users.
+// Khach vang lai: form trong. POST luon uu tien gia tri khach vua nhap.
 $old = [
-    'fullname' => $_POST['fullname'] ?? ($user['fullname'] ?? ''),
-    'phone' => $_POST['phone'] ?? ($user['phone'] ?? ''),
-    'email' => $_POST['email'] ?? ($user['email'] ?? ''),
-    'address' => $_POST['address'] ?? '',
+    'fullname' => $_POST['fullname'] ?? ($userId > 0 ? ($user['fullname'] ?? '') : ''),
+    'phone' => $_POST['phone'] ?? ($userId > 0 ? ($user['phone'] ?? '') : ''),
+    'email' => $_POST['email'] ?? ($userId > 0 ? ($user['email'] ?? '') : ''),
+    'address' => $_POST['address'] ?? ($userId > 0 ? ($user['address'] ?? '') : ''),
     'notes' => $_POST['notes'] ?? '',
     'payment' => $_POST['payment_method'] ?? 'COD'
 ];
@@ -614,6 +616,11 @@ require_once __DIR__ . '/../includes/header.php';
         <i class="fa-solid fa-truck"></i>
         Thông tin giao hàng
     </h3>
+    <p class="ck-muted" style="margin:-4px 0 17px">
+        <?= $userId > 0
+            ? 'Thông tin được điền từ đơn gần nhất hoặc hồ sơ của bạn. Có thể chỉnh sửa trước khi đặt.'
+            : 'Khách vãng lai vui lòng nhập thông tin giao hàng cho đơn này.' ?>
+    </p>
 
     <div class="ck-field">
         <label>Họ và tên *</label>
