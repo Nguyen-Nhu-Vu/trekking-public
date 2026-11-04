@@ -1,4 +1,3 @@
-
 <?php
 /**
  * VNN TRAVEL - DATABASE AND SESSION
