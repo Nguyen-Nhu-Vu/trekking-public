@@ -1,3 +1,4 @@
+
 <?php
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -154,6 +155,21 @@ require_once __DIR__ . '/../includes/header.php';
     object-fit: cover;
     border-radius: 10px;
 }
+
+/* Keep assigned tours in a fixed-height scroll area */
+.ld-tour-list {
+    max-height: 385px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 10px;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+.ld-tour-list::-webkit-scrollbar { width: 8px; }
+.ld-tour-list::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
+.ld-tour-list::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+.ld-tour-list::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
 .ld-tour {
     display: flex;
@@ -332,6 +348,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                     <h2>Các Tour Đang Phụ Trách</h2>
 
+                    <div class="ld-tour-list" tabindex="0" aria-label="Danh sách tour đang phụ trách">
                     <?php foreach ($tours as $tour): ?>
 
                         <a class="ld-tour"
@@ -360,6 +377,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php if (!$tours): ?>
                         <p>Chưa có tour đang phụ trách.</p>
                     <?php endif; ?>
+                    </div>
 
                 </section>
 
