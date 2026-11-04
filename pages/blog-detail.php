@@ -1,3 +1,4 @@
+
 <?php
 // trekking/pages/blog-detail.php
 require_once __DIR__ . '/../config/database.php';
@@ -19,6 +20,18 @@ if (!$post) {
 
 $page_title = $post['title'];
 $active_menu = 'blog';
+
+// Noi dung moi co the la van ban thuong, bai cu co the chua HTML.
+// Van ban thuong duoc escape va giu nguyen xuong dong.
+$content = (string)($post['content'] ?? '');
+if (trim($content) === '') {
+    $renderedContent = 'Nội dung bài viết đang được cập nhật...';
+} elseif (preg_match('~<(?:p|div|h[1-6]|br|ul|ol|li|strong|b|em|i|blockquote|img|table|a)(?:\s|/?>)~i', $content)) {
+    // Bao toan noi dung HTML cu - tuong tu cach hien thi truoc day.
+    $renderedContent = $content;
+} else {
+    $renderedContent = nl2br(htmlspecialchars($content, ENT_QUOTES, 'UTF-8'), false);
+}
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -62,9 +75,9 @@ require_once __DIR__ . '/../includes/header.php';
             <img src="<?= htmlspecialchars($post['image'] ?? 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=1000') ?>" alt="<?= htmlspecialchars($post['title']) ?>" style="width:100%; max-height:420px; object-fit:cover;">
         </div>
 
-        <!-- Render trực tiếp HTML từ CSDL để trình duyệt hiển thị đúng định dạng -->
+        <!-- Ho tro van ban thuong xuong dong va giu dinh dang HTML bai cu -->
         <div class="blog-content-body">
-            <?= $post['content'] ?? 'Nội dung bài viết đang được cập nhật...' ?>
+            <?= $renderedContent ?>
         </div>
 
         <div style="margin-top:40px; padding-top:20px; border-top:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
