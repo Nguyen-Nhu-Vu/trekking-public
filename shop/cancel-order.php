@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 
@@ -10,16 +11,46 @@ if (session_status() === PHP_SESSION_NONE) {
 
 function cancelRedirect(): void
 {
-    $url = '/shop/my-orders.php';
+    // Lay duong dan tu URL file PHP dang chay.
+    // /trekking_new/shop/cancel-order.php
+    // => /trekking_new/shop/my-orders.php
+    $scriptPath = str_replace(
+        '\\',
+        '/',
+        (string)($_SERVER['SCRIPT_NAME'] ?? '')
+    );
+
+    $scriptDir = rtrim(
+        str_replace('\\', '/', dirname($scriptPath)),
+        '/'
+    );
+
+    if (
+        $scriptDir !== '' &&
+        $scriptDir !== '.' &&
+        preg_match('~(?:^|/)shop$~i', $scriptDir)
+    ) {
+        $url = $scriptDir . '/my-orders.php';
+    } else {
+        $url = rtrim(
+            defined('BASE_URL') ? BASE_URL : '/',
+            '/'
+        ) . '/shop/my-orders.php';
+    }
 
     if (!headers_sent()) {
         header('Location: ' . $url, true, 303);
         exit;
     }
 
-    // Du phong truong hop file khac da xuat noi dung.
     echo '<script>window.location.replace(' .
-        json_encode($url) .
+        json_encode(
+            $url,
+            JSON_HEX_TAG |
+            JSON_HEX_AMP |
+            JSON_HEX_APOS |
+            JSON_HEX_QUOT
+        ) .
         ');</script>';
     exit;
 }
@@ -76,8 +107,7 @@ if ($orderId === false || $orderId === null || $orderId <= 0) {
 try {
     $pdo->beginTransaction();
 
-    // Khoa don hang de tranh hai yeu cau huy
-    // hoac duyet don cung luc.
+    // Khoa don hang de tranh xu ly trung lap.
     $checkOrder = $pdo->prepare("
         SELECT id, status
         FROM orders
@@ -107,7 +137,7 @@ try {
         );
     }
 
-    // Lay san pham va so luong da dat.
+    // Lay danh sach san pham trong don.
     $getDetails = $pdo->prepare("
         SELECT product_id, SUM(quantity) AS total_quantity
         FROM order_details
@@ -126,7 +156,7 @@ try {
         );
     }
 
-    // Chi chuyen tu Cho xac nhan sang Da huy.
+    // Chi huy don dang cho xac nhan.
     $cancelOrder = $pdo->prepare("
         UPDATE orders
         SET status = 'Đã hủy'
@@ -146,7 +176,7 @@ try {
         );
     }
 
-    // Hoan kho dung mot lan trong transaction.
+    // Hoan so luong hang ve kho.
     $restoreStock = $pdo->prepare("
         UPDATE products
         SET stock = stock + ?
