@@ -206,6 +206,12 @@ try {
         }
     }
 
+    $actorName = (string)($_SESSION['fullname'] ?? 'Khách hàng');
+    $log = $pdo->prepare('INSERT INTO admin_audit_logs
+        (actor_id,actor_name,category,action,target_type,target_id,old_value,new_value)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    $log->execute([$userId, $actorName, 'transactions', 'Khách hủy đơn hàng',
+        'orders', (string)$orderId, 'Chờ xác nhận', 'Đã hủy']);
     $pdo->commit();
 
     cancelNotice(
