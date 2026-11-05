@@ -63,7 +63,7 @@ $sort = (string)($_GET['sort'] ?? 'latest');
 $joinedFrom = filterDate('joined_from'); $joinedTo = filterDate('joined_to');
 $spentMin = numFilter('spent_min'); $spentMax = numFilter('spent_max');
 $ordersMin = intFilter('orders_min'); $toursMin = intFilter('tours_min');
-$selectedId = intFilter('customer'); $page = max(1,intFilter('page',1));
+$page = max(1,intFilter('page',1));
 $sorts = [
  'latest' => 'c.id DESC', 'oldest' => 'c.id ASC',
  'name_asc' => 'c.fullname ASC', 'name_desc' => 'c.fullname DESC',
@@ -100,7 +100,7 @@ if ($spentMax !== null) { $where[]='c.total_spent<=?'; $args[]=$spentMax; }
 if ($ordersMin) { $where[]='c.order_count>=?'; $args[]=$ordersMin; }
 if ($toursMin) { $where[]='c.tour_count>=?'; $args[]=$toursMin; }
 $filtered = ' FROM ('.$aggregate.') c WHERE '.implode(' AND ',$where);
-$customers=[]; $selected=null; $orders=[]; $tours=[]; $reviews=[];
+$customers=[];
 $total=0; $stats=['orders'=>0,'tours'=>0,'spend'=>0,'reviewers'=>0]; $error='';
 $pageSize=10; $pageCount=1;
 try {
@@ -111,27 +111,6 @@ try {
  $stats=['orders'=>(int)($vals[0]??0),'tours'=>(int)($vals[1]??0),'spend'=>(float)($vals[2]??0),'reviewers'=>(int)($vals[3]??0)];
  $sql='SELECT c.*'.$filtered.' ORDER BY '.$sorts[$sort].' LIMIT '.$pageSize.' OFFSET '.(($page-1)*$pageSize);
  $stmt=$pdo->prepare($sql); $stmt->execute($args); $customers=$stmt->fetchAll(PDO::FETCH_ASSOC);
- if (!$selectedId && $customers) $selectedId=(int)$customers[0]['id'];
- if ($selectedId) {
-   // Chi cho phep xem chi tiet tai khoan khach; khong lay password.
-   $stmt=$pdo->prepare('SELECT c.* FROM ('.$aggregate.') c WHERE c.id=? LIMIT 1');
-   $stmt->execute([$selectedId]); $selected=$stmt->fetch(PDO::FETCH_ASSOC) ?: null;
- }
- if ($selected) {
-   $stmt=$pdo->prepare("SELECT o.order_code,o.created_at,o.total_amount,o.status,
-      (SELECT GROUP_CONCAT(CONCAT(COALESCE(p.name,'Sản phẩm'), ' x', od.quantity) SEPARATOR ', ')
-       FROM order_details od LEFT JOIN products p ON p.id=od.product_id WHERE od.order_id=o.id) AS items
-      FROM orders o WHERE o.user_id=? ORDER BY o.id DESC LIMIT 20");
-   $stmt->execute([$selectedId]); $orders=$stmt->fetchAll(PDO::FETCH_ASSOC);
-   $stmt=$pdo->prepare('SELECT b.booking_code,b.created_at,b.departure_date,b.total_price,b.status,t.title
-      FROM tour_bookings b LEFT JOIN tours t ON t.id=b.tour_id
-      WHERE b.user_id=? ORDER BY b.id DESC LIMIT 20');
-   $stmt->execute([$selectedId]); $tours=$stmt->fetchAll(PDO::FETCH_ASSOC);
-   $stmt=$pdo->prepare('SELECT r.rating,r.comment,r.created_at,r.status,p.name AS product_name,t.title AS tour_name
-      FROM reviews r LEFT JOIN products p ON p.id=r.product_id
-      LEFT JOIN tours t ON t.id=r.tour_id WHERE r.user_id=? ORDER BY r.id DESC LIMIT 30');
-   $stmt->execute([$selectedId]); $reviews=$stmt->fetchAll(PDO::FETCH_ASSOC);
- }
 } catch(Throwable $e) { error_log('Customer manager page: '.$e->getMessage()); $error='Không tải được dữ liệu khách hàng. Hãy kiểm tra cấu trúc bảng trên MySQL.'; }
 function qs(array $replace=[]): string { return '?'.http_build_query(array_merge($_GET,$replace)); }
 ?>
@@ -165,7 +144,7 @@ function qs(array $replace=[]): string { return '?'.http_build_query(array_merge
 <div class="cm-stat"><span>Tour đã thanh toán/hoàn thành</span><strong><?=number_format($stats['tours'],0,',','.')?></strong></div>
 <div class="cm-stat"><span>Tổng giao dịch tính theo quy tắc</span><strong><?=money($stats['spend'])?></strong></div>
 </section>
-<section class="cm-card"><h2 style="margin:0 0 15px;font-size:19px">BỘ LỌC TRUY VẤN KHÁCH HÀNG</h2>
+<section class="cm-card">
 <form class="cm-filter" method="GET" action="index.php">
 <div class="cm-field wide"><label>Tìm tên, email, SĐT, mã KH, địa chỉ</label><input class="cm-control" name="q" value="<?=ch($q)?>" placeholder="Nhập từ khóa..."></div>
 <div class="cm-field"><label>Trạng thái tài khoản</label><select class="cm-control" name="account"><option value="all">Tất cả</option><option value="active" <?=$account==='active'?'selected':''?>>Đang hoạt động</option><option value="locked" <?=$account==='locked'?'selected':''?>>Bị khóa</option></select></div>
@@ -181,24 +160,10 @@ function qs(array $replace=[]): string { return '?'.http_build_query(array_merge
 <div class="cm-field wide"><label>Sắp xếp theo</label><select class="cm-control" name="sort">
 <?php foreach(['latest'=>'Tài khoản mới nhất','oldest'=>'Tài khoản cũ nhất','name_asc'=>'Tên A → Z','name_desc'=>'Tên Z → A','spent_desc'=>'Chi tiêu cao nhất','spent_asc'=>'Chi tiêu thấp nhất','orders_desc'=>'Nhiều đơn hàng nhất','tours_desc'=>'Nhiều tour nhất','reviews_desc'=>'Nhiều đánh giá nhất'] as $key=>$label):?><option value="<?=ch($key)?>" <?=$sort===$key?'selected':''?>><?=ch($label)?></option><?php endforeach;?></select></div>
 <div class="cm-actions"><button class="cm-button" type="submit"><i class="fa-solid fa-filter"></i> Áp dụng bộ lọc</button><a class="cm-button alt" href="index.php">Xóa tất cả bộ lọc</a></div>
-</form><div class="cm-note"><b>Quy tắc:</b> Bộ lọc SQL áp dụng đồng thời trên toàn bộ tài khoản khách. Đơn hàng chỉ tính khi <b>Đã giao/Hoàn thành</b>; tour chỉ tính khi <b>Đã thanh toán/Đã hoàn thành</b>. Với đơn COD, giao thành công chưa phải bằng chứng đã thu tiền; cần có trạng thái thanh toán riêng để gọi chính xác là “đã thanh toán”.</div></section>
+</form></section>
 <section class="cm-card"><h2 style="font-size:19px;margin:0 0 13px">Danh sách khách hàng (<?=number_format($total,0,',','.')?>)</h2>
 <div class="cm-table-wrap"><table class="cm-table"><thead><tr><th>Mã</th><th>Khách hàng</th><th>Email / SĐT</th><th>Trạng thái</th><th>Đơn hoàn tất</th><th>Tour đã trả</th><th>Đánh giá</th><th>Tổng giao dịch</th><th>Chi tiết</th></tr></thead><tbody>
-<?php foreach($customers as $c):?><tr class="<?=(int)$c['id']===$selectedId?'selected':''?>"><td>#<?=(int)$c['id']?></td><td><strong><?=ch($c['fullname'])?></strong></td><td><?=ch($c['email'])?><br><small><?=ch($c['phone']?:'—')?></small></td><td><span class="cm-tag <?=(int)$c['status']===1?'':'off'?>"><?=(int)$c['status']===1?'Hoạt động':'Khóa'?></span></td><td><?=(int)$c['order_count']?></td><td><?=(int)$c['tour_count']?></td><td><?=(int)$c['review_count']?></td><td class="cm-amount"><?=money($c['total_spent'])?></td><td><a href="<?=ch(qs(['customer'=>(int)$c['id']]))?>">Xem</a></td></tr><?php endforeach;?>
+<?php foreach($customers as $c):?><tr ><td>#<?=(int)$c['id']?></td><td><strong><?=ch($c['fullname'])?></strong></td><td><?=ch($c['email'])?><br><small><?=ch($c['phone']?:'—')?></small></td><td><span class="cm-tag <?=(int)$c['status']===1?'':'off'?>"><?=(int)$c['status']===1?'Hoạt động':'Khóa'?></span></td><td><?=(int)$c['order_count']?></td><td><?=(int)$c['tour_count']?></td><td><?=(int)$c['review_count']?></td><td class="cm-amount"><?=money($c['total_spent'])?></td><td><a href="detail.php?id=<?=(int)$c['id']?>">Xem</a></td></tr><?php endforeach;?>
 <?php if(!$customers):?><tr><td colspan="9" class="cm-empty">Không có khách hàng phù hợp với các bộ lọc.</td></tr><?php endif;?></tbody></table></div>
-<?php if($pageCount>1):?><nav class="cm-pager" aria-label="Phân trang"><a href="<?=ch(qs(['page'=>max(1,$page-1),'customer'=>0]))?>">‹ Trước</a><strong>Trang <?=$page?> / <?=$pageCount?></strong><a href="<?=ch(qs(['page'=>min($pageCount,$page+1),'customer'=>0]))?>">Sau ›</a></nav><?php endif;?></section>
-<?php if($selected):?>
-<section class="cm-card" id="customer-detail"><div class="cm-profile-head"><div><h2><i class="fa-solid fa-address-card"></i> <?=ch($selected['fullname'])?> <small style="color:#64748b">#<?=(int)$selected['id']?></small></h2><p><?=ch($selected['email'])?> · <?=ch($selected['phone']?:'Chưa có SĐT')?> · Tham gia <?=dateVN($selected['created_at'])?></p><p>Địa chỉ: <?=ch($selected['address']?:'Chưa cập nhật')?></p></div><span class="cm-tag <?=(int)$selected['status']===1?'':'off'?>"><?=(int)$selected['status']===1?'Đang hoạt động':'Đang khóa'?></span></div>
-<div class="cm-stats" style="margin-top:15px"><div class="cm-stat"><span>Đơn hoàn tất</span><strong><?=(int)$selected['order_count']?></strong></div><div class="cm-stat"><span>Tour đã trả/hoàn thành</span><strong><?=(int)$selected['tour_count']?></strong></div><div class="cm-stat"><span>Giá trị đơn hoàn tất</span><strong><?=money($selected['order_amount'])?></strong></div><div class="cm-stat"><span>Tổng giao dịch tính theo quy tắc</span><strong><?=money($selected['total_spent'])?></strong></div></div>
-</section>
-<div class="cm-two">
-<section class="cm-card cm-group"><h3><i class="fa-solid fa-bag-shopping"></i> Lịch sử mua hàng (20 đơn mới nhất)</h3><div class="cm-table-wrap"><table class="cm-table"><thead><tr><th>Mã đơn</th><th>Sản phẩm</th><th>Ngày</th><th>Trạng thái</th><th>Giá trị</th></tr></thead><tbody>
-<?php foreach($orders as $o):?><tr><td><?=ch($o['order_code'])?></td><td><?=ch($o['items']?:'—')?></td><td><?=dateVN($o['created_at'])?></td><td><?=ch($o['status'])?></td><td><?=money($o['total_amount'])?></td></tr><?php endforeach;?><?php if(!$orders):?><tr><td colspan="5" class="cm-empty">Chưa có đơn hàng.</td></tr><?php endif;?></tbody></table></div></section>
-<section class="cm-card cm-group"><h3><i class="fa-solid fa-person-hiking"></i> Lịch sử đặt tour (20 đơn mới nhất)</h3><div class="cm-table-wrap"><table class="cm-table"><thead><tr><th>Mã booking</th><th>Tour</th><th>Khởi hành</th><th>Trạng thái</th><th>Giá trị</th></tr></thead><tbody>
-<?php foreach($tours as $t):?><tr><td><?=ch($t['booking_code'])?></td><td><?=ch($t['title']?:'Tour đã xóa')?></td><td><?=ch($t['departure_date'])?></td><td><?=ch($t['status'])?></td><td><?=money($t['total_price'])?></td></tr><?php endforeach;?><?php if(!$tours):?><tr><td colspan="5" class="cm-empty">Chưa có đăng ký tour.</td></tr><?php endif;?></tbody></table></div></section>
-</div>
-<section class="cm-card"><h2 style="font-size:19px;margin:0 0 10px"><i class="fa-solid fa-star"></i> Lịch sử đánh giá & nhận xét (<?=count($reviews)?> bản ghi mới nhất)</h2>
-<?php foreach($reviews as $r):?><article class="cm-review"><strong><?=ch($r['product_name']?:($r['tour_name']?:'Đối tượng không còn tồn tại'))?></strong> · <span class="cm-stars"><?=str_repeat('★',max(0,min(5,(int)$r['rating'])))?></span> <small> (<?=(int)$r['rating']?>/5) — <?=dateVN($r['created_at'])?> — <?=(int)$r['status']===1?'Đang hiển thị':'Đã ẩn'?></small><p><?=nl2br(ch($r['comment']))?></p></article><?php endforeach;?>
-<?php if(!$reviews):?><p class="cm-empty">Khách hàng chưa có nhận xét.</p><?php endif;?></section>
-<?php endif;?>
+<?php if($pageCount>1):?><nav class="cm-pager" aria-label="Phân trang"><a href="<?=ch(qs(['page'=>max(1,$page-1)]))?>">‹ Trước</a><strong>Trang <?=$page?> / <?=$pageCount?></strong><a href="<?=ch(qs(['page'=>min($pageCount,$page+1)]))?>">Sau ›</a></nav><?php endif;?></section>
 </main></body></html>
