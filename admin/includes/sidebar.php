@@ -1,4 +1,3 @@
-
 <?php
 $current_page = $current_page ?? '';
 $role = getRole();
@@ -44,6 +43,9 @@ $isAdminHistory = in_array(
 if (!function_exists('vnnSideUnanswered')) {
     function vnnSideUnanswered(PDO $pdo): int {
         try {
+            // Count using the same latest support-message definition as chat-api.php.
+            // A customer needs a reply only when their latest staff/customer
+            // conversation message was sent by that customer.
             return (int) $pdo->query("SELECT COUNT(*) FROM users u
                 WHERE u.role = 'customer'
                   AND (
@@ -313,6 +315,11 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
         );
         ?>
 
+        <?php if ($role === 'staff'): ?>
+        <div class="vnn-nav-heading">NỘI DUNG BÀI VIẾT</div>
+        <?php vnnSideMenuLink($base.'admin/posts/', 'fa-newspaper', 'Bài Viết & Cẩm Nang', $current_page === 'posts'); ?>
+        <?php endif; ?>
+
         <div class="vnn-nav-heading">XỬ LÝ KHÁCH HÀNG</div>
 
         <?php
@@ -355,17 +362,6 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
         );
         ?>
 
-        <?php if ($role === 'staff'): ?>
-            <?php
-            vnnSideMenuLink(
-                $base.'admin/posts/',
-                'fa-newspaper',
-                'Bài Viết & Cẩm Nang',
-                $current_page === 'posts'
-            );
-            ?>
-        <?php endif; ?>
-
         <?php if ($role === 'manager'): ?>
 
             <div class="vnn-nav-heading">NỘI DUNG & KHO</div>
@@ -404,6 +400,13 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
                 'fa-chart-line',
                 'Doanh Thu & Báo Cáo',
                 $current_page === 'revenue'
+            );
+
+            vnnSideMenuLink(
+                $base.'admin/customers/',
+                'fa-users',
+                'Quản Lý Khách Hàng',
+                $current_page === 'customers'
             );
 
             vnnSideMenuLink(
