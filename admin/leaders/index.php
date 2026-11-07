@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['leader_notice'] =
             'Đã xóa hồ sơ Leader thành công.';
 
-        header('Location: index.php', true, 303);
+        header('Location: index.php' . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : ''), true, 303);
         exit;
 
     } catch (Throwable $e) {
@@ -124,46 +124,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // =====================================
-// DANH SACH LEADER
+// DANH SACH LEADER VA BO LOC SQL
 // =====================================
 
 $leaders = [];
+$tourOptions = [];
+$hometownOptions = [];
+$filterSearch = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 100, 'UTF-8');
+$filterHometown = trim((string)($_GET['hometown'] ?? ''));
+$filterExperience = (string)($_GET['experience'] ?? '');
+$filterTour = filter_var($_GET['tour_id'] ?? 0, FILTER_VALIDATE_INT);
+$filterTour = ($filterTour !== false && $filterTour > 0) ? $filterTour : 0;
+$filterStatus = (string)($_GET['status'] ?? '');
+$filterSort = (string)($_GET['sort'] ?? 'newest');
+
+$experienceOptions = [
+    '' => 'Tất cả kinh nghiệm',
+    'under3' => 'Dưới 3 năm',
+    '3to5' => '3–5 năm',
+    '6to10' => '6–10 năm',
+    'over10' => 'Trên 10 năm'
+];
+$sortOptions = [
+    'newest' => 'Mới nhất',
+    'name_asc' => 'Tên A–Z',
+    'name_desc' => 'Tên Z–A',
+    'exp_desc' => 'Kinh nghiệm nhiều nhất',
+    'exp_asc' => 'Kinh nghiệm ít nhất',
+    'tour_desc' => 'Số tour nhiều nhất',
+    'tour_asc' => 'Số tour ít nhất'
+];
+if (!array_key_exists($filterExperience, $experienceOptions)) $filterExperience = '';
+if (!array_key_exists($filterSort, $sortOptions)) $filterSort = 'newest';
+if (!in_array($filterStatus, ['', '1', '0'], true)) $filterStatus = '';
+
+$totalLeaders = 0;
+$activeLeaders = 0;
+$filteredCount = 0;
 
 try {
-    $stmt = $pdo->query("
-        SELECT
-            l.id,
-            l.fullname,
-            l.nickname,
-            l.image,
-            l.hometown,
-            l.experience_years,
-            l.status,
-            (
-                SELECT COUNT(*)
-                FROM tours t
-                WHERE t.leader_id = l.id
-            ) AS tour_count
-        FROM trekking_leaders l
-        ORDER BY l.id ASC
-    ");
+    // Toan bo so lieu tong quan khong bi anh huong bo loc.
+    $summary = $pdo->query("SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status=1 THEN 1 ELSE 0 END),0) AS active FROM trekking_leaders")
+        ->fetch(PDO::FETCH_ASSOC);
+    $totalLeaders = (int)($summary['total'] ?? 0);
+    $activeLeaders = (int)($summary['active'] ?? 0);
 
+    // Danh sach tour thuc te va que quan thuc te lay tu MySQL.
+    $tourOptions = $pdo->query("SELECT id, title FROM tours ORDER BY title ASC, id ASC")
+        ->fetchAll(PDO::FETCH_ASSOC);
+    $hometownOptions = $pdo->query("SELECT DISTINCT hometown FROM trekking_leaders WHERE hometown IS NOT NULL AND TRIM(hometown) <> '' ORDER BY hometown ASC")
+        ->fetchAll(PDO::FETCH_COLUMN);
+
+    $tourIds = array_map('intval', array_column($tourOptions, 'id'));
+    if (!in_array($filterTour, $tourIds, true)) $filterTour = 0;
+    if (!in_array($filterHometown, $hometownOptions, true)) $filterHometown = '';
+
+    $sql = "SELECT l.id, l.fullname, l.nickname, l.image,
+                l.hometown, l.experience_years, l.status,
+                (SELECT COUNT(*) FROM tours t WHERE t.leader_id = l.id) AS tour_count
+            FROM trekking_leaders l WHERE 1=1";
+    $params = [];
+    if ($filterSearch !== '') {
+        $sql .= " AND (l.fullname LIKE ? OR l.nickname LIKE ? OR l.hometown LIKE ?)";
+        $like = '%' . $filterSearch . '%';
+        array_push($params, $like, $like, $like);
+    }
+    if ($filterHometown !== '') {
+        $sql .= " AND l.hometown = ?";
+        $params[] = $filterHometown;
+    }
+    if ($filterExperience === 'under3') $sql .= ' AND l.experience_years < 3';
+    if ($filterExperience === '3to5') $sql .= ' AND l.experience_years BETWEEN 3 AND 5';
+    if ($filterExperience === '6to10') $sql .= ' AND l.experience_years BETWEEN 6 AND 10';
+    if ($filterExperience === 'over10') $sql .= ' AND l.experience_years > 10';
+    if ($filterTour > 0) {
+        // EXISTS dam bao moi Leader chi xuat hien mot lan duoc phan cong tour da chon.
+        $sql .= " AND EXISTS (SELECT 1 FROM tours ft WHERE ft.leader_id = l.id AND ft.id = ?)";
+        $params[] = $filterTour;
+    }
+    if ($filterStatus !== '') {
+        $sql .= ' AND l.status = ?';
+        $params[] = (int)$filterStatus;
+    }
+    $sortSql = [
+        'newest' => 'l.id DESC',
+        'name_asc' => 'l.fullname ASC, l.id ASC',
+        'name_desc' => 'l.fullname DESC, l.id DESC',
+        'exp_desc' => 'l.experience_years DESC, l.id ASC',
+        'exp_asc' => 'l.experience_years ASC, l.id ASC',
+        'tour_desc' => 'tour_count DESC, l.id ASC',
+        'tour_asc' => 'tour_count ASC, l.id ASC'
+    ];
+    $sql .= ' ORDER BY ' . $sortSql[$filterSort];
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $leaders = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
+    $filteredCount = count($leaders);
 } catch (Throwable $e) {
-    error_log('Load Leaders: ' . $e->getMessage());
-
+    error_log('Load/filter Leaders: ' . $e->getMessage());
     $popupMessage = 'Không thể tải danh sách hướng dẫn viên.';
     $popupType = 'error';
-}
-
-$totalLeaders = count($leaders);
-$activeLeaders = 0;
-
-foreach ($leaders as $leader) {
-    if ((int)$leader['status'] === 1) {
-        $activeLeaders++;
-    }
 }
 ?>
 <!DOCTYPE html>
@@ -567,6 +627,18 @@ foreach ($leaders as $leader) {
         grid-template-columns: 1fr;
     }
 }
+
+/* Loc Leader tren toan bo CSDL, khong loc lai bang JavaScript */
+.ll-filter-panel { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; padding:20px 23px; border-bottom:1px solid #e2e8f0; background:#fff; }
+.ll-filter-field { min-width:0; }
+.ll-filter-field label { display:block; margin-bottom:7px; font-weight:750; font-size:12px; color:#334155; }
+.ll-filter-input { display:block; width:100%; height:42px; border:1px solid #cbd5e1; border-radius:9px; background:white; color:#18314f; font:inherit; font-size:13px; padding:0 12px; }
+.ll-filter-input:focus {outline:2px solid #86efac;outline-offset:1px;}
+.ll-filter-actions {display:flex; align-items:end; gap:10px;flex-wrap:wrap;}
+.ll-filter-reset {background:#e2e8f0 !important;color:#334155 !important;}
+.ll-filter-counter {font-size:12px;color:#64748b;font-weight:700;}
+@media(max-width:1050px){.ll-filter-panel{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:650px){.ll-filter-panel{grid-template-columns:1fr;padding:15px;}}
 </style>
 </head>
 
@@ -630,13 +702,62 @@ require_once __DIR__ . '/../includes/sidebar.php';
         <div class="ll-panel-title">
             <h2>Danh sách Leader</h2>
 
-            <input
-                class="ll-search"
-                id="leaderSearch"
-                type="search"
-                placeholder="Tìm tên, biệt danh, quê quán..."
-            >
+            <span class="ll-filter-counter">Hiển thị <?= (int)$filteredCount ?> / <?= (int)$totalLeaders ?> Leader</span>
         </div>
+
+        <form class="ll-filter-panel" method="GET" action="index.php">
+            <div class="ll-filter-field ll-filter-search">
+                <label for="leaderSearch">Tìm kiếm Leader</label>
+                <input class="ll-filter-input" id="leaderSearch" name="q" type="search"
+                       value="<?= leaderListH($filterSearch) ?>" placeholder="Tên, biệt danh, quê quán...">
+            </div>
+            <div class="ll-filter-field">
+                <label for="filterHometown">Quê quán</label>
+                <select class="ll-filter-input" id="filterHometown" name="hometown">
+                    <option value="">Tất cả quê quán</option>
+                    <?php foreach ($hometownOptions as $home): ?>
+                        <option value="<?= leaderListH($home) ?>" <?= $filterHometown === $home ? 'selected' : '' ?>><?= leaderListH($home) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="ll-filter-field">
+                <label for="filterExperience">Kinh nghiệm</label>
+                <select class="ll-filter-input" id="filterExperience" name="experience">
+                    <?php foreach ($experienceOptions as $value => $label): ?>
+                        <option value="<?= leaderListH($value) ?>" <?= $filterExperience === $value ? 'selected' : '' ?>><?= leaderListH($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="ll-filter-field">
+                <label for="filterTour">Tour phụ trách</label>
+                <select class="ll-filter-input" id="filterTour" name="tour_id">
+                    <option value="0">Tất cả tour</option>
+                    <?php foreach ($tourOptions as $tour): ?>
+                        <option value="<?= (int)$tour['id'] ?>" <?= $filterTour === (int)$tour['id'] ? 'selected' : '' ?>><?= leaderListH($tour['title']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="ll-filter-field">
+                <label for="filterStatus">Trạng thái hiển thị</label>
+                <select class="ll-filter-input" id="filterStatus" name="status">
+                    <option value="" <?= $filterStatus === '' ? 'selected' : '' ?>>Tất cả trạng thái</option>
+                    <option value="1" <?= $filterStatus === '1' ? 'selected' : '' ?>>Đang hiển thị</option>
+                    <option value="0" <?= $filterStatus === '0' ? 'selected' : '' ?>>Đang ẩn</option>
+                </select>
+            </div>
+            <div class="ll-filter-field">
+                <label for="filterSort">Sắp xếp</label>
+                <select class="ll-filter-input" id="filterSort" name="sort">
+                    <?php foreach ($sortOptions as $value => $label): ?>
+                        <option value="<?= leaderListH($value) ?>" <?= $filterSort === $value ? 'selected' : '' ?>><?= leaderListH($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="ll-filter-actions">
+                <button class="ll-btn" type="submit"><i class="fa-solid fa-filter"></i> Lọc</button>
+                <a class="ll-btn ll-filter-reset" href="index.php"><i class="fa-solid fa-rotate-left"></i> Xóa lọc</a>
+            </div>
+        </form>
 
         <div class="ll-table-wrap">
 
@@ -767,7 +888,7 @@ require_once __DIR__ . '/../includes/sidebar.php';
                 <?php if (!$leaders): ?>
                     <tr>
                         <td colspan="7" class="ll-empty">
-                            Chưa có Leader nào trong hệ thống.
+                            Không có Leader phù hợp với bộ lọc.
                         </td>
                     </tr>
                 <?php endif; ?>
@@ -882,35 +1003,6 @@ require_once __DIR__ . '/../includes/sidebar.php';
 
 <script>
 (function() {
-
-    // ==================================
-    // TIM KIEM LEADER
-    // ==================================
-
-    const searchInput = document.getElementById(
-        'leaderSearch'
-    );
-
-    const rows = document.querySelectorAll(
-        '.leader-row'
-    );
-
-    searchInput?.addEventListener('input', function() {
-
-        const keyword = searchInput.value
-            .trim()
-            .toLocaleLowerCase('vi');
-
-        rows.forEach(function(row) {
-
-            const text = row.textContent
-                .toLocaleLowerCase('vi');
-
-            row.style.display =
-                text.includes(keyword) ? '' : 'none';
-
-        });
-    });
 
     // ==================================
     // POPUP THONG BAO
