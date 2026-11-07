@@ -120,24 +120,102 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-    .tour-filter-box { background:#fff; padding:24px; border-radius:16px;
-        box-shadow:0 8px 24px rgba(15,23,42,.06); border:1px solid #e2e8f0; margin-bottom:35px; }
-    .tour-filter-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; align-items:end; }
-    .tour-filter-field { min-width:0; }
-    .tour-filter-field label { display:block; font-size:15px; font-weight:700; color:#0f172a; margin-bottom:8px; }
-    .tour-filter-field .form-control { width:100%; min-width:0; height:52px; border-radius:12px;
-        border:1px solid #cbd5e1; padding:0 14px; font-size:15px; box-sizing:border-box;
-        background:#fff; color:#0f172a; }
-    .tour-filter-field .form-control:focus { outline:2px solid rgba(31,143,77,.2); border-color:#1f8f4d; }
-    .tour-filter-actions { display:flex; justify-content:flex-end; gap:10px; align-items:center; flex-wrap:wrap; margin-top:20px; }
-    .tour-filter-actions .btn { min-height:48px; padding:0 22px; border-radius:12px; border:0;
-        display:inline-flex; align-items:center; justify-content:center; gap:8px;
-        font-size:15px; font-weight:700; text-decoration:none; white-space:nowrap; cursor:pointer; }
-    .tour-filter-actions .btn-filter { background:#1f8f4d; color:#fff; }
-    .tour-filter-actions .btn-reset { background:#e2e8f0; color:#1e293b; }
-    @media(max-width:900px) { .tour-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-    @media(max-width:600px) { .tour-filter-box { padding:16px; } .tour-filter-grid { grid-template-columns:1fr; gap:14px; }
-        .tour-filter-actions .btn { flex:1; } }
+    /* Bo loc gon theo phong cach khu quan tri, khong thay doi logic PHP */
+    .tour-filter-box {
+        background: #fff;
+        padding: 20px 22px;
+        border: 1px solid #dfe7ef;
+        border-radius: 14px;
+        box-shadow: 0 5px 17px rgba(15, 23, 42, .045);
+        margin-bottom: 28px;
+    }
+    .tour-filter-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        column-gap: 16px;
+        row-gap: 14px;
+        align-items: end;
+    }
+    .tour-filter-field { min-width: 0; }
+    .tour-filter-field label {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.3;
+        color: #10233e;
+        margin-bottom: 6px;
+    }
+    .tour-filter-field .form-control {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        height: 43px;
+        min-height: 43px;
+        padding: 0 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 9px;
+        background: #fff;
+        color: #10233e;
+        font-size: 13px;
+        line-height: normal;
+        box-shadow: none;
+        box-sizing: border-box;
+    }
+    .tour-filter-field .form-control:focus {
+        outline: none;
+        border-color: #159447;
+        box-shadow: 0 0 0 3px rgba(21, 148, 71, .12);
+    }
+    .tour-filter-bottom {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        column-gap: 14px;
+        row-gap: 12px;
+        margin-top: 14px;
+    }
+    .tour-filter-sort { width: calc((100% - 32px) / 3); }
+    .tour-filter-actions {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+        margin: 0;
+    }
+    .tour-filter-actions .btn {
+        height: 43px;
+        min-height: 43px;
+        padding: 0 17px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 0;
+        border-radius: 9px;
+        font-size: 13px;
+        line-height: 1;
+        font-weight: 700;
+        text-decoration: none;
+        white-space: nowrap;
+        cursor: pointer;
+        box-sizing: border-box;
+    }
+    .tour-filter-actions .btn-filter { background: #159447; color: #fff; }
+    .tour-filter-actions .btn-filter:hover { background: #0c7938; color: #fff; }
+    .tour-filter-actions .btn-reset { background: #e4eaf1; color: #23364e; }
+    .tour-filter-actions .btn-reset:hover { background: #d6dee8; color: #142439; }
+    @media (max-width: 900px) {
+        .tour-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .tour-filter-sort { width: calc((100% - 16px) / 2); }
+    }
+    @media (max-width: 600px) {
+        .tour-filter-box { padding: 16px; }
+        .tour-filter-grid { grid-template-columns: 1fr; row-gap: 12px; }
+        .tour-filter-bottom { align-items: stretch; }
+        .tour-filter-sort { width: 100%; }
+        .tour-filter-actions { width: 100%; }
+        .tour-filter-actions .btn { flex: 1; }
+    }
 </style>
 
 <div class="container section">
@@ -194,7 +272,9 @@ require_once __DIR__ . '/../includes/header.php';
                     <option value="full" <?= $seatStatus === 'full' ? 'selected' : '' ?>>Hết chỗ</option>
                 </select>
             </div>
-            <div class="tour-filter-field">
+        </div>
+        <div class="tour-filter-bottom">
+            <div class="tour-filter-field tour-filter-sort">
                 <label for="tour-sort">Sắp xếp</label>
                 <select id="tour-sort" name="sort" class="form-control">
                     <?php foreach (['id_asc'=>'Mặc định','price_asc'=>'Giá thấp đến cao','price_desc'=>'Giá cao đến thấp','name_asc'=>'Tên A–Z','newest'=>'Mới nhất'] as $key=>$label): ?>
@@ -202,10 +282,10 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-        </div>
-        <div class="tour-filter-actions">
-            <button type="submit" class="btn btn-filter"><i class="fa-solid fa-filter"></i> Lọc</button>
-            <a href="<?= tourFilterEsc(rtrim(BASE_URL, '/') . '/tours/tour.php') ?>" class="btn btn-reset">Xóa lọc</a>
+            <div class="tour-filter-actions">
+                <button type="submit" class="btn btn-filter"><i class="fa-solid fa-filter"></i> Lọc</button>
+                <a href="<?= tourFilterEsc(rtrim(BASE_URL, '/') . '/tours/tour.php') ?>" class="btn btn-reset">Xóa lọc</a>
+            </div>
         </div>
     </form>
 
