@@ -160,52 +160,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $categories = [];
 $products = [];
 
-$search = trim((string)($_GET['q'] ?? ''));
-$categoryId = (int)($_GET['category'] ?? 0);
+$search = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 150, 'UTF-8');
+$categoryId = max(0, (int)($_GET['category'] ?? 0));
+$stockState = (string)($_GET['stock_state'] ?? 'all');
+$brand = trim((string)($_GET['brand'] ?? ''));
+$saleStatus = (string)($_GET['sale_status'] ?? 'all');
+$priceRange = (string)($_GET['price_range'] ?? 'all');
+$sort = (string)($_GET['sort'] ?? 'new');
+
+$allowedStockStates = ['all', 'out', 'low', 'available'];
+$allowedSaleStatuses = ['all', '1', '0'];
+$allowedPriceRanges = ['all', 'under100', '100to500', '500to1000', '1000to3000', 'over3000'];
+$sortOptions = [
+    'new' => ['p.id DESC', 'Sản phẩm mới nhất'],
+    'old' => ['p.id ASC', 'Sản phẩm cũ nhất'],
+    'name' => ['p.name ASC', 'Tên A–Z'],
+    'name_desc' => ['p.name DESC', 'Tên Z–A'],
+    'price_asc' => ['p.price ASC, p.id DESC', 'Giá tăng dần'],
+    'price_desc' => ['p.price DESC, p.id DESC', 'Giá giảm dần'],
+    'stock_asc' => ['p.stock ASC, p.id DESC', 'Tồn kho tăng dần'],
+    'stock_desc' => ['p.stock DESC, p.id DESC', 'Tồn kho giảm dần'],
+];
+if (!in_array($stockState, $allowedStockStates, true)) $stockState = 'all';
+if (!in_array($saleStatus, $allowedSaleStatuses, true)) $saleStatus = 'all';
+if (!in_array($priceRange, $allowedPriceRanges, true)) $priceRange = 'all';
+if (!isset($sortOptions[$sort])) $sort = 'new';
+
+$categories = [];
+$brands = [];
+$products = [];
 
 try {
-    $categories = $pdo->query("
-        SELECT id, name
-        FROM categories
-        ORDER BY name ASC
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    $categories = $pdo->query('SELECT id, name FROM categories ORDER BY name ASC')
+        ->fetchAll(PDO::FETCH_ASSOC);
+    $brands = $pdo->query("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND TRIM(brand) <> '' ORDER BY brand ASC")
+        ->fetchAll(PDO::FETCH_COLUMN);
+    // Chi cho phep brand ton tai trong CSDL; gia tri khac quay ve Tat ca.
+    if ($brand !== '' && !in_array($brand, $brands, true)) $brand = '';
 
-    $sql = "
-        SELECT
-            p.*,
-            c.name AS category_name
-        FROM products p
-        LEFT JOIN categories c
-            ON c.id = p.category_id
-        WHERE 1 = 1
-    ";
-
+    $sql = 'SELECT p.*, c.name AS category_name
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            WHERE 1 = 1';
     $params = [];
 
     if ($categoryId > 0) {
-        $sql .= " AND p.category_id = ?";
+        $sql .= ' AND p.category_id = ?';
         $params[] = $categoryId;
     }
-
     if ($search !== '') {
-        $sql .= "
-            AND (
-                p.name LIKE ?
-                OR p.brand LIKE ?
-            )
-        ";
-
+        $sql .= ' AND (p.name LIKE ? OR p.brand LIKE ?)';
         $params[] = '%' . $search . '%';
         $params[] = '%' . $search . '%';
     }
-
-    $sql .= " ORDER BY p.id DESC";
-
+    if ($brand !== '') {
+        $sql .= ' AND p.brand = ?';
+        $params[] = $brand;
+    }
+    if ($saleStatus !== 'all') {
+        $sql .= ' AND p.status = ?';
+        $params[] = (int)$saleStatus;
+    }
+    // Ba muc trang thai kho khong chong lan:
+    // 0 het; 1-10 sap het; >= 11 con hang.
+    switch ($stockState) {
+        case 'out': $sql .= ' AND p.stock = 0'; break;
+        case 'low': $sql .= ' AND p.stock BETWEEN 1 AND 10'; break;
+        case 'available': $sql .= ' AND p.stock >= 11'; break;
+    }
+    // Khoang gia khong chong lan (VND), khong can hai o nhap so.
+    switch ($priceRange) {
+        case 'under100': $sql .= ' AND p.price < 100000'; break;
+        case '100to500': $sql .= ' AND p.price >= 100000 AND p.price < 500000'; break;
+        case '500to1000': $sql .= ' AND p.price >= 500000 AND p.price < 1000000'; break;
+        case '1000to3000': $sql .= ' AND p.price >= 1000000 AND p.price < 3000000'; break;
+        case 'over3000': $sql .= ' AND p.price >= 3000000'; break;
+    }
+    // ORDER BY chi lay tu danh sach trang thai co dinh, khong noi du lieu GET truc tiep.
+    $sql .= ' ORDER BY ' . $sortOptions[$sort][0];
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
 } catch (Throwable $e) {
     error_log('Load products: ' . $e->getMessage());
     $popupType = 'error';
@@ -358,29 +393,33 @@ foreach ($products as $p) {
 }
 
 .pr-filter {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     align-items: end;
-    gap: 12px;
-    flex-wrap: wrap;
+    gap: 15px;
     padding: 20px 22px;
 }
-
-.pr-filter-field {
-    flex: 1;
-    min-width: 180px;
-}
-
+.pr-filter-field { min-width: 0; }
 .pr-filter-field label {
     display: block;
     margin-bottom: 7px;
     font-weight: 700;
     font-size: 12px;
+    color: #334155;
 }
-
+.pr-filter-field.search { grid-column: span 2; }
+.pr-filter-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    align-items: center;
+}
 .pr-input {
     display: block;
     width: 100%;
-    min-height: 41px;
+    height: 42px;
+    min-height: 42px;
     padding: 9px 11px;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
@@ -388,6 +427,16 @@ foreach ($products as $p) {
     font-size: 13px;
     background: white;
     color: #173454;
+}
+.pr-input:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,.08); }
+@media(max-width:1150px) {
+    .pr-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media(max-width:650px) {
+    .pr-filter { grid-template-columns: 1fr; }
+    .pr-filter-field.search { grid-column: auto; }
+    .pr-filter-actions { justify-content: stretch; }
+    .pr-filter-actions .pr-btn { flex:1; }
 }
 
 .pr-table-wrap {
@@ -446,9 +495,25 @@ foreach ($products as $p) {
     white-space: nowrap;
 }
 
-.pr-stock-current { display:inline-flex;align-items:center;justify-content:center;min-width:60px;padding:8px 12px;border-radius:9px;background:#eff6ff;color:#1d4ed8;font-size:15px;font-weight:800; }
-.pr-stock-current.low { background:#fef3c7;color:#92400e; }
-.pr-stock-current.empty { background:#fee2e2;color:#b91c1c; }
+.pr-stock-current {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 112px;
+    gap: 3px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.25;
+    text-align: center;
+}
+.pr-stock-current small { font-size: 10px; font-weight: 700; white-space: nowrap; }
+.pr-stock-current.low { background: #ffedd5; color: #9a3412; }
+.pr-stock-current.empty { background: #fee2e2; color: #b91c1c; }
 .pr-stock-form { display:flex;align-items:center;gap:9px;margin:0;white-space:nowrap; }
 .pr-stock-input { width:100px;min-width:0;height:40px;padding:9px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#173454;text-align:center;font:inherit;font-size:13px; }
 .pr-stock-input:focus { outline:none;border-color:#166534; }
@@ -595,20 +660,12 @@ foreach ($products as $p) {
         </div>
 
         <form method="GET" class="pr-filter">
-
             <div class="pr-filter-field">
                 <label for="category">Danh mục</label>
-                <select class="pr-input"
-                        name="category"
-                        id="category">
+                <select class="pr-input" name="category" id="category">
                     <option value="0">Tất cả danh mục</option>
-
                     <?php foreach ($categories as $c): ?>
-                        <option
-                            value="<?= (int)$c['id'] ?>"
-                            <?= $categoryId === (int)$c['id']
-                                ? 'selected' : '' ?>
-                        >
+                        <option value="<?= (int)$c['id'] ?>" <?= $categoryId === (int)$c['id'] ? 'selected' : '' ?>>
                             <?= productH($c['name']) ?>
                         </option>
                     <?php endforeach; ?>
@@ -616,24 +673,71 @@ foreach ($products as $p) {
             </div>
 
             <div class="pr-filter-field">
-                <label for="q">Tìm kiếm sản phẩm</label>
-                <input class="pr-input"
-                       type="search"
-                       name="q"
-                       id="q"
-                       value="<?= productH($search) ?>"
-                       placeholder="Tên hoặc thương hiệu...">
+                <label for="stock_state">Tình trạng tồn kho</label>
+                <select class="pr-input" name="stock_state" id="stock_state">
+                    <option value="all" <?= $stockState === 'all' ? 'selected' : '' ?>>Tất cả</option>
+                    <option value="out" <?= $stockState === 'out' ? 'selected' : '' ?>>Hết hàng (0)</option>
+                    <option value="low" <?= $stockState === 'low' ? 'selected' : '' ?>>Sắp hết (1–10)</option>
+                    <option value="available" <?= $stockState === 'available' ? 'selected' : '' ?>>Còn hàng (từ 11)</option>
+                </select>
             </div>
 
-            <button type="submit" class="pr-btn blue">
-                <i class="fa-solid fa-filter"></i>
-                Lọc
-            </button>
+            <div class="pr-filter-field search">
+                <label for="q">Tìm tên hoặc thương hiệu</label>
+                <input class="pr-input" type="search" name="q" id="q"
+                       value="<?= productH($search) ?>" placeholder="Nhập tên sản phẩm hoặc thương hiệu...">
+            </div>
 
-            <a href="index.php" class="pr-btn gray">
-                Xóa lọc
-            </a>
+            <div class="pr-filter-field">
+                <label for="brand">Thương hiệu</label>
+                <select class="pr-input" name="brand" id="brand">
+                    <option value="">Tất cả thương hiệu</option>
+                    <?php foreach ($brands as $brandOption): ?>
+                        <option value="<?= productH($brandOption) ?>" <?= $brand === $brandOption ? 'selected' : '' ?>>
+                            <?= productH($brandOption) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
 
+            <div class="pr-filter-field">
+                <label for="sale_status">Trạng thái bán</label>
+                <select class="pr-input" name="sale_status" id="sale_status">
+                    <option value="all" <?= $saleStatus === 'all' ? 'selected' : '' ?>>Tất cả</option>
+                    <option value="1" <?= $saleStatus === '1' ? 'selected' : '' ?>>Đang hiển thị</option>
+                    <option value="0" <?= $saleStatus === '0' ? 'selected' : '' ?>>Đang ẩn</option>
+                </select>
+            </div>
+
+            <div class="pr-filter-field">
+                <label for="price_range">Khoảng giá bán (VNĐ)</label>
+                <select class="pr-input" name="price_range" id="price_range">
+                    <?php foreach ([
+                        'all' => 'Tất cả mức giá',
+                        'under100' => 'Dưới 100.000 đ',
+                        '100to500' => '100.000 – dưới 500.000 đ',
+                        '500to1000' => '500.000 – dưới 1.000.000 đ',
+                        '1000to3000' => '1.000.000 – dưới 3.000.000 đ',
+                        'over3000' => 'Từ 3.000.000 đ trở lên'
+                    ] as $value => $label): ?>
+                        <option value="<?= productH($value) ?>" <?= $priceRange === $value ? 'selected' : '' ?>><?= productH($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="pr-filter-field">
+                <label for="sort">Sắp xếp theo</label>
+                <select class="pr-input" name="sort" id="sort">
+                    <?php foreach ($sortOptions as $value => $data): ?>
+                        <option value="<?= productH($value) ?>" <?= $sort === $value ? 'selected' : '' ?>><?= productH($data[1]) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="pr-filter-actions">
+                <button type="submit" class="pr-btn blue"><i class="fa-solid fa-filter"></i> Lọc</button>
+                <a href="index.php" class="pr-btn gray">Xóa lọc</a>
+            </div>
         </form>
 
         <div class="pr-table-wrap">
@@ -687,8 +791,9 @@ foreach ($products as $p) {
 
                         <td>
                             <?php $currentStock = (int)$p['stock']; ?>
-                            <span class="pr-stock-current <?= $currentStock <= 0 ? 'empty' : ($currentStock <= 5 ? 'low' : '') ?>">
+                            <span class="pr-stock-current <?= $currentStock <= 0 ? 'empty' : ($currentStock <= 10 ? 'low' : '') ?>">
                                 <?= number_format($currentStock, 0, ',', '.') ?>
+                                <small><?= $currentStock <= 0 ? 'Hết hàng' : ($currentStock <= 10 ? 'Sắp hết hàng' : 'Còn hàng') ?></small>
                             </span>
                         </td>
 
