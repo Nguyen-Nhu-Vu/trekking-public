@@ -53,10 +53,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        if (($_POST['action'] ?? '') !== 'delete') {
-            throw new RuntimeException(
-                'Thao tác không hợp lệ.'
-            );
+        $action = (string)($_POST['action'] ?? '');
+        if (!in_array($action, ['delete', 'set_visibility'], true)) {
+            throw new RuntimeException('Thao tác không hợp lệ.');
         }
 
         $id = filter_var(
@@ -68,6 +67,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException(
                 'Hướng dẫn viên không hợp lệ.'
             );
+        }
+
+        // An / hien Leader ngay tai danh sach. Khong thay doi phan cong tour.
+        if ($action === 'set_visibility') {
+            $rawStatus = (string)($_POST['visibility'] ?? '');
+            if (!in_array($rawStatus, ['0', '1'], true)) {
+                throw new RuntimeException('Trạng thái không hợp lệ.');
+            }
+            $newStatus = (int)$rawStatus;
+            $pdo->beginTransaction();
+            $lock = $pdo->prepare('SELECT fullname, status FROM trekking_leaders WHERE id = ? FOR UPDATE');
+            $lock->execute([$id]);
+            $previous = $lock->fetch(PDO::FETCH_ASSOC);
+            $lock->closeCursor();
+            if (!$previous) {
+                throw new RuntimeException('Không tìm thấy Leader.');
+            }
+            $oldStatus = (int)$previous['status'];
+            if ($oldStatus !== $newStatus) {
+                $update = $pdo->prepare('UPDATE trekking_leaders SET status = ? WHERE id = ?');
+                $update->execute([$newStatus, $id]);
+                // Ghi lich su neu bang audit co san theo CSDL cua du an.
+                $audit = $pdo->prepare('INSERT INTO admin_audit_logs (actor_id, actor_name, category, action, target_type, target_id, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                $audit->execute([
+                    (int)($_SESSION['user_id'] ?? 0) ?: null,
+                    (string)($_SESSION['fullname'] ?? 'Quản lý'),
+                    'content', 'Thay đổi hiển thị Leader', 'trekking_leaders',
+                    (string)$id,
+                    $oldStatus === 1 ? 'Đang hiển thị' : 'Đang ẩn',
+                    $newStatus === 1 ? 'Đang hiển thị' : 'Đang ẩn'
+                ]);
+            }
+            $pdo->commit();
+            $_SESSION['leader_notice'] = $newStatus === 1
+                ? 'Đã hiển thị Leader trên website.'
+                : 'Đã ẩn Leader khỏi website.';
+            $query = (string)($_SERVER['QUERY_STRING'] ?? '');
+            header('Location: index.php' . ($query !== '' ? '?' . $query : ''), true, 303);
+            exit;
         }
 
         $pdo->beginTransaction();
@@ -470,6 +508,12 @@ try {
     color: #64748b;
 }
 
+.ll-visibility-form { display:flex; align-items:center; gap:7px; margin:0; }
+.ll-visibility-select { height:39px; max-width:148px; padding:0 8px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; color:#173454; font-size:12px; font-weight:700; }
+.ll-visibility-save { display:inline-flex; align-items:center; justify-content:center; width:39px; height:39px; flex:0 0 39px; background:#166534; border:0; border-radius:8px; color:#fff; cursor:pointer; }
+.ll-visibility-save:hover { background:#14532d; }
+.ll-visibility-save:disabled { opacity:.55; cursor:not-allowed; }
+
 .ll-actions {
     display: flex;
     align-items: center;
@@ -831,11 +875,18 @@ require_once __DIR__ . '/../includes/sidebar.php';
                         </td>
 
                         <td>
-                            <span class="ll-status <?= (int)$leader['status'] === 1 ? '' : 'off' ?>">
-                                <?= (int)$leader['status'] === 1
-                                    ? 'Đang hiển thị'
-                                    : 'Đang ẩn' ?>
-                            </span>
+                            <form method="POST" class="ll-visibility-form">
+                                <input type="hidden" name="csrf" value="<?= leaderListH($_SESSION['leader_csrf']) ?>">
+                                <input type="hidden" name="id" value="<?= (int)$leader['id'] ?>">
+                                <input type="hidden" name="action" value="set_visibility">
+                                <select class="ll-visibility-select" name="visibility" aria-label="Trạng thái hiển thị của <?= leaderListH($leader['fullname']) ?>">
+                                    <option value="1" <?= (int)$leader['status'] === 1 ? 'selected' : '' ?>>Đang hiển thị</option>
+                                    <option value="0" <?= (int)$leader['status'] === 0 ? 'selected' : '' ?>>Đang ẩn</option>
+                                </select>
+                                <button type="submit" class="ll-visibility-save" title="Lưu trạng thái" aria-label="Lưu trạng thái <?= leaderListH($leader['fullname']) ?>">
+                                    <i class="fa-solid fa-floppy-disk"></i>
+                                </button>
+                            </form>
                         </td>
 
                         <td>
