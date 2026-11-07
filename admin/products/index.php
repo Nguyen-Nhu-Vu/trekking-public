@@ -396,7 +396,7 @@ foreach ($products as $p) {
 
 .pr-table {
     width: 100%;
-    min-width: 920px;
+    min-width: 1120px;
     border-collapse: collapse;
 }
 
@@ -446,26 +446,19 @@ foreach ($products as $p) {
     white-space: nowrap;
 }
 
-.pr-stock {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-}
-
-.pr-stock .pr-input {
-    width: 85px;
-}
-
-.pr-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.pr-actions form,
-.pr-stock {
-    margin: 0;
-}
+.pr-stock-current { display:inline-flex;align-items:center;justify-content:center;min-width:60px;padding:8px 12px;border-radius:9px;background:#eff6ff;color:#1d4ed8;font-size:15px;font-weight:800; }
+.pr-stock-current.low { background:#fef3c7;color:#92400e; }
+.pr-stock-current.empty { background:#fee2e2;color:#b91c1c; }
+.pr-stock-form { display:flex;align-items:center;gap:9px;margin:0;white-space:nowrap; }
+.pr-stock-input { width:100px;min-width:0;height:40px;padding:9px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#173454;text-align:center;font:inherit;font-size:13px; }
+.pr-stock-input:focus { outline:none;border-color:#166534; }
+.pr-stock-form .pr-stock-save { display:inline-flex !important;align-items:center !important;justify-content:center !important;flex:0 0 40px !important;box-sizing:border-box !important;width:40px !important;min-width:40px !important;max-width:40px !important;height:40px !important;min-height:40px !important;max-height:40px !important;margin:0 !important;padding:0 !important;border:0 !important;border-radius:8px;background:#166534;color:#fff;font-size:16px !important;line-height:1 !important;cursor:pointer;vertical-align:middle; }
+.pr-stock-form .pr-stock-input { box-sizing:border-box !important;height:40px !important;min-height:40px !important;max-height:40px !important;margin:0 !important; }
+.pr-stock-form .pr-stock-save i { font-size:16px !important;line-height:1 !important; }
+.pr-stock-save:hover { background:#14532d; }
+.pr-stock-save:disabled { opacity:.6;cursor:wait; }
+.pr-actions { display:flex;gap:8px;align-items:center; }
+.pr-actions form { margin:0; }
 
 .pr-empty {
     text-align: center !important;
@@ -652,7 +645,8 @@ foreach ($products as $p) {
                         <th>Tên sản phẩm</th>
                         <th>Danh mục</th>
                         <th>Giá bán</th>
-                        <th>Tồn kho</th>
+                        <th>Tồn hàng</th>
+                        <th>Nhập hàng</th>
                         <th>Thao tác</th>
                     </tr>
                 </thead>
@@ -692,32 +686,24 @@ foreach ($products as $p) {
                         </td>
 
                         <td>
-                            <form method="POST" class="pr-stock">
-                                <input type="hidden"
-                                       name="csrf"
-                                       value="<?= productH($csrf) ?>">
+                            <?php $currentStock = (int)$p['stock']; ?>
+                            <span class="pr-stock-current <?= $currentStock <= 0 ? 'empty' : ($currentStock <= 5 ? 'low' : '') ?>">
+                                <?= number_format($currentStock, 0, ',', '.') ?>
+                            </span>
+                        </td>
 
-                                <input type="hidden"
-                                       name="product_id"
-                                       value="<?= (int)$p['id'] ?>">
-
-                                <small style="font-size:11px;color:#64748b;white-space:nowrap">Hiện: <?= (int)$p['stock'] ?></small>
-                                <input class="pr-input"
-                                       type="number"
-                                       name="stock"
-                                       min="1"
-                                       max="1000000"
-                                       placeholder="Nhập thêm"
-                                       required>
-
-                                <button
-                                    class="pr-btn small"
-                                    type="submit"
-                                    name="action"
-                                    value="update_stock"
-                                    title="Cộng thêm vào tồn kho"
-                                >
-                                    <i class="fa-solid fa-plus"></i> Nhập thêm
+                        <td>
+                            <form method="POST" class="pr-stock-form">
+                                <input type="hidden" name="csrf" value="<?= productH($csrf) ?>">
+                                <input type="hidden" name="product_id" value="<?= (int)$p['id'] ?>">
+                                <input type="hidden" name="action" value="update_stock">
+                                <input class="pr-stock-input" type="number" name="stock"
+                                       min="1" max="1000000" step="1" required
+                                       placeholder="Số lượng"
+                                       aria-label="Số lượng nhập thêm cho <?= productH($p['name']) ?>">
+                                <button class="pr-stock-save" type="submit"
+                                        title="Lưu nhập kho" aria-label="Lưu nhập kho cho <?= productH($p['name']) ?>">
+                                    <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
                                 </button>
                             </form>
                         </td>
@@ -761,7 +747,7 @@ foreach ($products as $p) {
 
                 <?php if (!$products): ?>
                     <tr>
-                        <td colspan="6" class="pr-empty">
+                        <td colspan="7" class="pr-empty">
                             Không có sản phẩm phù hợp.
                         </td>
                     </tr>
