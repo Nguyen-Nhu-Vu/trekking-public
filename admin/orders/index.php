@@ -1,4 +1,3 @@
-
 <?php
 ob_start();
 
@@ -237,7 +236,25 @@ if (
             rawurlencode($returnFilter);
     }
 
-    header('Location: ' . $redirect, true, 303);
+    // Chuyen huong sau POST (PRG) de tranh gui lai form khi tai lai trang.
+    // Neu moi truong da xuat header truoc do, dung chuyen huong du phong.
+    if (!headers_sent()) {
+        header('Location: ' . $redirect, true, 303);
+        exit;
+    }
+
+    // Fallback trong truong hop 'headers already sent' (BOM/whitespace/output).
+    // Su dung JSON_HEX_* de bao ve chuoi duong dan trong JavaScript.
+    $safeRedirect = json_encode(
+        $redirect,
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+    );
+    echo '<!doctype html><html lang="vi"><head><meta charset="utf-8">';
+    echo '<meta name="robots" content="noindex">';
+    echo '<title>Đang chuyển hướng...</title></head><body>';
+    echo '<script>window.location.replace(' . $safeRedirect . ');</script>';
+    echo '<p>Đơn hàng đã được xử lý. <a href="' . order_h($redirect) . '">';
+    echo 'Quay lại danh sách đơn hàng</a></p></body></html>';
     exit;
 }
 
