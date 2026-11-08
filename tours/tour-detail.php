@@ -948,6 +948,13 @@ require_once __DIR__ . '/../includes/header.php';
                                 <?= nl2br(td_h($review['comment'])) ?>
                             </p>
 
+                            <?php if (trim((string)($review['admin_reply'] ?? '')) !== ''): ?>
+                                <div style="margin-top:12px;padding:12px 14px;background:#f0fdf4;border-left:3px solid #16a34a;border-radius:8px">
+                                    <strong style="color:#166534">Phản hồi từ VNN Travel</strong>
+                                    <p style="margin:6px 0 0"><?= nl2br(td_h($review['admin_reply'])) ?></p>
+                                </div>
+                            <?php endif; ?>
+
                             <small style="color:#94a3b8">
                                 <?= date(
                                     'd/m/Y H:i',
