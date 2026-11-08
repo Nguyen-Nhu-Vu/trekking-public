@@ -9,6 +9,7 @@ if (!function_exists('vnnCanReviewTour')) {
             JOIN users u ON u.id = b.user_id
             WHERE b.user_id = ? AND b.tour_id = ?
               AND u.role = 'customer'
+              AND (b.notes IS NULL OR b.notes NOT IN ('VNN_DEMO_SEED_2026','VNN_DEMO_SEED_TOPUP_2026'))
               AND LOWER(TRIM(b.status)) NOT IN ('đã hủy', 'hủy', 'cancelled', 'canceled', 'từ chối', 'rejected')
             LIMIT 1");
         $stmt->execute([$userId, $tourId]);
@@ -23,6 +24,7 @@ if (!function_exists('vnnCanReviewProduct')) {
             JOIN users u ON u.id = o.user_id
             WHERE o.user_id = ? AND d.product_id = ?
               AND u.role = 'customer'
+              AND (o.notes IS NULL OR o.notes NOT IN ('VNN_DEMO_SEED_2026','VNN_DEMO_SEED_TOPUP_2026'))
               AND LOWER(TRIM(o.status)) IN ('đã giao', 'đã thanh toán', 'hoàn thành', 'delivered', 'paid', 'completed')
             LIMIT 1");
         $stmt->execute([$userId, $productId]);
