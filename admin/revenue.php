@@ -884,6 +884,28 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 @media(max-width:1050px){.rv-chart-grid{grid-template-columns:1fr}}
 @media(max-width:600px){.rv-donut-layout{grid-template-columns:1fr}.rv-donut-box{max-width:260px;width:100%;margin:auto}.rv-rank-form{align-items:stretch}}
 
+
+/* Bang doanh thu gon gang o muc thu phong 100%, khong anh huong bieu do/bo loc */
+.rv-compact-report { padding: 13px 15px 11px; margin-bottom: 14px; border-radius: 12px; }
+.rv-compact-report h2 { font-size: 15px; margin: 0 0 10px; line-height: 1.35; }
+.rv-compact-report .rv-table-wrap { margin: 0; }
+.rv-compact-report .rv-report-table { min-width: 780px; }
+.rv-compact-report#rvTourTable .rv-report-table { min-width: 580px; }
+.rv-compact-report .rv-report-table th,
+.rv-compact-report .rv-report-table td { padding: 8px 9px; font-size: 11.5px; line-height: 1.35; vertical-align: middle; }
+.rv-compact-report .rv-report-table th { font-size: 11px; }
+.rv-compact-report .rv-report-table .rv-stt { width: 42px; min-width: 42px; text-align: center; white-space: nowrap; color: #475569; }
+.rv-compact-report .rv-product-line,
+.rv-compact-report .rv-quantity-line { font-size: 11.5px; line-height: 1.35; padding: 2px 0; }
+.rv-compact-report .rv-pagination { padding-top: 6px; gap: 5px; font-size: 11px; min-height: 0; }
+.rv-compact-report .rv-pagination>div { gap: 4px; }
+.rv-compact-report .rv-pagination a { padding: 4px 8px; border-radius: 6px; font-size: 11px; }
+.rv-compact-report .rv-empty { padding: 17px 10px !important; font-size: 11.5px; }
+@media (max-width: 700px) {
+  .rv-compact-report { padding: 11px; }
+  .rv-compact-report .rv-report-table th,
+  .rv-compact-report .rv-report-table td { padding: 7px 7px; }
+}
 </style>
 </head>
 
@@ -1079,7 +1101,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
     <?php if ($source !== 'shop'): ?>
 
-        <section class="rv-panel" id="rvTourTable">
+        <section class="rv-panel rv-compact-report" id="rvTourTable">
 
             <h2>
                 <i class="fa-solid fa-person-hiking"></i>
@@ -1087,10 +1109,11 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
             </h2>
 
             <div class="rv-table-wrap">
-                <table class="rv-table" style="min-width:760px">
+                <table class="rv-table rv-report-table" style="min-width:580px">
 
                     <thead>
                         <tr>
+                            <th class="rv-stt">STT</th>
                             <th>Tên Tour</th>
                             <th>Lượt đăng ký</th>
                             <th>Số khách</th>
@@ -1099,8 +1122,9 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
                     </thead>
 
                     <tbody>
-                    <?php foreach ($tourReportPage as $tour): ?>
+                    <?php foreach ($tourReportPage as $tourIndex => $tour): ?>
                         <tr>
+                            <td class="rv-stt"><?= ($tourPage - 1) * $pageSize + $tourIndex + 1 ?></td>
                             <td><?= rvH($tour['name']) ?></td>
 
                             <td>
@@ -1119,7 +1143,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
                     <?php if (!$tourReportRows): ?>
                         <tr>
-                            <td colspan="4" class="rv-empty">
+                            <td colspan="5" class="rv-empty">
                                 Chưa có doanh thu tour hoàn thành.
                             </td>
                         </tr>
@@ -1129,7 +1153,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
                 </table>
             </div>
             <nav class="rv-pagination" aria-label="Phân trang doanh thu tour">
-                <span>Trang <?= $tourPage ?> / <?= $tourPageCount ?> · <?= count($tourReportRows) ?> tour · 10 dòng/trang</span>
+                <span>Trang <?= $tourPage ?> / <?= $tourPageCount ?></span>
                 <div>
                     <?php if ($tourPage > 1): ?><a href="<?= rvH($revenuePageUrl('tour_page', $tourPage - 1)) ?>#rvTourTable">‹ Trước</a><?php endif; ?>
                     <?php for ($i = max(1, $tourPage - 2); $i <= min($tourPageCount, $tourPage + 2); $i++): ?>
@@ -1146,7 +1170,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
     <?php if ($source !== 'tour'): ?>
 
-        <section class="rv-panel" id="rvShopTable">
+        <section class="rv-panel rv-compact-report" id="rvShopTable">
 
             <h2>
                 <i class="fa-solid fa-box"></i>
@@ -1155,21 +1179,23 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
             <div class="rv-table-wrap">
 
-                <table class="rv-table">
+                <table class="rv-table rv-report-table">
 
-                    <!-- CHIA LAI 6 COT -->
+                    <!-- COT STT VA CAC COT DU LIEU -->
 
                     <colgroup>
+                        <col style="width:5%">
                         <col style="width:16%">
-                        <col style="width:30%">
+                        <col style="width:29%">
                         <col style="width:9%">
-                        <col style="width:19%">
-                        <col style="width:13%">
-                        <col style="width:13%">
+                        <col style="width:17%">
+                        <col style="width:12%">
+                        <col style="width:12%">
                     </colgroup>
 
                     <thead>
                         <tr>
+                            <th class="rv-stt">STT</th>
                             <th>Mã đơn</th>
                             <th>Tên sản phẩm</th>
                             <th class="rv-quantity-head">
@@ -1184,13 +1210,14 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
                     <tbody>
 
                     <?php
-                    foreach ($ordersPage as $order):
+                    foreach ($ordersPage as $orderIndex => $order):
                         $orderId = (int)$order['id'];
 
                         $products = $orderProducts[$orderId] ?? [];
                     ?>
 
                         <tr>
+                            <td class="rv-stt"><?= ($shopPage - 1) * $pageSize + $orderIndex + 1 ?></td>
 
                             <!-- MA DON -->
 
@@ -1289,7 +1316,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
                     <?php if (!$completedOrders): ?>
                         <tr>
-                            <td colspan="6" class="rv-empty">
+                            <td colspan="7" class="rv-empty">
                                 Chưa có đơn hàng hoàn thành
                                 trong khoảng thời gian này.
                             </td>
@@ -1302,7 +1329,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
             </div>
             <nav class="rv-pagination" aria-label="Phân trang doanh thu đơn hàng">
-                <span>Trang <?= $shopPage ?> / <?= $shopPageCount ?> · <?= count($completedOrders) ?> đơn hàng · 10 dòng/trang</span>
+                <span>Trang <?= $shopPage ?> / <?= $shopPageCount ?></span>
                 <div>
                     <?php if ($shopPage > 1): ?><a href="<?= rvH($revenuePageUrl('shop_page', $shopPage - 1)) ?>#rvShopTable">‹ Trước</a><?php endif; ?>
                     <?php for ($i = max(1, $shopPage - 2); $i <= min($shopPageCount, $shopPage + 2); $i++): ?>
