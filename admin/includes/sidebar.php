@@ -36,7 +36,7 @@ if (!function_exists('vnnSidePending')) {
 
 $isAdminHistory = in_array(
     $current_page,
-    ['system-login-history', 'system-edit-history'],
+    ['system-login-history'],
     true
 );
 
@@ -286,12 +286,6 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
                 $current_page === 'system-login-history'
             );
 
-            vnnSideMenuLink(
-                $base.'admin/system.php?tab=edits',
-                'fa-angle-right',
-                'Lịch sử chỉnh sửa',
-                $current_page === 'system-edit-history'
-            );
             ?>
         </div>
 
