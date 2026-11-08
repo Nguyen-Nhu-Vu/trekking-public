@@ -34,12 +34,6 @@ if (!function_exists('vnnSidePending')) {
     }
 }
 
-$isAdminHistory = in_array(
-    $current_page,
-    ['system-login-history'],
-    true
-);
-
 if (!function_exists('vnnSideUnanswered')) {
     function vnnSideUnanswered(PDO $pdo): int {
         try {
@@ -259,35 +253,14 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
         );
         ?>
 
-        <button
-            id="vnnHistoryMenuButton"
-            class="vnn-nav-toggle <?= $isAdminHistory?'active':'' ?>"
-            type="button"
-            aria-expanded="<?= $isAdminHistory?'true':'false' ?>"
-            aria-controls="vnnHistorySubmenu"
-        >
-            <span>
-                <i class="fa-solid fa-clock-rotate-left"></i>
-                Lịch sử hoạt động
-            </span>
-            <i class="fa-solid fa-chevron-down vnn-chevron"></i>
-        </button>
-
-        <div
-            id="vnnHistorySubmenu"
-            class="vnn-nav-sub"
-            <?= $isAdminHistory?'':'hidden' ?>
-        >
-            <?php
-            vnnSideMenuLink(
-                $base.'admin/system.php?tab=logins',
-                'fa-angle-right',
-                'Lịch sử đăng nhập',
-                $current_page === 'system-login-history'
-            );
-
-            ?>
-        </div>
+        <?php
+        vnnSideMenuLink(
+            $base.'admin/system.php?tab=logins',
+            'fa-clock-rotate-left',
+            'Lịch sử đăng nhập',
+            $current_page === 'system-login-history'
+        );
+        ?>
 
         <a class="vnn-nav-link" href="<?= vnnSideH($base) ?>admin/logout.php" style="color:#fca5a5">
             <span class="vnn-nav-label"><i class="fa-solid fa-right-from-bracket"></i><span>Đăng xuất</span></span>
@@ -422,20 +395,3 @@ if (in_array($role, ['admin', 'manager', 'staff'], true)) {
     <?php endif; ?>
 
 </aside>
-
-<script>
-(function() {
-    const button = document.getElementById('vnnHistoryMenuButton');
-    const submenu = document.getElementById('vnnHistorySubmenu');
-
-    if (!button || !submenu) return;
-
-    button.addEventListener('click', function() {
-        submenu.hidden = !submenu.hidden;
-        button.setAttribute(
-            'aria-expanded',
-            String(!submenu.hidden)
-        );
-    });
-})();
-</script>
