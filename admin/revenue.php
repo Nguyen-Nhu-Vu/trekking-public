@@ -439,6 +439,163 @@ for ($i = 1; $i <= 12; $i++) {
         $chartValues[] = $chartTour[$i] + $chartShop[$i];
     }
 }
+
+// ============================================================
+// BANG GIAO DICH + XEP HANG: su dung bo loc rieng, giu
+// nguyen loc Nam/Thang/Nguon/Tour va du lieu bieu do cu.
+// ============================================================
+$txType = (string)($_GET['tx_type'] ?? 'all');
+$txPeriod = (string)($_GET['tx_period'] ?? 'all');
+$txStatus = (string)($_GET['tx_status'] ?? 'paid');
+$txAmount = (string)($_GET['tx_amount'] ?? 'all');
+$txSort = (string)($_GET['tx_sort'] ?? 'new');
+$txSearch = trim((string)($_GET['tx_q'] ?? ''));
+$txFrom = (string)($_GET['tx_from'] ?? '');
+$txTo = (string)($_GET['tx_to'] ?? '');
+$txPage = max(1, (int)($_GET['tx_page'] ?? 1));
+$rankType = (string)($_GET['rank_type'] ?? 'tour');
+$rankBy = (string)($_GET['rank_by'] ?? 'revenue');
+$rankLimit = (int)($_GET['rank_limit'] ?? 5);
+if (!in_array($txType, ['all','tour','shop'], true)) $txType = 'all';
+if (!in_array($txPeriod, ['all','today','7','30','month','year','custom'], true)) $txPeriod = 'all';
+if (!in_array($txStatus, ['all','paid','pending'], true)) $txStatus = 'paid';
+if (!in_array($txAmount, ['all','under1','1to5','5to20','over20'], true)) $txAmount = 'all';
+if (!in_array($txSort, ['new','old','high','low'], true)) $txSort = 'new';
+if (!in_array($rankType, ['tour','product','customer'], true)) $rankType = 'tour';
+if (!in_array($rankBy, ['revenue','count','quantity'], true)) $rankBy = 'revenue';
+if (!in_array($rankLimit, [5,10], true)) $rankLimit = 5;
+$txDateValid = static function(string $d): bool {
+    $dt = DateTimeImmutable::createFromFormat('!Y-m-d', $d);
+    return $dt && $dt->format('Y-m-d') === $d;
+};
+$today = new DateTimeImmutable('today');
+$txStart = null;
+$txEnd = null;
+if ($txPeriod === 'today') {
+    $txStart = $today->format('Y-m-d'); $txEnd = $txStart;
+} elseif ($txPeriod === '7') {
+    $txStart = $today->modify('-6 days')->format('Y-m-d');
+    $txEnd = $today->format('Y-m-d');
+} elseif ($txPeriod === '30') {
+    $txStart = $today->modify('-29 days')->format('Y-m-d');
+    $txEnd = $today->format('Y-m-d');
+} elseif ($txPeriod === 'month') {
+    $txStart = $today->format('Y-m-01');
+    $txEnd = $today->format('Y-m-d');
+} elseif ($txPeriod === 'year') {
+    $txStart = $today->format('Y-01-01');
+    $txEnd = $today->format('Y-m-d');
+} elseif ($txPeriod === 'custom') {
+    $txStart = $txDateValid($txFrom) ? $txFrom : null;
+    $txEnd = $txDateValid($txTo) ? $txTo : null;
+}
+// Giao dich ghi nhan doanh thu theo created_at (database chua co paid_at).
+$allTransactions = [];
+foreach ($tourBookings as $b) {
+    $status = (string)($b['status'] ?? '');
+    if ($status === 'Đã hủy') continue;
+    $paid = in_array($status, $paidTourStatuses, true);
+    $allTransactions[] = [
+        'type' => 'tour', 'id' => (int)($b['id'] ?? 0),
+        'code' => (string)($b['booking_code'] ?? ('Tour #'.($b['id'] ?? ''))),
+        'name' => (string)($b['report_tour_name'] ?? 'Tour'),
+        'customer' => (string)($b['fullname'] ?? 'Khách hàng'),
+        'customer_key' => !empty($b['user_id']) ? 'u'.$b['user_id'] : 'e'.strtolower(trim((string)($b['email'] ?? ''))),
+        'quantity' => max(1,(int)($b[$bookingPeopleColumn ?? 'number_people'] ?? 1)),
+        'amount' => (float)($b[$bookingTotalColumn ?? 'total_price'] ?? 0),
+        'date' => (string)($b['created_at'] ?? ''),
+        'status' => $status,'paid' => $paid,
+        'tour_id' => (int)($b['tour_id'] ?? 0)
+    ];
+}
+foreach ($orders as $o) {
+    $status = (string)($o['status'] ?? '');
+    if ($status === 'Đã hủy') continue;
+    $paid = in_array($status, $completedOrderStatuses, true);
+    $orderId = (int)($o['id'] ?? 0);
+    $names = array_column($orderProducts[$orderId] ?? [], 'name');
+    $quantities = array_column($orderProducts[$orderId] ?? [], 'quantity');
+    $allTransactions[] = [
+        'type' => 'shop', 'id' => $orderId,
+        'code' => (string)($o['order_code'] ?? ('Đơn #'.$orderId)),
+        'name' => $names ? implode(', ',array_unique($names)) : 'Đơn hàng #'.$orderId,
+        'customer' => (string)($o['fullname'] ?? 'Khách hàng'),
+        'customer_key' => !empty($o['user_id']) ? 'u'.$o['user_id'] : 'e'.strtolower(trim((string)($o['email'] ?? ''))),
+        'quantity' => array_sum(array_map('intval',$quantities)),
+        'amount' => (float)($o[$orderTotalColumn ?? 'total_amount'] ?? 0),
+        'date' => (string)($o['created_at'] ?? ''),
+        'status' => $status, 'paid' => $paid,
+        'tour_id' => 0
+    ];
+}
+$transactionsFiltered = array_values(array_filter($allTransactions, static function(array $r) use ($txType,$txStatus,$txAmount,$txSearch,$txStart,$txEnd): bool {
+    if ($txType !== 'all' && $r['type'] !== $txType) return false;
+    if ($txStatus === 'paid' && !$r['paid']) return false;
+    if ($txStatus === 'pending' && $r['paid']) return false;
+    $date = substr($r['date'],0,10);
+    if ($txStart !== null && $date < $txStart) return false;
+    if ($txEnd !== null && $date > $txEnd) return false;
+    if ($txSearch !== '' && stripos($r['name'].' '.$r['code'].' '.$r['customer'], $txSearch) === false) return false;
+    $v = $r['amount'];
+    if ($txAmount === 'under1' && $v >= 1000000) return false;
+    if ($txAmount === '1to5' && ($v < 1000000 || $v >= 5000000)) return false;
+    if ($txAmount === '5to20' && ($v < 5000000 || $v >= 20000000)) return false;
+    if ($txAmount === 'over20' && $v < 20000000) return false;
+    return true;
+}));
+usort($transactionsFiltered, static function($a,$b) use ($txSort) {
+    if ($txSort === 'high') return $b['amount'] <=> $a['amount'];
+    if ($txSort === 'low') return $a['amount'] <=> $b['amount'];
+    if ($txSort === 'old') return strcmp($a['date'],$b['date']);
+    return strcmp($b['date'],$a['date']);
+});
+$txCount = count($transactionsFiltered);
+$txPageCount = max(1, (int)ceil($txCount / 10));
+$txPage = min($txPage, $txPageCount);
+$txPageRows = array_slice($transactionsFiltered, ($txPage - 1)*10, 10);
+$txPageUrl = static function($page) {
+    $q = $_GET; $q['tx_page'] = $page;
+    return '?'.http_build_query($q);
+};
+// Xep hang theo bo loc bieu do cu (nam/thang/nguon/tour), khong tinh giao dich cho xu ly.
+$rankTours = []; $rankCustomers = []; $rankProducts = [];
+foreach ($allTransactions as $r) {
+    if (!$r['paid'] || ($source !== 'all' && $r['type'] !== $source)) continue;
+    if ($r['type'] === 'tour') {
+        $key = $r['tour_id'];
+        if (!isset($rankTours[$key])) $rankTours[$key] = ['name'=>$r['name'],'count'=>0,'quantity'=>0,'revenue'=>0];
+        $rankTours[$key]['count']++;
+        $rankTours[$key]['quantity'] += $r['quantity'];
+        $rankTours[$key]['revenue'] += $r['amount'];
+    }
+    $key = $r['customer_key'] ?: 'g'.$r['id'].$r['type'];
+    if (!isset($rankCustomers[$key])) $rankCustomers[$key] = ['name'=>$r['customer'],'count'=>0,'quantity'=>0,'revenue'=>0];
+    $rankCustomers[$key]['count']++;
+    $rankCustomers[$key]['quantity'] += $r['quantity'];
+    $rankCustomers[$key]['revenue'] += $r['amount'];
+}
+// Tong doanh thu san pham tinh theo dong order_details, khong nhan ban don hang.
+try {
+    if ($source !== 'tour' && $quantityColumn && in_array('product_id',$detailCols,true)) {
+        $rankProductRows = rvRows($pdo, "SELECT d.product_id, COALESCE(p.name, CONCAT('Sản phẩm #', d.product_id)) AS name,
+            SUM(d.quantity) AS quantity, SUM(d.total) AS revenue, COUNT(DISTINCT d.order_id) AS order_count
+            FROM order_details d INNER JOIN orders o ON o.id = d.order_id
+            LEFT JOIN products p ON p.id = d.product_id
+            WHERE o.created_at >= ? AND o.created_at < ?
+            AND o.status IN ('Đã giao','Đã hoàn thành','Hoàn thành','completed','delivered')
+            GROUP BY d.product_id, p.name", [$startDate,$endDate]);
+        foreach ($rankProductRows as $r) $rankProducts[] = [
+            'name'=>$r['name'], 'count'=>(int)$r['order_count'],
+            'quantity'=>(int)$r['quantity'], 'revenue'=>(float)$r['revenue']
+        ];
+    }
+} catch (Throwable $e) { error_log('Revenue ranking products: '.$e->getMessage()); }
+$rankData = $rankType === 'product' ? array_values($rankProducts) : ($rankType === 'customer' ? array_values($rankCustomers) : array_values($rankTours));
+if ($rankBy === 'quantity' && $rankType === 'customer') $rankBy = 'count';
+usort($rankData, static function($a,$b) use ($rankBy) {
+    return ($b[$rankBy] <=> $a[$rankBy]) ?: ($b['revenue'] <=> $a['revenue']);
+});
+$rankData = array_slice($rankData,0,$rankLimit);
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -734,6 +891,46 @@ for ($i = 1; $i <= 12; $i++) {
         grid-template-columns: 1fr;
     }
 }
+
+/* Dashboard layout bo sung, khong can thiep menu admin */
+.rv-chart-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px}
+.rv-chart-panel{min-width:0}
+.rv-chart-grid .rv-chart-box{height:290px}
+.rv-donut-layout{display:grid;grid-template-columns:minmax(140px,1fr) minmax(150px,1fr);gap:16px;align-items:center;min-height:290px}
+.rv-donut-box{height:230px;position:relative;min-width:0}
+.rv-donut-text{display:flex;flex-direction:column;gap:10px;font-size:13px;color:#475569;min-width:0}
+.rv-donut-text>strong{color:#122544}.rv-donut-text>b{font-size:19px;color:#166534;overflow-wrap:anywhere}
+.rv-donut-text>div{border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.7}
+.rv-donut-text>div b{display:block;color:#122544;font-size:13px;overflow-wrap:anywhere}
+.rv-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+.rv-section-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:15px}
+.rv-section-row h2{margin:0}
+.rv-tx-panel{background:linear-gradient(115deg,#f2fbf6,#fff)}
+.rv-tx-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end}
+.rv-tx-form .rv-field{min-width:0;flex:auto}
+.rv-tx-form .rv-field select,.rv-tx-form .rv-field input{width:100%;height:42px;background:white;border:1px solid #ced9e8;border-radius:9px;padding:0 10px;color:#122544;font-size:13px}
+.rv-tx-search{grid-column:span 2}
+.rv-tx-actions{display:flex;align-items:center;gap:10px;grid-column:span 2}
+.rv-clear{display:inline-flex;align-items:center;justify-content:center;height:43px;padding:0 16px;text-decoration:none;background:#e2e8f0;border-radius:9px;font-size:13px;font-weight:800;color:#193252}
+.rv-transaction-table th,.rv-transaction-table td{padding:12px 10px;font-size:12px}
+.rv-transaction-table strong{overflow-wrap:anywhere}.rv-transaction-table td:nth-child(4){min-width:175px}
+.rv-pill{display:inline-block;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;white-space:nowrap}
+.rv-pill-paid{background:#dcfce7;color:#166534}.rv-pill-pending{background:#fef3c7;color:#92400e}
+.rv-pagination{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-top:15px;font-size:12px;color:#64748b}
+.rv-pagination>div{display:flex;gap:6px;flex-wrap:wrap}
+.rv-pagination a{padding:7px 11px;border:1px solid #d7e2ec;border-radius:8px;text-decoration:none;color:#164466;font-weight:700}
+.rv-pagination a.active{background:#16803d;color:white;border-color:#16803d}
+.rv-rank-form{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:15px}
+.rv-rank-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.rv-rank-tabs button{background:#edf2f7;color:#183551;border:none;border-radius:9px;padding:10px 16px;font-size:12px;font-weight:800;cursor:pointer}
+.rv-rank-tabs button.active{background:#16803d;color:white}
+.rv-rank-options{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.rv-rank-options label{font-size:12px;color:#64748b;font-weight:800}
+.rv-rank-options select{margin-left:6px;height:38px;border:1px solid #cbd5e1;border-radius:8px;padding:0 9px;background:#fff;color:#122544}
+.rv-ranking-table{min-width:630px}
+@media(max-width:1050px){.rv-chart-grid{grid-template-columns:1fr}.rv-tx-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.rv-tx-form{grid-template-columns:1fr}.rv-tx-search,.rv-tx-actions{grid-column:span 1}.rv-donut-layout{grid-template-columns:1fr}.rv-donut-box{max-width:260px;width:100%;margin:auto}.rv-rank-form{align-items:stretch}}
+
 </style>
 </head>
 
@@ -897,42 +1094,123 @@ for ($i = 1; $i <= 12; $i++) {
 
     </section>
 
-    <!-- BIEU DO -->
-
-    <section class="rv-panel">
-
+    <!-- HAI BIEU DO - GIU NGUYEN BO LOC CU -->
+    <div class="rv-chart-grid">
+      <section class="rv-panel rv-chart-panel">
         <div class="rv-chart-head">
-            <h2>
-                <i class="fa-solid fa-chart-column"></i>
-                Biểu đồ doanh thu năm <?= $year ?>
-            </h2>
-
+            <h2><i class="fa-solid fa-chart-line"></i> Xu hướng doanh thu <?= (int)$year ?></h2>
             <div class="rv-chart-controls">
-                <label>Hiển thị biểu đồ</label>
-
+                <label for="rvChartSource">Hiển thị biểu đồ</label>
                 <select id="rvChartSource">
-                    <option value="all"
-                        <?= $chartSource === 'all' ? 'selected' : '' ?>>
-                        Tất cả
-                    </option>
-
-                    <option value="tour"
-                        <?= $chartSource === 'tour' ? 'selected' : '' ?>>
-                        Doanh thu Tour
-                    </option>
-
-                    <option value="shop"
-                        <?= $chartSource === 'shop' ? 'selected' : '' ?>>
-                        Doanh thu Bán Hàng
-                    </option>
+                    <option value="all" <?= $chartSource === 'all' ? 'selected' : '' ?>>Tất cả</option>
+                    <option value="tour" <?= $chartSource === 'tour' ? 'selected' : '' ?>>Doanh thu Tour</option>
+                    <option value="shop" <?= $chartSource === 'shop' ? 'selected' : '' ?>>Doanh thu Bán Hàng</option>
                 </select>
             </div>
         </div>
-
-        <div class="rv-chart-box">
-            <canvas id="rvRevenueChart"></canvas>
+        <div class="rv-chart-box"><canvas id="rvRevenueChart"></canvas></div>
+      </section>
+      <section class="rv-panel rv-chart-panel">
+        <div class="rv-chart-head"><h2><i class="fa-solid fa-chart-pie"></i> Cơ cấu doanh thu</h2></div>
+        <div class="rv-donut-layout">
+          <div class="rv-donut-box"><canvas id="rvShareChart"></canvas></div>
+          <div class="rv-donut-text">
+             <strong>Tổng doanh thu</strong><b><?= rvH(rvMoney($totalRevenue)) ?></b>
+             <div><span class="rv-dot" style="background:#16803d"></span> Tour Trekking <b><?= rvH(rvMoney($tourRevenue)) ?></b></div>
+             <div><span class="rv-dot" style="background:#3b82f6"></span> Cửa hàng <b><?= rvH(rvMoney($shopRevenue)) ?></b></div>
+          </div>
         </div>
+      </section>
+    </div>
 
+    <!-- LOC BANG GIAO DICH: KHONG TAC DONG DEN BIEU DO -->
+    <section class="rv-panel rv-tx-panel">
+      <div class="rv-section-row"><h2><i class="fa-solid fa-filter"></i> Bộ lọc giao dịch</h2><span class="rv-muted">Bộ lọc này chỉ áp dụng cho bảng bên dưới</span></div>
+      <form method="get" class="rv-tx-form">
+        <input type="hidden" name="year" value="<?= (int)$year ?>">
+        <input type="hidden" name="month" value="<?= (int)$month ?>">
+        <input type="hidden" name="source" value="<?= rvH($source) ?>">
+        <input type="hidden" name="tour_id" value="<?= (int)$filterTour ?>">
+        <div class="rv-tx-search rv-field"><label>Tìm kiếm</label><input name="tx_q" value="<?= rvH($txSearch) ?>" placeholder="Tên tour, sản phẩm, mã đơn..." maxlength="120"></div>
+        <div class="rv-field"><label>Loại giao dịch</label><select name="tx_type">
+          <option value="all" <?= $txType==='all'?'selected':'' ?>>Tất cả</option>
+          <option value="tour" <?= $txType==='tour'?'selected':'' ?>>Tour Trekking</option>
+          <option value="shop" <?= $txType==='shop'?'selected':'' ?>>Cửa hàng</option></select></div>
+        <div class="rv-field"><label>Khoảng thời gian</label><select name="tx_period" id="rvTxPeriod">
+          <?php foreach (['all'=>'Theo kỳ biểu đồ','today'=>'Hôm nay','7'=>'7 ngày gần nhất','30'=>'30 ngày gần nhất','month'=>'Tháng này','year'=>'Năm nay','custom'=>'Tùy chọn ngày'] as $v=>$name): ?>
+             <option value="<?= rvH($v) ?>" <?= $txPeriod===$v?'selected':'' ?>><?= rvH($name) ?></option>
+          <?php endforeach; ?></select></div>
+        <div class="rv-field rv-custom-date"><label>Từ ngày</label><input type="date" name="tx_from" value="<?= rvH($txFrom) ?>"></div>
+        <div class="rv-field rv-custom-date"><label>Đến ngày</label><input type="date" name="tx_to" value="<?= rvH($txTo) ?>"></div>
+        <div class="rv-field"><label>Trạng thái</label><select name="tx_status">
+          <option value="paid" <?= $txStatus==='paid'?'selected':'' ?>>Đã hoàn thành / thanh toán</option>
+          <option value="pending" <?= $txStatus==='pending'?'selected':'' ?>>Đang xử lý</option>
+          <option value="all" <?= $txStatus==='all'?'selected':'' ?>>Tất cả (trừ đã hủy)</option></select></div>
+        <div class="rv-field"><label>Khoảng giá trị</label><select name="tx_amount">
+          <?php foreach (['all'=>'Tất cả mức tiền','under1'=>'Dưới 1 triệu','1to5'=>'1–5 triệu','5to20'=>'5–20 triệu','over20'=>'Từ 20 triệu'] as $v=>$name): ?>
+             <option value="<?= rvH($v) ?>" <?= $txAmount===$v?'selected':'' ?>><?= rvH($name) ?></option>
+          <?php endforeach; ?></select></div>
+        <div class="rv-field"><label>Sắp xếp</label><select name="tx_sort">
+          <?php foreach (['new'=>'Mới nhất','old'=>'Cũ nhất','high'=>'Giá trị cao nhất','low'=>'Giá trị thấp nhất'] as $v=>$name): ?>
+             <option value="<?= rvH($v) ?>" <?= $txSort===$v?'selected':'' ?>><?= rvH($name) ?></option>
+          <?php endforeach; ?></select></div>
+        <div class="rv-tx-actions"><button class="rv-submit" type="submit"><i class="fa-solid fa-filter"></i> Lọc</button>
+          <a class="rv-clear" href="?<?= rvH(http_build_query(['year'=>$year,'month'=>$month,'source'=>$source,'tour_id'=>$filterTour])) ?>">Xóa lọc</a></div>
+      </form>
+    </section>
+    <section class="rv-panel">
+      <div class="rv-section-row"><h2><i class="fa-solid fa-list"></i> Bảng chi tiết giao dịch</h2><span class="rv-muted"><?= (int)$txCount ?> kết quả · 10 dòng/trang</span></div>
+      <div class="rv-table-wrap"><table class="rv-table rv-transaction-table">
+        <thead><tr><th>STT</th><th>Mã giao dịch</th><th>Loại</th><th>Tour / Sản phẩm</th><th>Khách hàng</th><th>SL</th><th>Giá trị</th><th>Trạng thái</th><th>Ngày tạo</th></tr></thead>
+        <tbody>
+        <?php foreach ($txPageRows as $i=>$r): ?>
+          <tr><td><?= ($txPage-1)*10+$i+1 ?></td><td><strong><?= rvH($r['code']) ?></strong></td>
+          <td><?= $r['type']==='tour'?'Tour':'Cửa hàng' ?></td><td><?= rvH($r['name']) ?></td><td><?= rvH($r['customer']) ?></td>
+          <td><?= (int)$r['quantity'] ?></td><td class="rv-money"><?= rvH(rvMoney($r['amount'])) ?></td>
+          <td><span class="rv-pill <?= $r['paid']?'rv-pill-paid':'rv-pill-pending' ?>"><?= rvH($r['status']) ?></span></td>
+          <td><?= rvH(rvDate($r['date'])) ?></td></tr>
+        <?php endforeach; ?>
+        <?php if (!$txPageRows): ?><tr><td colspan="9" class="rv-empty">Không tìm thấy giao dịch phù hợp.</td></tr><?php endif; ?>
+        </tbody></table></div>
+      <div class="rv-pagination"><span>Trang <?= (int)$txPage ?> / <?= (int)$txPageCount ?></span><div>
+        <?php if ($txPage > 1): ?><a href="<?= rvH($txPageUrl($txPage-1)) ?>">‹ Trước</a><?php endif; ?>
+        <?php for ($i=max(1,$txPage-2);$i<=min($txPageCount,$txPage+2);$i++): ?>
+          <a class="<?= $i===$txPage?'active':'' ?>" href="<?= rvH($txPageUrl($i)) ?>"><?= $i ?></a>
+        <?php endfor; ?>
+        <?php if ($txPage < $txPageCount): ?><a href="<?= rvH($txPageUrl($txPage+1)) ?>">Sau ›</a><?php endif; ?></div></div>
+    </section>
+    <section class="rv-panel">
+      <div class="rv-section-row"><h2><i class="fa-solid fa-trophy"></i> Xếp hạng kinh doanh</h2>
+        <span class="rv-muted">Theo kỳ và nguồn doanh thu đã chọn ở bộ lọc biểu đồ</span></div>
+      <form method="get" class="rv-rank-form">
+        <input type="hidden" name="year" value="<?= (int)$year ?>"><input type="hidden" name="month" value="<?= (int)$month ?>">
+        <input type="hidden" name="source" value="<?= rvH($source) ?>"><input type="hidden" name="tour_id" value="<?= (int)$filterTour ?>">
+        <?php foreach (['tx_q'=>$txSearch,'tx_type'=>$txType,'tx_period'=>$txPeriod,'tx_from'=>$txFrom,'tx_to'=>$txTo,'tx_status'=>$txStatus,'tx_amount'=>$txAmount,'tx_sort'=>$txSort] as $k=>$v): ?>
+          <input type="hidden" name="<?= rvH($k) ?>" value="<?= rvH($v) ?>">
+        <?php endforeach; ?>
+        <div class="rv-rank-tabs">
+          <?php foreach (['tour'=>'Tour Trekking','product'=>'Sản phẩm','customer'=>'Khách hàng'] as $k=>$label): ?>
+            <button type="submit" name="rank_type" value="<?= $k ?>" class="<?= $rankType===$k?'active':'' ?>"><?= rvH($label) ?></button>
+          <?php endforeach; ?>
+        </div>
+        <div class="rv-rank-options">
+          <label>Tiêu chí <select name="rank_by" onchange="rvSubmitRank(this.form)">
+            <option value="revenue" <?= $rankBy==='revenue'?'selected':'' ?>>Doanh thu cao nhất</option>
+            <option value="count" <?= $rankBy==='count'?'selected':'' ?>>Số lượt giao dịch</option>
+            <option value="quantity" <?= $rankBy==='quantity'?'selected':'' ?>>Số lượng khách / sản phẩm</option>
+          </select></label><label>Top <select name="rank_limit" onchange="rvSubmitRank(this.form)">
+            <option value="5" <?= $rankLimit===5?'selected':'' ?>>5</option><option value="10" <?= $rankLimit===10?'selected':'' ?>>10</option>
+          </select></label>
+        </div>
+      </form>
+      <div class="rv-table-wrap"><table class="rv-table rv-ranking-table"><thead><tr>
+        <th>Hạng</th><th><?= $rankType==='tour'?'Tên tour':($rankType==='product'?'Tên sản phẩm':'Khách hàng') ?></th>
+        <th><?= $rankType==='tour'?'Lượt đặt':'Lượt mua' ?></th><th><?= $rankType==='tour'?'Số khách':($rankType==='product'?'Số lượng bán':'Số lượng') ?></th><th>Doanh thu</th></tr></thead><tbody>
+        <?php foreach ($rankData as $i=>$r): ?><tr><td><?= $i < 3 ? ['🥇','🥈','🥉'][$i] : $i+1 ?></td>
+          <td><strong><?= rvH($r['name']) ?></strong></td><td><?= (int)$r['count'] ?></td>
+          <td><?= (int)$r['quantity'] ?></td><td class="rv-money"><?= rvH(rvMoney($r['revenue'])) ?></td></tr><?php endforeach; ?>
+        <?php if (!$rankData): ?><tr><td colspan="5" class="rv-empty">Chưa có dữ liệu xếp hạng phù hợp.</td></tr><?php endif; ?>
+      </tbody></table></div>
     </section>
 
     <!-- DOANH THU TOUR -->
@@ -1174,138 +1452,25 @@ for ($i = 1; $i <= 12; $i++) {
 </main>
 
 <script>
-(function() {
-
-    const select = document.getElementById(
-        'rvChartSource'
-    );
-
-    const chartTour = <?= json_encode(
-        array_values($chartTour),
-        JSON_NUMERIC_CHECK
-    ) ?>;
-
-    const chartShop = <?= json_encode(
-        array_values($chartShop),
-        JSON_NUMERIC_CHECK
-    ) ?>;
-
-    const labels = <?= json_encode(
-        $chartLabels,
-        JSON_UNESCAPED_UNICODE
-    ) ?>;
-
-    function getData(source) {
-        if (source === 'tour') {
-            return chartTour;
-        }
-
-        if (source === 'shop') {
-            return chartShop;
-        }
-
-        return chartTour.map(function(value, index) {
-            return value + chartShop[index];
-        });
-    }
-
-    function getLabel(source) {
-        if (source === 'tour') {
-            return 'Doanh thu Tour';
-        }
-
-        if (source === 'shop') {
-            return 'Doanh thu Bán Hàng';
-        }
-
-        return 'Tổng doanh thu';
-    }
-
-
-    function getDatasets(source) {
-        const common = {stack: 'revenue', maxBarThickness: 50};
-        if (source === 'all') return [
-            {...common, label: 'Doanh thu Tour', data: chartTour, backgroundColor: '#166534'},
-            {...common, label: 'Doanh thu Đơn hàng', data: chartShop, backgroundColor: '#ea580c'}
-        ];
-        return [{...common, label: getLabel(source), data: getData(source), backgroundColor: source === 'tour' ? '#166534' : '#ea580c', borderRadius: 5}];
-    }
-
-    const canvas = document.getElementById(
-        'rvRevenueChart'
-    );
-
-    if (
-        !canvas ||
-        !select ||
-        typeof Chart === 'undefined'
-    ) {
-        return;
-    }
-
-    const chart = new Chart(canvas, {
-        type: 'bar',
-
-        data: {
-            labels: labels,
-
-            datasets: getDatasets(select.value)
-        },
-
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'top'
-                },
-
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return (
-                                context.dataset.label +
-                                ': ' +
-                                new Intl.NumberFormat('vi-VN')
-                                    .format(context.parsed.y) +
-                                ' đ'
-                            );
-                        }
-                    }
-                }
-            },
-
-            scales: {
-                x: { stacked: true },
-                y: {
-                    stacked: true,
-                    beginAtZero: true,
-
-                    ticks: {
-                        callback: function(value) {
-                            return new Intl.NumberFormat(
-                                'vi-VN'
-                            ).format(value);
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    // Đổi nguồn ở biểu đồ cũng làm mới các ô số liệu và bảng dưới.
-    select.addEventListener('change', function() {
-        const url = new URL(window.location.href);
-        url.searchParams.set('source', select.value);
-        url.searchParams.delete('chart');
-        if (select.value === 'shop') {
-            url.searchParams.delete('tour_id');
-        }
-        window.location.assign(url.toString());
-    });
-
+(function(){
+  const select=document.getElementById('rvChartSource');
+  const labels=<?= json_encode($chartLabels,JSON_UNESCAPED_UNICODE) ?>;
+  const tour=<?= json_encode(array_values($chartTour),JSON_NUMERIC_CHECK) ?>;
+  const shop=<?= json_encode(array_values($chartShop),JSON_NUMERIC_CHECK) ?>;
+  const money=v=>new Intl.NumberFormat('vi-VN').format(v)+' đ';
+  if(typeof Chart!=='undefined'){
+    const line=document.getElementById('rvRevenueChart');
+    if(line){new Chart(line,{type:'line',data:{labels,datasets:[
+      {label:'Tour Trekking',data:tour,borderColor:'#16803d',backgroundColor:'rgba(22,128,61,.13)',fill:true,tension:.3,pointRadius:3,borderWidth:2.5},
+      {label:'Cửa hàng',data:shop,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.12)',fill:true,tension:.3,pointRadius:3,borderWidth:2.5}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.parsed.y)}}},scales:{y:{beginAtZero:true,ticks:{callback:v=>new Intl.NumberFormat('vi-VN',{notation:'compact'}).format(v)}},x:{ticks:{maxTicksLimit:7}}}}});}
+    const donut=document.getElementById('rvShareChart');
+    if(donut){new Chart(donut,{type:'doughnut',data:{labels:['Tour Trekking','Cửa hàng'],datasets:[{data:[<?= json_encode((float)$tourRevenue) ?>,<?= json_encode((float)$shopRevenue) ?>],backgroundColor:['#16803d','#3b82f6'],borderWidth:2,borderColor:'#fff',hoverOffset:5}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+money(c.parsed)}}}}});}
+  }
+  if(select){select.addEventListener('change',function(){const u=new URL(location.href);u.searchParams.set('source',select.value);u.searchParams.delete('chart');if(select.value==='shop')u.searchParams.delete('tour_id');location.assign(u.toString());});}
+  window.rvSubmitRank=function(form){let inp=form.querySelector('input[name=rank_type]');if(!inp){inp=document.createElement('input');inp.type='hidden';inp.name='rank_type';form.appendChild(inp);}inp.value=<?= json_encode($rankType) ?>;form.submit();};
+  const period=document.getElementById('rvTxPeriod');
+  if(period){const update=()=>document.querySelectorAll('.rv-custom-date').forEach(e=>e.style.display=period.value==='custom'?'block':'none');period.addEventListener('change',update);update();}
 })();
 </script>
 
