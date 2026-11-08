@@ -48,7 +48,6 @@ $q=trim((string)($_GET['q']??''));
 $type=(string)($_GET['type']??'all');
 $replyFilter=(string)($_GET['reply']??'all');
 $visibility=(string)($_GET['visibility']??'all');
-$period=(string)($_GET['period']??'all');
 $from=(string)($_GET['from']??''); $to=(string)($_GET['to']??'');
 $rating=(int)($_GET['rating']??0);
 $page=max(1,(int)($_GET['page']??1)); $perPage=10;
@@ -61,12 +60,14 @@ if ($replyFilter==='no') $where[]="COALESCE(TRIM(r.admin_reply),'')=''";
 if ($visibility==='shown') $where[]='r.status=1';
 if ($visibility==='hidden') $where[]='r.status=0';
 if ($rating>=1 && $rating<=5) { $where[]='r.rating=?'; $params[]=$rating; }
-if ($period==='day') $where[]='DATE(r.created_at)=CURDATE()';
-if ($period==='week') $where[]='YEARWEEK(r.created_at,1)=YEARWEEK(CURDATE(),1)';
-if ($period==='month') $where[]='YEAR(r.created_at)=YEAR(CURDATE()) AND MONTH(r.created_at)=MONTH(CURDATE())';
-if ($period==='custom') {
-    if (preg_match('/^\d{4}-\d{2}-\d{2}$/',$from)) { $where[]='r.created_at >= ?'; $params[]=$from.' 00:00:00'; }
-    if (preg_match('/^\d{4}-\d{2}-\d{2}$/',$to)) { $where[]='r.created_at < DATE_ADD(?,INTERVAL 1 DAY)'; $params[]=$to; }
+// Ngày chọn bằng lịch: có thể lọc một ngày hoặc cả khoảng ngày.
+if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+    $where[]='r.created_at >= ?';
+    $params[]=$from.' 00:00:00';
+}
+if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+    $where[]='r.created_at < DATE_ADD(?, INTERVAL 1 DAY)';
+    $params[]=$to;
 }
 $sqlFrom=' FROM reviews r JOIN users u ON u.id=r.user_id LEFT JOIN tours t ON t.id=r.tour_id LEFT JOIN products p ON p.id=r.product_id WHERE '.implode(' AND ',$where);
 $cnt=$pdo->prepare('SELECT COUNT(*) '.$sqlFrom); $cnt->execute($params); $count=(int)$cnt->fetchColumn();
@@ -82,7 +83,7 @@ function rvPage(int $p,array $filters): string { $filters['page']=$p;return 'ind
 <link rel="stylesheet" href="../../assets/css/style.css"><link rel="stylesheet" href="../../assets/css/admin.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-.vnn-rev-content{font-family:inherit}.vnn-rev-card{background:#fff;border:1px solid #e2e8f0;border-radius:13px;padding:18px;margin-bottom:16px}.vnn-rev-filter{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end}.vnn-rev-filter label{font-size:12px;font-weight:700;color:#243b53;display:block;margin-bottom:5px}.vnn-rev-filter input,.vnn-rev-filter select{height:40px;width:100%;min-width:0;padding:0 10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;font-size:13px}.vnn-rev-buttons{display:flex;gap:8px;align-items:center;margin-top:13px}.vnn-btn{border:0;border-radius:8px;padding:9px 13px;font-weight:700;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none}.vnn-btn-green{background:#166534;color:white}.vnn-btn-gray{background:#e2e8f0;color:#26364c}.vnn-btn-blue{background:#eaf2ff;color:#1859b5}.vnn-btn-red{background:#fee2e2;color:#b91c1c}.vnn-rev-table{width:100%;border-collapse:collapse;font-size:12px}.vnn-rev-table th{background:#f8fafc;font-size:12px;white-space:nowrap}.vnn-rev-table th,.vnn-rev-table td{padding:11px 9px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}.vnn-rev-table td{overflow-wrap:anywhere}.vnn-rev-table .reply-box{background:#f0fdf4;border-left:3px solid #16a34a;border-radius:6px;padding:9px;margin-top:8px}.vnn-rev-table textarea{width:100%;min-height:65px;border:1px solid #cbd5e1;border-radius:7px;padding:9px;margin:8px 0 5px;font:inherit;resize:vertical}.vnn-rev-table .actions{display:flex;gap:5px;flex-wrap:wrap}.vnn-rev-status{padding:5px 8px;border-radius:20px;background:#dcfce7;color:#166534;display:inline-block;white-space:nowrap}.vnn-rev-pagination{display:flex;gap:7px;align-items:center;justify-content:flex-end;margin-top:15px;font-size:12px}.vnn-rev-pagination a,.vnn-rev-pagination strong{border:1px solid #cbd5e1;padding:7px 10px;border-radius:6px;text-decoration:none}.vnn-rev-pagination strong{background:#166534;color:white}.vnn-rev-alert{padding:10px 13px;background:#ecfdf5;color:#166534;border-radius:8px;margin-bottom:12px}@media(max-width:1150px){.vnn-rev-filter{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:640px){.vnn-rev-filter{grid-template-columns:1fr}.vnn-rev-card{padding:12px}.vnn-rev-table{min-width:930px}.vnn-rev-scroll{overflow-x:auto}}
+.vnn-rev-content{font-family:inherit}.vnn-rev-card{background:#fff;border:1px solid #e2e8f0;border-radius:13px;padding:18px;margin-bottom:16px}.vnn-rev-filter{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end}.vnn-rev-filter label{font-size:12px;font-weight:700;color:#243b53;display:block;margin-bottom:5px}.vnn-rev-filter input,.vnn-rev-filter select{height:40px;width:100%;min-width:0;padding:0 10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;font-size:13px}.rv-custom input[type=date]{color-scheme:light;cursor:pointer}.vnn-rev-buttons{display:flex;gap:8px;align-items:center;margin-top:13px}.vnn-btn{border:0;border-radius:8px;padding:9px 13px;font-weight:700;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none}.vnn-btn-green{background:#166534;color:white}.vnn-btn-gray{background:#e2e8f0;color:#26364c}.vnn-btn-blue{background:#eaf2ff;color:#1859b5}.vnn-btn-red{background:#fee2e2;color:#b91c1c}.vnn-rev-table{width:100%;border-collapse:collapse;font-size:12px}.vnn-rev-table th{background:#f8fafc;font-size:12px;white-space:nowrap}.vnn-rev-table th,.vnn-rev-table td{padding:11px 9px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}.vnn-rev-table td{overflow-wrap:anywhere}.vnn-rev-table .reply-box{background:#f0fdf4;border-left:3px solid #16a34a;border-radius:6px;padding:9px;margin-top:8px}.vnn-rev-table textarea{width:100%;min-height:65px;border:1px solid #cbd5e1;border-radius:7px;padding:9px;margin:8px 0 5px;font:inherit;resize:vertical}.vnn-rev-table .actions{display:flex;gap:5px;flex-wrap:wrap}.vnn-rev-status{padding:5px 8px;border-radius:20px;background:#dcfce7;color:#166534;display:inline-block;white-space:nowrap}.vnn-rev-pagination{display:flex;gap:7px;align-items:center;justify-content:flex-end;margin-top:15px;font-size:12px}.vnn-rev-pagination a,.vnn-rev-pagination strong{border:1px solid #cbd5e1;padding:7px 10px;border-radius:6px;text-decoration:none}.vnn-rev-pagination strong{background:#166534;color:white}.vnn-rev-alert{padding:10px 13px;background:#ecfdf5;color:#166534;border-radius:8px;margin-bottom:12px}@media(max-width:1150px){.vnn-rev-filter{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:640px){.vnn-rev-filter{grid-template-columns:1fr}.vnn-rev-card{padding:12px}.vnn-rev-table{min-width:930px}.vnn-rev-scroll{overflow-x:auto}}
 </style></head><body class="admin-body">
 <?php require __DIR__.'/../includes/sidebar.php'; ?>
 <main class="admin-main"><div class="admin-topbar"><strong>QUẢN LÝ ĐÁNH GIÁ TỪ KHÁCH HÀNG</strong></div><div class="admin-content vnn-rev-content">
@@ -91,11 +92,11 @@ function rvPage(int $p,array $filters): string { $filters['page']=$p;return 'ind
 <div><label>Tìm kiếm</label><input name="q" value="<?=rvh($q)?>" placeholder="Khách hàng, tour, sản phẩm, nội dung..."></div>
 <div><label>Mục đánh giá</label><select name="type"><option value="all">Tất cả</option><option value="tour" <?=$type==='tour'?'selected':''?>>Tour</option><option value="product" <?=$type==='product'?'selected':''?>>Sản phẩm</option></select></div>
 <div><label>Phản hồi</label><select name="reply"><option value="all">Tất cả phản hồi</option><option value="no" <?=$replyFilter==='no'?'selected':''?>>Chưa phản hồi</option><option value="yes" <?=$replyFilter==='yes'?'selected':''?>>Đã phản hồi</option></select></div>
-<div><label>Thời gian</label><select name="period" id="rvPeriod"><option value="all">Toàn bộ</option><option value="day" <?=$period==='day'?'selected':''?>>Hôm nay</option><option value="week" <?=$period==='week'?'selected':''?>>Tuần này</option><option value="month" <?=$period==='month'?'selected':''?>>Tháng này</option><option value="custom" <?=$period==='custom'?'selected':''?>>Chọn khoảng ngày</option></select></div>
+
 <div><label>Trạng thái hiển thị</label><select name="visibility"><option value="all">Tất cả</option><option value="shown" <?=$visibility==='shown'?'selected':''?>>Hiển thị</option><option value="hidden" <?=$visibility==='hidden'?'selected':''?>>Đang ẩn</option></select></div>
 <div><label>Số sao</label><select name="rating"><option value="0">Tất cả sao</option><?php for($i=5;$i>=1;$i--):?><option value="<?=$i?>" <?=$rating===$i?'selected':''?>><?=$i?> sao</option><?php endfor;?></select></div>
-<div class="rv-custom"><label>Từ ngày</label><input type="date" name="from" value="<?=rvh($from)?>"></div>
-<div class="rv-custom"><label>Đến ngày</label><input type="date" name="to" value="<?=rvh($to)?>"></div>
+<div class="rv-custom"><label><i class="fa-regular fa-calendar"></i> Từ ngày</label><input type="date" name="from" value="<?=rvh($from)?>" aria-label="Lọc đánh giá từ ngày"></div>
+<div class="rv-custom"><label><i class="fa-regular fa-calendar"></i> Đến ngày</label><input type="date" name="to" value="<?=rvh($to)?>" aria-label="Lọc đánh giá đến ngày"></div>
 </div><div class="vnn-rev-buttons"><button class="vnn-btn vnn-btn-green" type="submit"><i class="fa fa-filter"></i> Lọc / Tìm kiếm</button><a class="vnn-btn vnn-btn-gray" href="index.php">Xóa lọc</a><span style="margin-left:auto;font-size:12px;color:#64748b"><?=$count?> đánh giá</span></div></form></section>
 <section class="vnn-rev-card"><div class="vnn-rev-scroll"><table class="vnn-rev-table"><thead><tr><th>STT</th><th>Khách hàng</th><th>Mục đánh giá</th><th>Số sao</th><th>Nội dung & phản hồi</th><th>Ngày gửi</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
 <?php foreach($rows as $i=>$r): ?><tr><td><?=$offset+$i+1?></td><td><strong><?=rvh($r['fullname'])?></strong></td><td><?=!empty($r['tour_id'])?'Tour: '.rvh($r['tour_name']):'SP: '.rvh($r['product_name'])?></td><td style="color:#ea9a08;white-space:nowrap"><?=str_repeat('★',(int)$r['rating'])?></td>
@@ -108,4 +109,4 @@ function rvPage(int $p,array $filters): string { $filters['page']=$p;return 'ind
 <form method="post" onsubmit="return confirm('Xóa đánh giá này?')"><input type="hidden" name="csrf" value="<?=rvh($_SESSION['vnn_review_csrf'])?>"><input type="hidden" name="return_filters" value="<?=rvh($_SERVER['QUERY_STRING']??'')?>"><input type="hidden" name="id" value="<?=(int)$r['id']?>"><button name="action" value="delete" class="vnn-btn vnn-btn-red">Xóa</button></form></div></td></tr><?php endforeach; ?>
 <?php if(!$rows):?><tr><td colspan="8" style="text-align:center;padding:30px">Không có đánh giá phù hợp.</td></tr><?php endif; ?>
 </tbody></table></div><div class="vnn-rev-pagination"><span>Trang <?=$page?> / <?=$pages?></span><?php if($page>1):?><a href="<?=rvh(rvPage($page-1,$_GET))?>">Trước</a><?php endif; ?><?php for($i=max(1,$page-2);$i<=min($pages,$page+2);$i++):?><?php if($i===$page):?><strong><?=$i?></strong><?php else:?><a href="<?=rvh(rvPage($i,$_GET))?>"><?=$i?></a><?php endif;?><?php endfor;?><?php if($page<$pages):?><a href="<?=rvh(rvPage($page+1,$_GET))?>">Sau</a><?php endif;?></div></section>
-</div></main><script>const pr=document.getElementById('rvPeriod');const custom=document.querySelectorAll('.rv-custom');function rvDates(){custom.forEach(e=>e.style.display=pr.value==='custom'?'block':'none')}pr.addEventListener('change',rvDates);rvDates();</script></body></html>
+</div></main></body></html>
