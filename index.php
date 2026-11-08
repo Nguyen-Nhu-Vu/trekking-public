@@ -221,21 +221,20 @@ require_once __DIR__ . '/includes/header.php';
     .about-feature-cards {grid-template-columns:1fr}
 }
 
-/* Anh phong canh nui rung Sa Pa chup that, thay hoan toan hinh SVG vector cu. */
+/* Nen anh nui rung thuc te do nguoi dung cung cap; tai tu tep cuc bo. */
 .home-scenic {
     position: relative;
     isolation: isolate;
-    background-color: #e5ede5;
+    background-color: #e3eadd;
     background-image:
-        linear-gradient(to bottom,
-            rgba(248, 251, 249, .66) 0%,
-            rgba(248, 251, 249, .62) 38%,
-            rgba(248, 251, 249, .52) 72%,
-            rgba(248, 251, 249, .65) 100%),
-        url("https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3c/Forests_in_the_Ho%C3%A0ng_Li%C3%AAn_S%C6%A1n_mountains_2.jpg/1280px-Forests_in_the_Ho%C3%A0ng_Li%C3%AAn_S%C6%A1n_mountains_2.jpg");
+        linear-gradient(90deg,
+            rgba(250, 252, 248, .42) 0%,
+            rgba(250, 252, 248, .38) 45%,
+            rgba(250, 252, 248, .32) 100%),
+        url("assets/images/home-mountain-real.png");
     background-position: center, center center;
     background-size: cover, cover;
-    background-repeat: no-repeat;
+    background-repeat: no-repeat, no-repeat;
     background-attachment: scroll, fixed;
     padding-bottom: 2px;
 }
@@ -256,14 +255,6 @@ require_once __DIR__ . '/includes/header.php';
 .home-scenic .about-gl-grid > div:first-child {
     text-shadow: 0 1px 2px rgba(255,255,255,.68);
 }
-.home-photo-credit {
-    text-align: center;
-    padding: 8px 16px 16px;
-    font-size: 11px;
-    color: #334e48;
-    background: rgba(255,255,255,.42);
-}
-.home-photo-credit a { color: #245847; text-decoration: underline; }
 @media (max-width: 768px) {
     .home-scenic { background-attachment: scroll, scroll; background-position: center, center top; }
     .home-scenic .about-f-card { background: rgba(255,255,255,.97); }
@@ -635,9 +626,6 @@ require_once __DIR__ . '/includes/header.php';
 
 </section>
 
-<div class="home-photo-credit">
-    Ảnh Hoàng Liên Sơn: <a href="https://commons.wikimedia.org/wiki/File:Forests_in_the_Ho%C3%A0ng_Li%C3%AAn_S%C6%A1n_mountains_2.jpg" target="_blank" rel="noopener noreferrer">Christophe95 / Wikimedia Commons</a> · CC BY-SA 4.0 (ảnh được phủ lớp màu sáng).
-</div>
 
 </div><!-- /.home-scenic -->
 
