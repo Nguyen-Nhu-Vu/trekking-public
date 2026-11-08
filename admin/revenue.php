@@ -440,6 +440,40 @@ for ($i = 1; $i <= 12; $i++) {
     }
 }
 
+// =========================================
+// DU LIEU MINH HOA CHI DANH CHO BIEU DO NAM 2026
+// Khong ghi vao MySQL, khong cong vao KPI/bao cao/xep hang.
+// Chi chen o thang 1-9 khi thang do KHONG CO doanh thu that.
+// Khi chon mot Tour cu the se KHONG mo phong so lieu tour do.
+// =========================================
+$rvDemoEligible = $year === 2026 && $filterTour === 0;
+$rvDemoTour = [
+    1 => 6200000, 2 => 10500000, 3 => 8900000,
+    4 => 14700000, 5 => 18400000, 6 => 16500000,
+    7 => 23100000, 8 => 27800000, 9 => 31500000,
+];
+$rvDemoShop = [
+    1 => 1250000, 2 => 2300000, 3 => 3400000,
+    4 => 3900000, 5 => 5100000, 6 => 4750000,
+    7 => 6900000, 8 => 8300000, 9 => 10400000,
+];
+$rvChartTourWithDemo = $chartTour;
+$rvChartShopWithDemo = $chartShop;
+$rvDemoMonthsTour = array_fill(1, 12, false);
+$rvDemoMonthsShop = array_fill(1, 12, false);
+if ($rvDemoEligible) {
+    for ($rvMonth = 1; $rvMonth <= 9; $rvMonth++) {
+        if ($source !== 'shop' && $chartTour[$rvMonth] <= 0) {
+            $rvChartTourWithDemo[$rvMonth] = $rvDemoTour[$rvMonth];
+            $rvDemoMonthsTour[$rvMonth] = true;
+        }
+        if ($source !== 'tour' && $chartShop[$rvMonth] <= 0) {
+            $rvChartShopWithDemo[$rvMonth] = $rvDemoShop[$rvMonth];
+            $rvDemoMonthsShop[$rvMonth] = true;
+        }
+    }
+}
+
 // ============================================================
 // XEP HANG KINH DOANH
 // Giu du lieu giao dich noi bo de tong hop xep hang;
@@ -885,6 +919,12 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 @media(max-width:600px){.rv-donut-layout{grid-template-columns:1fr}.rv-donut-box{max-width:260px;width:100%;margin:auto}.rv-rank-form{align-items:stretch}}
 
 
+/* Du lieu demo chi ap dung cho duong bieu do, tach rieng giao dich thuc */
+.rv-demo-toggle-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 9px;font-size:11px;color:#40556e}
+.rv-demo-toggle-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;cursor:pointer}
+.rv-demo-toggle-label input{accent-color:#16803d;width:14px;height:14px;margin:0}
+.rv-demo-disclaimer{color:#64748b;font-size:10.5px}
+
 /* Bang doanh thu gon gang o muc thu phong 100%, khong anh huong bieu do/bo loc */
 .rv-compact-report { padding: 13px 15px 11px; margin-bottom: 14px; border-radius: 12px; }
 .rv-compact-report h2 { font-size: 15px; margin: 0 0 10px; line-height: 1.35; }
@@ -1083,6 +1123,15 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
                 </select>
             </div>
         </div>
+        <?php if ($rvDemoEligible): ?>
+        <div class="rv-demo-toggle-row">
+          <label class="rv-demo-toggle-label" for="rvDemoHistory">
+            <input type="checkbox" id="rvDemoHistory" checked>
+            <span>Hiện dữ liệu mô phỏng T1–T9/2026</span>
+          </label>
+          <span id="rvDemoDisclaimer" class="rv-demo-disclaimer">Chỉ minh họa trên biểu đồ · Không tính vào doanh thu thực</span>
+        </div>
+        <?php endif; ?>
         <div class="rv-chart-box"><canvas id="rvRevenueChart"></canvas></div>
       </section>
       <section class="rv-panel rv-chart-panel">
@@ -1382,15 +1431,36 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 (function(){
   const select=document.getElementById('rvChartSource');
   const labels=<?= json_encode($chartLabels,JSON_UNESCAPED_UNICODE) ?>;
-  const tour=<?= json_encode(array_values($chartTour),JSON_NUMERIC_CHECK) ?>;
-  const shop=<?= json_encode(array_values($chartShop),JSON_NUMERIC_CHECK) ?>;
+  const realTour=<?= json_encode(array_values($chartTour),JSON_NUMERIC_CHECK) ?>;
+  const realShop=<?= json_encode(array_values($chartShop),JSON_NUMERIC_CHECK) ?>;
+  const demoTour=<?= json_encode(array_values($rvChartTourWithDemo),JSON_NUMERIC_CHECK) ?>;
+  const demoShop=<?= json_encode(array_values($rvChartShopWithDemo),JSON_NUMERIC_CHECK) ?>;
+  const simulatedTour=<?= json_encode(array_values($rvDemoMonthsTour)) ?>;
+  const simulatedShop=<?= json_encode(array_values($rvDemoMonthsShop)) ?>;
+  const demoCheckbox=document.getElementById('rvDemoHistory');
+  const demoDisclaimer=document.getElementById('rvDemoDisclaimer');
   const money=v=>new Intl.NumberFormat('vi-VN').format(v)+' đ';
   if(typeof Chart!=='undefined'){
     const line=document.getElementById('rvRevenueChart');
-    if(line){new Chart(line,{type:'line',data:{labels,datasets:[
-      {label:'Tour Trekking',data:tour,borderColor:'#16803d',backgroundColor:'rgba(22,128,61,.13)',fill:true,tension:.3,pointRadius:3,borderWidth:2.5},
-      {label:'Cửa hàng',data:shop,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.12)',fill:true,tension:.3,pointRadius:3,borderWidth:2.5}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.parsed.y)}}},scales:{y:{beginAtZero:true,ticks:{callback:v=>new Intl.NumberFormat('vi-VN',{notation:'compact'}).format(v)}},x:{ticks:{maxTicksLimit:7}}}}});}
+    if(line){
+      const revenueLine=new Chart(line,{type:'line',data:{labels,datasets:[
+        {label:'Tour Trekking',data:demoCheckbox?demoTour:realTour,borderColor:'#16803d',backgroundColor:'rgba(22,128,61,.13)',fill:true,tension:.3,pointRadius:3,borderWidth:2.5},
+        {label:'Cửa hàng',data:demoCheckbox?demoShop:realShop,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.12)',fill:true,tension:.3,pointRadius:3,borderWidth:2.5}
+      ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>{
+        const isSim=!!demoCheckbox?.checked && (c.datasetIndex===0?simulatedTour[c.dataIndex]:simulatedShop[c.dataIndex]);
+        return c.dataset.label+': '+money(c.parsed.y)+(isSim?' (mô phỏng)':'');
+      }}}},scales:{y:{beginAtZero:true,ticks:{callback:v=>new Intl.NumberFormat('vi-VN',{notation:'compact'}).format(v)}},x:{ticks:{maxTicksLimit:7}}}}});
+      if(demoCheckbox){
+        demoCheckbox.addEventListener('change',function(){
+          revenueLine.data.datasets[0].data=this.checked?demoTour:realTour;
+          revenueLine.data.datasets[1].data=this.checked?demoShop:realShop;
+          if(demoDisclaimer) demoDisclaimer.textContent=this.checked
+            ? 'Chỉ minh họa trên biểu đồ · Không tính vào doanh thu thực'
+            : 'Đang hiển thị 100% dữ liệu thực tế';
+          revenueLine.update();
+        });
+      }
+    }
     const donut=document.getElementById('rvShareChart');
     if(donut){new Chart(donut,{type:'doughnut',data:{labels:['Tour Trekking','Cửa hàng'],datasets:[{data:[<?= json_encode((float)$tourRevenue) ?>,<?= json_encode((float)$shopRevenue) ?>],backgroundColor:['#16803d','#3b82f6'],borderWidth:2,borderColor:'#fff',hoverOffset:5}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+money(c.parsed)}}}}});}
   }
