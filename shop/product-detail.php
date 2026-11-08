@@ -1,4 +1,3 @@
-
 <?php
 // VNN Travel - Chi tiet san pham
 // shop/product-detail.php
@@ -842,6 +841,13 @@ require_once __DIR__ . '/../includes/header.php';
                     <p style="color:#475569;line-height:1.7">
                         <?= nl2br(pdh($review['comment'])) ?>
                     </p>
+
+                    <?php if (trim((string)($review['admin_reply'] ?? '')) !== ''): ?>
+                        <div style="margin:10px 0;padding:12px 14px;background:#f0fdf4;border-left:3px solid #16a34a;border-radius:8px">
+                            <strong style="color:#166534">Phản hồi từ VNN Travel</strong>
+                            <p style="margin:6px 0 0"><?= nl2br(pdh($review['admin_reply'])) ?></p>
+                        </div>
+                    <?php endif; ?>
 
                     <small style="color:#94a3b8">
                         <?= date(
