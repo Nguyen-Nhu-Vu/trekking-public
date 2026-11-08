@@ -91,7 +91,7 @@ if (!in_array($source, ['all', 'tour', 'shop'], true)) {
 }
 
 // Một bộ lọc duy nhất điều khiển cả thống kê, biểu đồ và bảng.
-$chartSource = $source;
+$effectiveSource = $source;
 
 $filterTour = filter_input(
     INPUT_GET,
@@ -100,6 +100,10 @@ $filterTour = filter_input(
 );
 
 $filterTour = $filterTour > 0 ? $filterTour : 0;
+// Khi chi dinh tour va nguon 'Tat ca', chi hien thi doanh thu tour do.
+// Neu dang xem Cua hang, bo qua tour_id de khong loc nham.
+if ($source === 'shop') $filterTour = 0;
+if ($filterTour > 0) $effectiveSource = 'tour';
 
 $startDate = sprintf('%04d-01-01 00:00:00', $year);
 $endDate = sprintf('%04d-01-01 00:00:00', $year + 1);
@@ -408,11 +412,11 @@ try {
 }
 
 // Số liệu tổng hợp phải khớp với nguồn doanh thu đang chọn.
-if ($source === 'tour') {
+if ($effectiveSource === 'tour') {
     $shopRevenue = 0;
     $chartShop = array_fill(1, 12, 0);
     $processingValue = $tourProcessingValue;
-} elseif ($source === 'shop') {
+} elseif ($effectiveSource === 'shop') {
     $tourRevenue = 0;
     $chartTour = array_fill(1, 12, 0);
     $processingValue = $shopProcessingValue;
@@ -431,9 +435,9 @@ $chartValues = [];
 for ($i = 1; $i <= 12; $i++) {
     $chartLabels[] = 'Tháng ' . $i;
 
-    if ($chartSource === 'tour') {
+    if ($effectiveSource === 'tour') {
         $chartValues[] = $chartTour[$i];
-    } elseif ($chartSource === 'shop') {
+    } elseif ($effectiveSource === 'shop') {
         $chartValues[] = $chartShop[$i];
     } else {
         $chartValues[] = $chartTour[$i] + $chartShop[$i];
@@ -441,9 +445,9 @@ for ($i = 1; $i <= 12; $i++) {
 }
 
 // ============================================================
-// XEP HANG KINH DOANH
-// Giu du lieu giao dich noi bo de tong hop xep hang;
-// KHONG hien thi bo loc giao dich hoac bang chi tiet giao dich.
+// XEP HANG KINH DOANH DOC LAP
+// Khong ap dung bo loc chung (nam/thang/nguon/tour).
+// Chi bi chi phoi boi rank_type, rank_by, rank_limit.
 // ============================================================
 $rankType = (string)($_GET['rank_type'] ?? 'tour');
 $rankBy = (string)($_GET['rank_by'] ?? 'revenue');
@@ -452,83 +456,92 @@ if (!in_array($rankType, ['tour','product','customer'], true)) $rankType = 'tour
 if (!in_array($rankBy, ['revenue','count','quantity'], true)) $rankBy = 'revenue';
 if (!in_array($rankLimit, [5,10], true)) $rankLimit = 5;
 
-$allTransactions = [];
-foreach ($tourBookings as $b) {
-    $status = (string)($b['status'] ?? '');
-    if ($status === 'Đã hủy') continue;
-    $paid = in_array($status, $paidTourStatuses, true);
-    $allTransactions[] = [
-        'type' => 'tour', 'id' => (int)($b['id'] ?? 0),
-        'code' => (string)($b['booking_code'] ?? ('Tour #'.($b['id'] ?? ''))),
-        'name' => (string)($b['report_tour_name'] ?? 'Tour'),
-        'customer' => (string)($b['fullname'] ?? 'Khách hàng'),
-        'customer_key' => !empty($b['user_id']) ? 'u'.$b['user_id'] : 'e'.strtolower(trim((string)($b['email'] ?? ''))),
-        'quantity' => max(1,(int)($b[$bookingPeopleColumn ?? 'number_people'] ?? 1)),
-        'amount' => (float)($b[$bookingTotalColumn ?? 'total_price'] ?? 0),
-        'date' => (string)($b['created_at'] ?? ''),
-        'status' => $status,'paid' => $paid,
-        'tour_id' => (int)($b['tour_id'] ?? 0)
-    ];
-}
-foreach ($orders as $o) {
-    $status = (string)($o['status'] ?? '');
-    if ($status === 'Đã hủy') continue;
-    $paid = in_array($status, $completedOrderStatuses, true);
-    $orderId = (int)($o['id'] ?? 0);
-    $names = array_column($orderProducts[$orderId] ?? [], 'name');
-    $quantities = array_column($orderProducts[$orderId] ?? [], 'quantity');
-    $allTransactions[] = [
-        'type' => 'shop', 'id' => $orderId,
-        'code' => (string)($o['order_code'] ?? ('Đơn #'.$orderId)),
-        'name' => $names ? implode(', ',array_unique($names)) : 'Đơn hàng #'.$orderId,
-        'customer' => (string)($o['fullname'] ?? 'Khách hàng'),
-        'customer_key' => !empty($o['user_id']) ? 'u'.$o['user_id'] : 'e'.strtolower(trim((string)($o['email'] ?? ''))),
-        'quantity' => array_sum(array_map('intval',$quantities)),
-        'amount' => (float)($o[$orderTotalColumn ?? 'total_amount'] ?? 0),
-        'date' => (string)($o['created_at'] ?? ''),
-        'status' => $status, 'paid' => $paid,
-        'tour_id' => 0
-    ];
-}
-// Xep hang theo bo loc bieu do cu (nam/thang/nguon/tour), khong tinh giao dich cho xu ly.
-$rankTours = []; $rankCustomers = []; $rankProducts = [];
-foreach ($allTransactions as $r) {
-    if (!$r['paid'] || ($source !== 'all' && $r['type'] !== $source)) continue;
-    if ($r['type'] === 'tour') {
-        $key = $r['tour_id'];
-        if (!isset($rankTours[$key])) $rankTours[$key] = ['name'=>$r['name'],'count'=>0,'quantity'=>0,'revenue'=>0];
-        $rankTours[$key]['count']++;
-        $rankTours[$key]['quantity'] += $r['quantity'];
-        $rankTours[$key]['revenue'] += $r['amount'];
-    }
-    $key = $r['customer_key'] ?: 'g'.$r['id'].$r['type'];
-    if (!isset($rankCustomers[$key])) $rankCustomers[$key] = ['name'=>$r['customer'],'count'=>0,'quantity'=>0,'revenue'=>0];
-    $rankCustomers[$key]['count']++;
-    $rankCustomers[$key]['quantity'] += $r['quantity'];
-    $rankCustomers[$key]['revenue'] += $r['amount'];
-}
-// Tong doanh thu san pham tinh theo dong order_details, khong nhan ban don hang.
+$rankTours = [];
+$rankCustomers = [];
+$rankProducts = [];
+
+// Tong hop toan bo booking hop le - khong filter theo ngay hay tour.
 try {
-    if ($source !== 'tour' && $quantityColumn && in_array('product_id',$detailCols,true)) {
-        $rankProductRows = rvRows($pdo, "SELECT d.product_id, COALESCE(p.name, CONCAT('Sản phẩm #', d.product_id)) AS name,
-            SUM(d.quantity) AS quantity, SUM(d.total) AS revenue, COUNT(DISTINCT d.order_id) AS order_count
-            FROM order_details d INNER JOIN orders o ON o.id = d.order_id
-            LEFT JOIN products p ON p.id = d.product_id
-            WHERE o.created_at >= ? AND o.created_at < ?
-            AND o.status IN ('Đã giao','Đã hoàn thành','Hoàn thành','completed','delivered')
-            GROUP BY d.product_id, p.name", [$startDate,$endDate]);
-        foreach ($rankProductRows as $r) $rankProducts[] = [
-            'name'=>$r['name'], 'count'=>(int)$r['order_count'],
-            'quantity'=>(int)$r['quantity'], 'revenue'=>(float)$r['revenue']
+    $allRankBookings = rvRows($pdo, "SELECT b.*, t.title AS report_tour_name
+        FROM tour_bookings b LEFT JOIN tours t ON t.id=b.tour_id
+        WHERE b.status IN ('Đã thanh toán','Đã hoàn thành')");
+    foreach ($allRankBookings as $b) {
+        $tourId = (int)($b['tour_id'] ?? 0);
+        $amount = $bookingTotalColumn ? (float)($b[$bookingTotalColumn] ?? 0) : 0;
+        $people = $bookingPeopleColumn ? max(1, (int)($b[$bookingPeopleColumn] ?? 1)) : 1;
+        if (!isset($rankTours[$tourId])) $rankTours[$tourId] = [
+            'name' => (string)($b['report_tour_name'] ?: 'Tour #'.$tourId),
+            'count' => 0, 'quantity' => 0, 'revenue' => 0
         ];
+        $rankTours[$tourId]['count']++;
+        $rankTours[$tourId]['quantity'] += $people;
+        $rankTours[$tourId]['revenue'] += $amount;
+        $key = !empty($b['user_id']) ? 'u'.$b['user_id'] :
+            (!empty($b['email']) ? 'e'.strtolower(trim((string)$b['email'])) : 'bt'.($b['id'] ?? ''));
+        if (!isset($rankCustomers[$key])) $rankCustomers[$key] = [
+            'name' => (string)($b['fullname'] ?? 'Khách hàng'),
+            'count' => 0, 'quantity' => 0, 'revenue' => 0
+        ];
+        $rankCustomers[$key]['count']++;
+        $rankCustomers[$key]['quantity'] += $people;
+        $rankCustomers[$key]['revenue'] += $amount;
     }
-} catch (Throwable $e) { error_log('Revenue ranking products: '.$e->getMessage()); }
-$rankData = $rankType === 'product' ? array_values($rankProducts) : ($rankType === 'customer' ? array_values($rankCustomers) : array_values($rankTours));
+} catch (Throwable $e) { error_log('Revenue independent rank tours: '.$e->getMessage()); }
+
+// Don hang da hoan thanh - khong filter theo ngay.
+try {
+    $allRankOrders = rvRows($pdo, "SELECT * FROM orders
+        WHERE status IN ('Đã giao','Đã hoàn thành','Hoàn thành','completed','delivered')");
+    foreach ($allRankOrders as $o) {
+        $amount = $orderTotalColumn ? (float)($o[$orderTotalColumn] ?? 0) : 0;
+        $key = !empty($o['user_id']) ? 'u'.$o['user_id'] :
+            (!empty($o['email']) ? 'e'.strtolower(trim((string)$o['email'])) : 'sh'.($o['id'] ?? ''));
+        if (!isset($rankCustomers[$key])) $rankCustomers[$key] = [
+            'name' => (string)($o['fullname'] ?? $o['customer_name'] ?? 'Khách hàng'),
+            'count' => 0, 'quantity' => 0, 'revenue' => 0
+        ];
+        $rankCustomers[$key]['count']++;
+        $rankCustomers[$key]['revenue'] += $amount;
+    }
+} catch (Throwable $e) { error_log('Revenue independent rank orders: '.$e->getMessage()); }
+
+// San pham duoc xep hang tu cac dong chi tiet (khong nhan ban doanh thu don).
+try {
+    if ($quantityColumn && in_array('product_id', $detailCols, true)) {
+        $rankProductRows = rvRows($pdo, "SELECT d.product_id,
+            COALESCE(p.name, CONCAT('Sản phẩm #', d.product_id)) AS name,
+            SUM(d.quantity) AS quantity, SUM(d.total) AS revenue,
+            COUNT(DISTINCT d.order_id) AS order_count
+            FROM order_details d
+            INNER JOIN orders o ON o.id=d.order_id
+            LEFT JOIN products p ON p.id=d.product_id
+            WHERE o.status IN ('Đã giao','Đã hoàn thành','Hoàn thành','completed','delivered')
+            GROUP BY d.product_id, p.name");
+        foreach ($rankProductRows as $r) $rankProducts[] = [
+            'name' => $r['name'], 'count' => (int)$r['order_count'],
+            'quantity' => (int)$r['quantity'], 'revenue' => (float)$r['revenue']
+        ];
+        // Tong so luong hang da mua cua khach, de xep hang so luong.
+        $rankCustomerQuantities = rvRows($pdo, "SELECT o.id, o.user_id, o.email,
+            SUM(d.quantity) AS quantity
+            FROM orders o INNER JOIN order_details d ON d.order_id=o.id
+            WHERE o.status IN ('Đã giao','Đã hoàn thành','Hoàn thành','completed','delivered')
+            GROUP BY o.id, o.user_id, o.email");
+        foreach ($rankCustomerQuantities as $r) {
+            $key = !empty($r['user_id']) ? 'u'.$r['user_id'] :
+                (!empty($r['email']) ? 'e'.strtolower(trim((string)$r['email'])) : 'sh'.($r['id'] ?? ''));
+            if (isset($rankCustomers[$key])) $rankCustomers[$key]['quantity'] += (int)$r['quantity'];
+        }
+    }
+} catch (Throwable $e) { error_log('Revenue independent rank products: '.$e->getMessage()); }
+
+$rankData = $rankType === 'product' ? array_values($rankProducts) :
+    ($rankType === 'customer' ? array_values($rankCustomers) : array_values($rankTours));
 if ($rankBy === 'quantity' && $rankType === 'customer') $rankBy = 'count';
-usort($rankData, static function($a,$b) use ($rankBy) {
+usort($rankData, static function ($a, $b) use ($rankBy) {
     return ($b[$rankBy] <=> $a[$rankBy]) ?: ($b['revenue'] <=> $a['revenue']);
 });
-$rankData = array_slice($rankData,0,$rankLimit);
+$rankData = array_slice($rankData, 0, $rankLimit);
 
 // Phan trang doc lap cho 2 bang doanh thu (10 dong/trang).
 $tourPage = max(1, (int)($_GET['tour_page'] ?? 1));
@@ -906,6 +919,18 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
   .rv-compact-report .rv-report-table th,
   .rv-compact-report .rv-report-table td { padding: 7px 7px; }
 }
+
+/* Bo loc chung, nho gon 100% */
+.rv-global-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.rv-global-head h2{font-size:15px;margin:0}
+.rv-global-head span{font-size:11px;color:#64748b}
+.rv-global-filter{padding:14px 18px;margin-bottom:15px;border-radius:12px}
+.rv-global-filter .rv-filters{gap:10px}
+.rv-global-filter .rv-field label{margin-bottom:5px;font-size:11px}
+.rv-global-filter .rv-field select{height:39px;font-size:12px}
+.rv-global-filter .rv-submit,.rv-reset{height:39px;padding:0 15px;border-radius:8px;font-size:12px;display:inline-flex;align-items:center;gap:7px;justify-content:center;text-decoration:none}
+.rv-reset{background:#e2e8f0;color:#213047;font-weight:800}
+@media(max-width:700px){.rv-global-head span{font-size:10px}}
 </style>
 </head>
 
@@ -932,9 +957,16 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
     <!-- BO LOC -->
 
-    <section class="rv-panel">
+    <section class="rv-panel rv-global-filter">
 
-        <form method="GET" class="rv-filters">
+        <div class="rv-global-head">
+            <h2><i class="fa-solid fa-filter"></i> Bộ lọc báo cáo</h2>
+            <span>Áp dụng cho toàn bộ thống kê, biểu đồ và hai bảng doanh thu bên dưới.</span>
+        </div>
+        <form method="GET" class="rv-filters" id="rvGlobalFilter">
+            <input type="hidden" name="rank_type" value="<?= rvH($rankType) ?>">
+            <input type="hidden" name="rank_by" value="<?= rvH($rankBy) ?>">
+            <input type="hidden" name="rank_limit" value="<?= (int)$rankLimit ?>">
 
             <div class="rv-field">
                 <label>Năm</label>
@@ -1013,8 +1045,9 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
             <button class="rv-submit" type="submit">
                 <i class="fa-solid fa-filter"></i>
-                Lọc dữ liệu
+                Lọc tất cả
             </button>
+            <a class="rv-reset" href="?rank_type=<?= rvH($rankType) ?>&amp;rank_by=<?= rvH($rankBy) ?>&amp;rank_limit=<?= (int)$rankLimit ?>"><i class="fa-solid fa-rotate-left"></i> Xóa lọc</a>
 
         </form>
     </section>
@@ -1069,19 +1102,12 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
     </section>
 
-    <!-- HAI BIEU DO - GIU NGUYEN BO LOC CU -->
+    <!-- HAI BIEU DO - NHAN DU LIEU TU BO LOC CHUNG -->
     <div class="rv-chart-grid">
       <section class="rv-panel rv-chart-panel">
         <div class="rv-chart-head">
             <h2><i class="fa-solid fa-chart-line"></i> Xu hướng doanh thu <?= (int)$year ?></h2>
-            <div class="rv-chart-controls">
-                <label for="rvChartSource">Hiển thị biểu đồ</label>
-                <select id="rvChartSource">
-                    <option value="all" <?= $chartSource === 'all' ? 'selected' : '' ?>>Tất cả</option>
-                    <option value="tour" <?= $chartSource === 'tour' ? 'selected' : '' ?>>Doanh thu Tour</option>
-                    <option value="shop" <?= $chartSource === 'shop' ? 'selected' : '' ?>>Doanh thu Bán Hàng</option>
-                </select>
-            </div>
+
         </div>
         <div class="rv-chart-box"><canvas id="rvRevenueChart"></canvas></div>
       </section>
@@ -1099,7 +1125,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
     <!-- DOANH THU TOUR -->
 
-    <?php if ($source !== 'shop'): ?>
+    <?php if ($effectiveSource !== 'shop'): ?>
 
         <section class="rv-panel rv-compact-report" id="rvTourTable">
 
@@ -1168,7 +1194,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
     <!-- DOANH THU DON HANG -->
 
-    <?php if ($source !== 'tour'): ?>
+    <?php if ($effectiveSource !== 'tour'): ?>
 
         <section class="rv-panel rv-compact-report" id="rvShopTable">
 
@@ -1345,7 +1371,7 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
     <!-- XEP HANG KINH DOANH - SAU CAC BANG DOANH THU -->
     <section class="rv-panel">
       <div class="rv-section-row"><h2><i class="fa-solid fa-trophy"></i> Xếp hạng kinh doanh</h2>
-        <span class="rv-muted">Theo kỳ và nguồn doanh thu đã chọn ở bộ lọc biểu đồ</span></div>
+        <span class="rv-muted">Xếp hạng toàn thời gian · độc lập với bộ lọc trên cùng</span></div>
       <form method="get" class="rv-rank-form">
         <input type="hidden" name="year" value="<?= (int)$year ?>"><input type="hidden" name="month" value="<?= (int)$month ?>">
         <input type="hidden" name="source" value="<?= rvH($source) ?>"><input type="hidden" name="tour_id" value="<?= (int)$filterTour ?>">
@@ -1380,7 +1406,6 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
 
 <script>
 (function(){
-  const select=document.getElementById('rvChartSource');
   const labels=<?= json_encode($chartLabels,JSON_UNESCAPED_UNICODE) ?>;
   const tour=<?= json_encode(array_values($chartTour),JSON_NUMERIC_CHECK) ?>;
   const shop=<?= json_encode(array_values($chartShop),JSON_NUMERIC_CHECK) ?>;
@@ -1394,7 +1419,6 @@ $revenuePageUrl = static function (string $pageKey, int $page) {
     const donut=document.getElementById('rvShareChart');
     if(donut){new Chart(donut,{type:'doughnut',data:{labels:['Tour Trekking','Cửa hàng'],datasets:[{data:[<?= json_encode((float)$tourRevenue) ?>,<?= json_encode((float)$shopRevenue) ?>],backgroundColor:['#16803d','#3b82f6'],borderWidth:2,borderColor:'#fff',hoverOffset:5}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+money(c.parsed)}}}}});}
   }
-  if(select){select.addEventListener('change',function(){const u=new URL(location.href);u.searchParams.set('source',select.value);u.searchParams.delete('chart');if(select.value==='shop')u.searchParams.delete('tour_id');location.assign(u.toString());});}
   window.rvSubmitRank=function(form){let inp=form.querySelector('input[name=rank_type]');if(!inp){inp=document.createElement('input');inp.type='hidden';inp.name='rank_type';form.appendChild(inp);}inp.value=<?= json_encode($rankType) ?>;form.submit();};
 })();
 </script>
