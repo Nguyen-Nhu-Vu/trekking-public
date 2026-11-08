@@ -22,12 +22,6 @@ $links = [
         'icon' => 'fa-clock-rotate-left',
         'url' => $base.'admin/system.php?tab=logins'
     ],
-    [
-        'title' => 'Lịch sử chỉnh sửa',
-        'detail' => 'Kiểm tra những thay đổi đã được ghi lại trong hệ thống.',
-        'icon' => 'fa-file-pen',
-        'url' => $base.'admin/system.php?tab=edits'
-    ],
 ];
 ?>
 <!DOCTYPE html>
@@ -139,7 +133,7 @@ $links = [
 }
 .vnn-admindash-grid {
     display: grid;
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns: repeat(2,minmax(0,1fr));
     gap: 15px;
 }
 .vnn-admindash-card {
@@ -226,7 +220,7 @@ $links = [
 
         <p>
             Quản lý tài khoản, phân quyền và theo dõi
-            lịch sử hoạt động của VNN Travel.
+            lịch sử đăng nhập của VNN Travel.
         </p>
     </section>
 
