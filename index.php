@@ -23,14 +23,6 @@ $featured_products = $pdo->query("
     LIMIT 4
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-$featured_leaders = $pdo->query("
-    SELECT id, fullname, nickname, image, hometown, experience_years, biography
-    FROM trekking_leaders
-    WHERE status = 1
-    ORDER BY experience_years DESC, id DESC
-    LIMIT 4
-")->fetchAll(PDO::FETCH_ASSOC);
-
 function home_h($v) {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
@@ -221,23 +213,6 @@ require_once __DIR__ . '/includes/header.php';
     font-size:1.15rem;
     font-weight:800;
 }
-
-/* Doi ngu huong dan vien o trang chu */
-.home-leaders-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px}
-.home-leader-card {background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,.06);transition:transform .25s ease,box-shadow .25s ease}
-.home-leader-card:hover {transform:translateY(-5px);box-shadow:0 10px 24px rgba(0,0,0,.1)}
-.home-leader-photo {position:relative;height:265px;overflow:hidden;background:#f1f5f9}
-.home-leader-photo img {display:block;width:100%;height:100%;object-fit:cover}
-.home-leader-years {position:absolute;right:12px;top:13px;border-radius:25px;background:#166534;color:#fff;padding:8px 12px;font-weight:800;font-size:.8rem}
-.home-leader-content {padding:18px}
-.home-leader-content h3 {font-size:1.12rem;margin:0 0 7px;color:#102345}
-.home-leader-content a {color:inherit;text-decoration:none}
-.home-leader-content a:hover {color:#ea580c}
-.home-leader-place {color:#64748b;font-size:.84rem;margin-bottom:10px}
-.home-leader-bio {font-size:.86rem;line-height:1.65;color:#475569;margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-@media(max-width:992px){.home-leaders-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:600px){.home-leaders-grid{grid-template-columns:1fr}}
-
 @media(max-width:992px) {
     .about-gl-grid {grid-template-columns:1fr}
 }
@@ -245,6 +220,42 @@ require_once __DIR__ . '/includes/header.php';
     .about-gl-title {font-size:2rem}
     .about-feature-cards {grid-template-columns:1fr}
 }
+
+/* VNN Travel: nen nui rung nhe cho rieng trang chu */
+.home-scenic {
+    position: relative;
+    isolation: isolate;
+    background-color: #dcebe4;
+    background-image:
+      linear-gradient(90deg, rgba(242,250,246,.20) 0%, rgba(242,250,246,.08) 50%, rgba(242,250,246,.20) 100%),
+      url('<?= htmlspecialchars(rtrim(BASE_URL, '/') . '/assets/images/home-mountain-bg.svg', ENT_QUOTES, 'UTF-8') ?>');
+    background-position: center top;
+    background-repeat: no-repeat;
+    background-size: cover;
+    padding-bottom: 2px;
+}
+.home-scenic .about-gl-section {
+    background: transparent;
+}
+.home-scenic .about-f-card {
+    background: rgba(255,255,255,.91);
+    border: 1px solid rgba(207,224,233,.82);
+    box-shadow: 0 7px 22px rgba(45,86,106,.085);
+}
+.home-scenic .tour-card,
+.home-scenic .home-prod-card {
+    background: rgba(255,255,255,.97);
+    box-shadow: 0 8px 22px rgba(25,67,87,.10);
+}
+.home-scenic .section-header,
+.home-scenic .about-gl-grid > div:first-child {
+    text-shadow: 0 1px 7px rgba(255,255,255,.50);
+}
+@media (max-width: 768px) {
+    .home-scenic { background-position: center top; }
+    .home-scenic .about-f-card { background: rgba(255,255,255,.96); }
+}
+
 </style>
 
 <!-- BANNER TRANG CHU -->
@@ -265,6 +276,7 @@ require_once __DIR__ . '/includes/header.php';
     </div>
 </section>
 
+<div class="home-scenic">
 <!-- VE CHUNG TOI -->
 <section class="about-gl-section">
     <div class="container">
@@ -524,53 +536,6 @@ require_once __DIR__ . '/includes/header.php';
 
 </section>
 
-<!-- DOI NGU HUONG DAN VIEN -->
-<section class="container section" style="padding-top:0">
-    <div class="section-header">
-        <span class="section-subtitle">VNN TRAVEL TEAM</span>
-        <h2 class="section-title">Đội Ngũ Hướng Dẫn Viên Trekking</h2>
-    </div>
-
-    <div class="home-leaders-grid">
-        <?php foreach ($featured_leaders as $leader): ?>
-            <?php
-                $photo = trim((string)($leader['image'] ?? ''));
-                if ($photo === '') {
-                    $photo = 'https://api.dicebear.com/9.x/adventurer/svg?seed=' . rawurlencode('VNN-Trekking-Leader-' . (int)$leader['id']);
-                }
-                $leaderUrl = BASE_URL . 'pages/leader-detail.php?id=' . (int)$leader['id'];
-                $bio = trim((string)($leader['biography'] ?? ''));
-            ?>
-            <article class="home-leader-card">
-                <a href="<?= home_h($leaderUrl) ?>" aria-label="Xem thông tin <?= home_h($leader['fullname']) ?>">
-                    <div class="home-leader-photo">
-                        <img src="<?= home_h($photo) ?>" alt="<?= home_h($leader['fullname']) ?>" loading="lazy">
-                        <?php if ((int)$leader['experience_years'] > 0): ?>
-                            <span class="home-leader-years"><i class="fa-solid fa-mountain"></i> <?= (int)$leader['experience_years'] ?> năm</span>
-                        <?php endif; ?>
-                    </div>
-                </a>
-                <div class="home-leader-content">
-                    <h3><a href="<?= home_h($leaderUrl) ?>"><?= home_h($leader['fullname']) ?></a></h3>
-                    <?php if (trim((string)($leader['hometown'] ?? '')) !== ''): ?>
-                        <div class="home-leader-place"><i class="fa-solid fa-location-dot"></i> <?= home_h($leader['hometown']) ?></div>
-                    <?php endif; ?>
-                    <p class="home-leader-bio"><?= home_h($bio !== '' ? $bio : 'Đồng hành cùng bạn trên những hành trình khám phá núi rừng.') ?></p>
-                </div>
-            </article>
-        <?php endforeach; ?>
-        <?php if (!$featured_leaders): ?>
-            <p style="grid-column:1/-1;text-align:center;color:#64748b">Chưa có hướng dẫn viên nào đang hoạt động.</p>
-        <?php endif; ?>
-    </div>
-
-    <div style="text-align:center;margin-top:35px">
-        <a href="<?= BASE_URL ?>pages/leaders.php" class="btn btn-outline" style="padding:12px 35px;border-radius:30px;font-weight:bold">
-            Xem tất cả hướng dẫn viên &rarr;
-        </a>
-    </div>
-</section>
-
 <!-- SAN PHAM BAN CHAY -->
 <section class="container section" style="padding-top:0">
 
@@ -646,12 +611,18 @@ require_once __DIR__ . '/includes/header.php';
     </div>
 
     <div style="text-align:center;margin-top:35px">
-        <a href="<?= BASE_URL ?>shop/shop.php" class="btn btn-outline" style="padding:12px 35px;border-radius:30px;font-weight:bold">
+        <a
+            href="<?= BASE_URL ?>shop/shop.php"
+            class="btn btn-outline"
+            style="padding:12px 35px;border-radius:30px;font-weight:bold;"
+        >
             Xem tất cả các sản phẩm &rarr;
         </a>
     </div>
 
 </section>
+
+</div><!-- /.home-scenic -->
 
 <?php
 require_once __DIR__ . '/includes/footer.php';
