@@ -596,6 +596,30 @@ usort($rankData, static function($a,$b) use ($rankBy) {
     return ($b[$rankBy] <=> $a[$rankBy]) ?: ($b['revenue'] <=> $a['revenue']);
 });
 $rankData = array_slice($rankData,0,$rankLimit);
+
+// Phan trang doc lap cho 2 bang doanh thu (10 dong/trang).
+$tourPage = max(1, (int)($_GET['tour_page'] ?? 1));
+$shopPage = max(1, (int)($_GET['shop_page'] ?? 1));
+$pageSize = 10;
+
+$tourReportRows = array_values($tourReport);
+$tourPageCount = max(1, (int)ceil(count($tourReportRows) / $pageSize));
+$tourPage = min($tourPage, $tourPageCount);
+$tourReportPage = array_slice($tourReportRows, ($tourPage - 1) * $pageSize, $pageSize);
+
+$completedOrders = array_values(array_filter($orders, static function ($order) use ($completedOrderStatuses) {
+    return in_array((string)($order['status'] ?? ''), $completedOrderStatuses, true);
+}));
+$shopPageCount = max(1, (int)ceil(count($completedOrders) / $pageSize));
+$shopPage = min($shopPage, $shopPageCount);
+$ordersPage = array_slice($completedOrders, ($shopPage - 1) * $pageSize, $pageSize);
+
+// Giữ nguyên tất cả tham số lọc biểu đồ và xếp hạng khi chuyển trang.
+$revenuePageUrl = static function (string $pageKey, int $page) {
+    $query = $_GET;
+    $query[$pageKey] = $page;
+    return '?' . http_build_query($query);
+};
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -898,6 +922,10 @@ $rankData = array_slice($rankData,0,$rankLimit);
 .rv-chart-grid .rv-chart-box{height:290px}
 .rv-donut-layout{display:grid;grid-template-columns:minmax(140px,1fr) minmax(150px,1fr);gap:16px;align-items:center;min-height:290px}
 .rv-donut-box{height:230px;position:relative;min-width:0}
+.rv-donut-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px;pointer-events:none;text-align:center;padding:0 21%;color:#122544}
+.rv-donut-center span{font-size:11px;font-weight:800;white-space:nowrap}
+.rv-donut-center strong{font-size:clamp(12px,1.15vw,18px);font-weight:900;color:#166534;overflow-wrap:anywhere;line-height:1.3}
+#rvTourTable,#rvShopTable{scroll-margin-top:18px}
 .rv-donut-text{display:flex;flex-direction:column;gap:10px;font-size:13px;color:#475569;min-width:0}
 .rv-donut-text>strong{color:#122544}.rv-donut-text>b{font-size:19px;color:#166534;overflow-wrap:anywhere}
 .rv-donut-text>div{border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.7}
@@ -1113,9 +1141,8 @@ $rankData = array_slice($rankData,0,$rankLimit);
       <section class="rv-panel rv-chart-panel">
         <div class="rv-chart-head"><h2><i class="fa-solid fa-chart-pie"></i> Cơ cấu doanh thu</h2></div>
         <div class="rv-donut-layout">
-          <div class="rv-donut-box"><canvas id="rvShareChart"></canvas></div>
+          <div class="rv-donut-box"><canvas id="rvShareChart"></canvas><div class="rv-donut-center"><span>Tổng doanh thu</span><strong><?= rvH(rvMoney($totalRevenue)) ?></strong></div></div>
           <div class="rv-donut-text">
-             <strong>Tổng doanh thu</strong><b><?= rvH(rvMoney($totalRevenue)) ?></b>
              <div><span class="rv-dot" style="background:#16803d"></span> Tour Trekking <b><?= rvH(rvMoney($tourRevenue)) ?></b></div>
              <div><span class="rv-dot" style="background:#3b82f6"></span> Cửa hàng <b><?= rvH(rvMoney($shopRevenue)) ?></b></div>
           </div>
@@ -1123,101 +1150,11 @@ $rankData = array_slice($rankData,0,$rankLimit);
       </section>
     </div>
 
-    <!-- LOC BANG GIAO DICH: KHONG TAC DONG DEN BIEU DO -->
-    <section class="rv-panel rv-tx-panel">
-      <div class="rv-section-row"><h2><i class="fa-solid fa-filter"></i> Bộ lọc giao dịch</h2><span class="rv-muted">Bộ lọc này chỉ áp dụng cho bảng bên dưới</span></div>
-      <form method="get" class="rv-tx-form">
-        <input type="hidden" name="year" value="<?= (int)$year ?>">
-        <input type="hidden" name="month" value="<?= (int)$month ?>">
-        <input type="hidden" name="source" value="<?= rvH($source) ?>">
-        <input type="hidden" name="tour_id" value="<?= (int)$filterTour ?>">
-        <div class="rv-tx-search rv-field"><label>Tìm kiếm</label><input name="tx_q" value="<?= rvH($txSearch) ?>" placeholder="Tên tour, sản phẩm, mã đơn..." maxlength="120"></div>
-        <div class="rv-field"><label>Loại giao dịch</label><select name="tx_type">
-          <option value="all" <?= $txType==='all'?'selected':'' ?>>Tất cả</option>
-          <option value="tour" <?= $txType==='tour'?'selected':'' ?>>Tour Trekking</option>
-          <option value="shop" <?= $txType==='shop'?'selected':'' ?>>Cửa hàng</option></select></div>
-        <div class="rv-field"><label>Khoảng thời gian</label><select name="tx_period" id="rvTxPeriod">
-          <?php foreach (['all'=>'Theo kỳ biểu đồ','today'=>'Hôm nay','7'=>'7 ngày gần nhất','30'=>'30 ngày gần nhất','month'=>'Tháng này','year'=>'Năm nay','custom'=>'Tùy chọn ngày'] as $v=>$name): ?>
-             <option value="<?= rvH($v) ?>" <?= $txPeriod===$v?'selected':'' ?>><?= rvH($name) ?></option>
-          <?php endforeach; ?></select></div>
-        <div class="rv-field rv-custom-date"><label>Từ ngày</label><input type="date" name="tx_from" value="<?= rvH($txFrom) ?>"></div>
-        <div class="rv-field rv-custom-date"><label>Đến ngày</label><input type="date" name="tx_to" value="<?= rvH($txTo) ?>"></div>
-        <div class="rv-field"><label>Trạng thái</label><select name="tx_status">
-          <option value="paid" <?= $txStatus==='paid'?'selected':'' ?>>Đã hoàn thành / thanh toán</option>
-          <option value="pending" <?= $txStatus==='pending'?'selected':'' ?>>Đang xử lý</option>
-          <option value="all" <?= $txStatus==='all'?'selected':'' ?>>Tất cả (trừ đã hủy)</option></select></div>
-        <div class="rv-field"><label>Khoảng giá trị</label><select name="tx_amount">
-          <?php foreach (['all'=>'Tất cả mức tiền','under1'=>'Dưới 1 triệu','1to5'=>'1–5 triệu','5to20'=>'5–20 triệu','over20'=>'Từ 20 triệu'] as $v=>$name): ?>
-             <option value="<?= rvH($v) ?>" <?= $txAmount===$v?'selected':'' ?>><?= rvH($name) ?></option>
-          <?php endforeach; ?></select></div>
-        <div class="rv-field"><label>Sắp xếp</label><select name="tx_sort">
-          <?php foreach (['new'=>'Mới nhất','old'=>'Cũ nhất','high'=>'Giá trị cao nhất','low'=>'Giá trị thấp nhất'] as $v=>$name): ?>
-             <option value="<?= rvH($v) ?>" <?= $txSort===$v?'selected':'' ?>><?= rvH($name) ?></option>
-          <?php endforeach; ?></select></div>
-        <div class="rv-tx-actions"><button class="rv-submit" type="submit"><i class="fa-solid fa-filter"></i> Lọc</button>
-          <a class="rv-clear" href="?<?= rvH(http_build_query(['year'=>$year,'month'=>$month,'source'=>$source,'tour_id'=>$filterTour])) ?>">Xóa lọc</a></div>
-      </form>
-    </section>
-    <section class="rv-panel">
-      <div class="rv-section-row"><h2><i class="fa-solid fa-list"></i> Bảng chi tiết giao dịch</h2><span class="rv-muted"><?= (int)$txCount ?> kết quả · 10 dòng/trang</span></div>
-      <div class="rv-table-wrap"><table class="rv-table rv-transaction-table">
-        <thead><tr><th>STT</th><th>Mã giao dịch</th><th>Loại</th><th>Tour / Sản phẩm</th><th>Khách hàng</th><th>SL</th><th>Giá trị</th><th>Trạng thái</th><th>Ngày tạo</th></tr></thead>
-        <tbody>
-        <?php foreach ($txPageRows as $i=>$r): ?>
-          <tr><td><?= ($txPage-1)*10+$i+1 ?></td><td><strong><?= rvH($r['code']) ?></strong></td>
-          <td><?= $r['type']==='tour'?'Tour':'Cửa hàng' ?></td><td><?= rvH($r['name']) ?></td><td><?= rvH($r['customer']) ?></td>
-          <td><?= (int)$r['quantity'] ?></td><td class="rv-money"><?= rvH(rvMoney($r['amount'])) ?></td>
-          <td><span class="rv-pill <?= $r['paid']?'rv-pill-paid':'rv-pill-pending' ?>"><?= rvH($r['status']) ?></span></td>
-          <td><?= rvH(rvDate($r['date'])) ?></td></tr>
-        <?php endforeach; ?>
-        <?php if (!$txPageRows): ?><tr><td colspan="9" class="rv-empty">Không tìm thấy giao dịch phù hợp.</td></tr><?php endif; ?>
-        </tbody></table></div>
-      <div class="rv-pagination"><span>Trang <?= (int)$txPage ?> / <?= (int)$txPageCount ?></span><div>
-        <?php if ($txPage > 1): ?><a href="<?= rvH($txPageUrl($txPage-1)) ?>">‹ Trước</a><?php endif; ?>
-        <?php for ($i=max(1,$txPage-2);$i<=min($txPageCount,$txPage+2);$i++): ?>
-          <a class="<?= $i===$txPage?'active':'' ?>" href="<?= rvH($txPageUrl($i)) ?>"><?= $i ?></a>
-        <?php endfor; ?>
-        <?php if ($txPage < $txPageCount): ?><a href="<?= rvH($txPageUrl($txPage+1)) ?>">Sau ›</a><?php endif; ?></div></div>
-    </section>
-    <section class="rv-panel">
-      <div class="rv-section-row"><h2><i class="fa-solid fa-trophy"></i> Xếp hạng kinh doanh</h2>
-        <span class="rv-muted">Theo kỳ và nguồn doanh thu đã chọn ở bộ lọc biểu đồ</span></div>
-      <form method="get" class="rv-rank-form">
-        <input type="hidden" name="year" value="<?= (int)$year ?>"><input type="hidden" name="month" value="<?= (int)$month ?>">
-        <input type="hidden" name="source" value="<?= rvH($source) ?>"><input type="hidden" name="tour_id" value="<?= (int)$filterTour ?>">
-        <?php foreach (['tx_q'=>$txSearch,'tx_type'=>$txType,'tx_period'=>$txPeriod,'tx_from'=>$txFrom,'tx_to'=>$txTo,'tx_status'=>$txStatus,'tx_amount'=>$txAmount,'tx_sort'=>$txSort] as $k=>$v): ?>
-          <input type="hidden" name="<?= rvH($k) ?>" value="<?= rvH($v) ?>">
-        <?php endforeach; ?>
-        <div class="rv-rank-tabs">
-          <?php foreach (['tour'=>'Tour Trekking','product'=>'Sản phẩm','customer'=>'Khách hàng'] as $k=>$label): ?>
-            <button type="submit" name="rank_type" value="<?= $k ?>" class="<?= $rankType===$k?'active':'' ?>"><?= rvH($label) ?></button>
-          <?php endforeach; ?>
-        </div>
-        <div class="rv-rank-options">
-          <label>Tiêu chí <select name="rank_by" onchange="rvSubmitRank(this.form)">
-            <option value="revenue" <?= $rankBy==='revenue'?'selected':'' ?>>Doanh thu cao nhất</option>
-            <option value="count" <?= $rankBy==='count'?'selected':'' ?>>Số lượt giao dịch</option>
-            <option value="quantity" <?= $rankBy==='quantity'?'selected':'' ?>>Số lượng khách / sản phẩm</option>
-          </select></label><label>Top <select name="rank_limit" onchange="rvSubmitRank(this.form)">
-            <option value="5" <?= $rankLimit===5?'selected':'' ?>>5</option><option value="10" <?= $rankLimit===10?'selected':'' ?>>10</option>
-          </select></label>
-        </div>
-      </form>
-      <div class="rv-table-wrap"><table class="rv-table rv-ranking-table"><thead><tr>
-        <th>Hạng</th><th><?= $rankType==='tour'?'Tên tour':($rankType==='product'?'Tên sản phẩm':'Khách hàng') ?></th>
-        <th><?= $rankType==='tour'?'Lượt đặt':'Lượt mua' ?></th><th><?= $rankType==='tour'?'Số khách':($rankType==='product'?'Số lượng bán':'Số lượng') ?></th><th>Doanh thu</th></tr></thead><tbody>
-        <?php foreach ($rankData as $i=>$r): ?><tr><td><?= $i < 3 ? ['🥇','🥈','🥉'][$i] : $i+1 ?></td>
-          <td><strong><?= rvH($r['name']) ?></strong></td><td><?= (int)$r['count'] ?></td>
-          <td><?= (int)$r['quantity'] ?></td><td class="rv-money"><?= rvH(rvMoney($r['revenue'])) ?></td></tr><?php endforeach; ?>
-        <?php if (!$rankData): ?><tr><td colspan="5" class="rv-empty">Chưa có dữ liệu xếp hạng phù hợp.</td></tr><?php endif; ?>
-      </tbody></table></div>
-    </section>
-
     <!-- DOANH THU TOUR -->
 
     <?php if ($source !== 'shop'): ?>
 
-        <section class="rv-panel">
+        <section class="rv-panel" id="rvTourTable">
 
             <h2>
                 <i class="fa-solid fa-person-hiking"></i>
@@ -1237,7 +1174,7 @@ $rankData = array_slice($rankData,0,$rankLimit);
                     </thead>
 
                     <tbody>
-                    <?php foreach ($tourReport as $tour): ?>
+                    <?php foreach ($tourReportPage as $tour): ?>
                         <tr>
                             <td><?= rvH($tour['name']) ?></td>
 
@@ -1255,7 +1192,7 @@ $rankData = array_slice($rankData,0,$rankLimit);
                         </tr>
                     <?php endforeach; ?>
 
-                    <?php if (!$tourReport): ?>
+                    <?php if (!$tourReportRows): ?>
                         <tr>
                             <td colspan="4" class="rv-empty">
                                 Chưa có doanh thu tour hoàn thành.
@@ -1266,7 +1203,16 @@ $rankData = array_slice($rankData,0,$rankLimit);
 
                 </table>
             </div>
-
+            <nav class="rv-pagination" aria-label="Phân trang doanh thu tour">
+                <span>Trang <?= $tourPage ?> / <?= $tourPageCount ?> · <?= count($tourReportRows) ?> tour · 10 dòng/trang</span>
+                <div>
+                    <?php if ($tourPage > 1): ?><a href="<?= rvH($revenuePageUrl('tour_page', $tourPage - 1)) ?>#rvTourTable">‹ Trước</a><?php endif; ?>
+                    <?php for ($i = max(1, $tourPage - 2); $i <= min($tourPageCount, $tourPage + 2); $i++): ?>
+                        <a class="<?= $i === $tourPage ? 'active' : '' ?>" href="<?= rvH($revenuePageUrl('tour_page', $i)) ?>#rvTourTable"><?= $i ?></a>
+                    <?php endfor; ?>
+                    <?php if ($tourPage < $tourPageCount): ?><a href="<?= rvH($revenuePageUrl('tour_page', $tourPage + 1)) ?>#rvTourTable">Sau ›</a><?php endif; ?>
+                </div>
+            </nav>
         </section>
 
     <?php endif; ?>
@@ -1275,7 +1221,7 @@ $rankData = array_slice($rankData,0,$rankLimit);
 
     <?php if ($source !== 'tour'): ?>
 
-        <section class="rv-panel">
+        <section class="rv-panel" id="rvShopTable">
 
             <h2>
                 <i class="fa-solid fa-box"></i>
@@ -1313,20 +1259,7 @@ $rankData = array_slice($rankData,0,$rankLimit);
                     <tbody>
 
                     <?php
-                    $hasCompletedOrders = false;
-
-                    foreach ($orders as $order):
-
-                        if (!in_array(
-                            (string)($order['status'] ?? ''),
-                            $completedOrderStatuses,
-                            true
-                        )) {
-                            continue;
-                        }
-
-                        $hasCompletedOrders = true;
-
+                    foreach ($ordersPage as $order):
                         $orderId = (int)$order['id'];
 
                         $products = $orderProducts[$orderId] ?? [];
@@ -1429,7 +1362,7 @@ $rankData = array_slice($rankData,0,$rankLimit);
 
                     <?php endforeach; ?>
 
-                    <?php if (!$hasCompletedOrders): ?>
+                    <?php if (!$completedOrders): ?>
                         <tr>
                             <td colspan="6" class="rv-empty">
                                 Chưa có đơn hàng hoàn thành
@@ -1443,10 +1376,55 @@ $rankData = array_slice($rankData,0,$rankLimit);
                 </table>
 
             </div>
-
+            <nav class="rv-pagination" aria-label="Phân trang doanh thu đơn hàng">
+                <span>Trang <?= $shopPage ?> / <?= $shopPageCount ?> · <?= count($completedOrders) ?> đơn hàng · 10 dòng/trang</span>
+                <div>
+                    <?php if ($shopPage > 1): ?><a href="<?= rvH($revenuePageUrl('shop_page', $shopPage - 1)) ?>#rvShopTable">‹ Trước</a><?php endif; ?>
+                    <?php for ($i = max(1, $shopPage - 2); $i <= min($shopPageCount, $shopPage + 2); $i++): ?>
+                        <a class="<?= $i === $shopPage ? 'active' : '' ?>" href="<?= rvH($revenuePageUrl('shop_page', $i)) ?>#rvShopTable"><?= $i ?></a>
+                    <?php endfor; ?>
+                    <?php if ($shopPage < $shopPageCount): ?><a href="<?= rvH($revenuePageUrl('shop_page', $shopPage + 1)) ?>#rvShopTable">Sau ›</a><?php endif; ?>
+                </div>
+            </nav>
         </section>
 
     <?php endif; ?>
+
+    <!-- XEP HANG KINH DOANH - SAU CAC BANG DOANH THU -->
+    <section class="rv-panel">
+      <div class="rv-section-row"><h2><i class="fa-solid fa-trophy"></i> Xếp hạng kinh doanh</h2>
+        <span class="rv-muted">Theo kỳ và nguồn doanh thu đã chọn ở bộ lọc biểu đồ</span></div>
+      <form method="get" class="rv-rank-form">
+        <input type="hidden" name="year" value="<?= (int)$year ?>"><input type="hidden" name="month" value="<?= (int)$month ?>">
+        <input type="hidden" name="source" value="<?= rvH($source) ?>"><input type="hidden" name="tour_id" value="<?= (int)$filterTour ?>">
+        <?php foreach (['tx_q'=>$txSearch,'tx_type'=>$txType,'tx_period'=>$txPeriod,'tx_from'=>$txFrom,'tx_to'=>$txTo,'tx_status'=>$txStatus,'tx_amount'=>$txAmount,'tx_sort'=>$txSort] as $k=>$v): ?>
+          <input type="hidden" name="<?= rvH($k) ?>" value="<?= rvH($v) ?>">
+        <?php endforeach; ?>
+        <div class="rv-rank-tabs">
+          <?php foreach (['tour'=>'Tour Trekking','product'=>'Sản phẩm','customer'=>'Khách hàng'] as $k=>$label): ?>
+            <button type="submit" name="rank_type" value="<?= $k ?>" class="<?= $rankType===$k?'active':'' ?>"><?= rvH($label) ?></button>
+          <?php endforeach; ?>
+        </div>
+        <div class="rv-rank-options">
+          <label>Tiêu chí <select name="rank_by" onchange="rvSubmitRank(this.form)">
+            <option value="revenue" <?= $rankBy==='revenue'?'selected':'' ?>>Doanh thu cao nhất</option>
+            <option value="count" <?= $rankBy==='count'?'selected':'' ?>>Số lượt giao dịch</option>
+            <option value="quantity" <?= $rankBy==='quantity'?'selected':'' ?>>Số lượng khách / sản phẩm</option>
+          </select></label><label>Top <select name="rank_limit" onchange="rvSubmitRank(this.form)">
+            <option value="5" <?= $rankLimit===5?'selected':'' ?>>5</option><option value="10" <?= $rankLimit===10?'selected':'' ?>>10</option>
+          </select></label>
+        </div>
+      </form>
+      <div class="rv-table-wrap"><table class="rv-table rv-ranking-table"><thead><tr>
+        <th>Hạng</th><th><?= $rankType==='tour'?'Tên tour':($rankType==='product'?'Tên sản phẩm':'Khách hàng') ?></th>
+        <th><?= $rankType==='tour'?'Lượt đặt':'Lượt mua' ?></th><th><?= $rankType==='tour'?'Số khách':($rankType==='product'?'Số lượng bán':'Số lượng') ?></th><th>Doanh thu</th></tr></thead><tbody>
+        <?php foreach ($rankData as $i=>$r): ?><tr><td><?= $i < 3 ? ['🥇','🥈','🥉'][$i] : $i+1 ?></td>
+          <td><strong><?= rvH($r['name']) ?></strong></td><td><?= (int)$r['count'] ?></td>
+          <td><?= (int)$r['quantity'] ?></td><td class="rv-money"><?= rvH(rvMoney($r['revenue'])) ?></td></tr><?php endforeach; ?>
+        <?php if (!$rankData): ?><tr><td colspan="5" class="rv-empty">Chưa có dữ liệu xếp hạng phù hợp.</td></tr><?php endif; ?>
+      </tbody></table></div>
+    </section>
+
 
 </div>
 </main>
