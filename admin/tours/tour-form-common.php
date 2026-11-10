@@ -150,7 +150,6 @@ $fields = [
     'altitude',
     'distance',
     'max_slots',
-    'available_slots',
     'meeting_point',
     'transport',
     'description',
@@ -172,7 +171,6 @@ $labels = [
     'altitude' => 'Độ cao',
     'distance' => 'Quãng đường',
     'max_slots' => 'Tổng số chỗ',
-    'available_slots' => 'Số chỗ trống hiển thị',
     'meeting_point' => 'Điểm đón',
     'transport' => 'Phương tiện đưa đón',
     'description' => 'Mô tả giới thiệu tour',
@@ -242,10 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FILTER_VALIDATE_INT
         );
 
-        $availableSlots = filter_var(
-            $tour['available_slots'],
-            FILTER_VALIDATE_INT
-        );
+        $availableSlots = $isEdit ? min((int)$existingTour['available_slots'], (int)$maxSlots) : $maxSlots;
 
         $price = filter_var(
             $tour['price'],
@@ -1366,17 +1361,7 @@ textarea.tf-input {
                            value="<?= tfH($tour['max_slots']) ?>">
                 </div>
 
-                <div class="tf-field">
-                    <label>Số chỗ trống hiển thị</label>
-                    <input class="tf-input"
-                           type="number"
-                           name="available_slots"
-                           min="0"
-                           required
-                           value="<?= tfH($tour['available_slots']) ?>">
-                </div>
-
-                <div class="tf-field">
+<div class="tf-field">
                     <label>Điểm đón</label>
                     <input class="tf-input"
                            name="meeting_point"
