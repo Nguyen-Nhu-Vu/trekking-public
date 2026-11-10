@@ -222,7 +222,6 @@ $totalAmount = $customer
         </article>
     <?php endforeach; ?>
     <?php if (!$reviews): ?><p class="cd-empty">Khách hàng chưa có nhận xét.</p><?php endif; ?>
-    <p class="cd-warning">Tổng giá trị giao dịch tính đơn hàng Đã giao/Hoàn thành và tour Đã thanh toán/Đã hoàn thành. Đơn COD đã giao chưa chắc đã được xác nhận thực thu nếu hệ thống chưa lưu trạng thái thanh toán riêng.</p>
 </section>
 <?php endif; ?>
 </main>
