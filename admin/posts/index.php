@@ -171,7 +171,8 @@ try {
     border: 1px solid #dfe6f0;
     border-radius: 14px;
     margin: 0 auto 18px;
-    max-width: 1400px;
+    width: 100%;
+    max-width: none;
 }
 
 .pl-head {
@@ -309,7 +310,40 @@ try {
     margin: 5px;
 }
 
+.pl-filter {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.15fr) minmax(0, 1.4fr) minmax(72px, .65fr) minmax(88px, .8fr);
+    gap: 12px;
+    align-items: end;
+    width: 100%;
+    margin: 0;
+}
+.pl-filter label { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; }
+.pl-filter input, .pl-filter select, .pl-filter .pl-btn {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    margin: 0;
+    font-size: 14px;
+    line-height: normal;
+}
+.pl-filter input, .pl-filter select {
+    padding: 0 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #102e52;
+}
+.pl-filter .pl-btn { padding: 0 10px; white-space: nowrap; }
+@media(max-width:1200px) {
+    .pl-filter { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .pl-filter label:first-child { grid-column: span 2; }
+}
 @media(max-width:600px) {
+    .pl-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pl-filter label:first-child { grid-column: span 2; }
+
     .pl-page {
         padding: 12px;
     }
@@ -338,12 +372,12 @@ try {
     </div>
 
     <section class="pl-panel" style="padding:16px">
-        <form method="GET" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
-            <label>Tiêu đề <input name="search" value="<?= postListH($search) ?>" placeholder="Tìm bài viết" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"></label>
-            <label>Trạng thái <select name="status" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"><option value="">Tất cả</option><option value="1" <?= $status === '1' ? 'selected' : '' ?>>Xuất bản</option><option value="0" <?= $status === '0' ? 'selected' : '' ?>>Bản nháp</option></select></label>
-            <label>Từ ngày <input type="date" name="from" value="<?= postListH($from) ?>" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"></label>
-            <label>Đến ngày <input type="date" name="to" value="<?= postListH($to) ?>" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"></label>
-            <label>Sắp xếp <select name="sort" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"><?php foreach (['new'=>'Mới nhất','old'=>'Cũ nhất','views'=>'Lượt xem cao nhất','low'=>'Lượt xem thấp nhất','az'=>'Tiêu đề A-Z'] as $key=>$label): ?><option value="<?= $key ?>" <?= $sort === $key ? 'selected' : '' ?>><?= postListH($label) ?></option><?php endforeach; ?></select></label>
+        <form method="GET" class="pl-filter">
+            <label>Tiêu đề <input name="search" value="<?= postListH($search) ?>" placeholder="Tìm bài viết"></label>
+            <label>Trạng thái <select name="status"><option value="">Tất cả</option><option value="1" <?= $status === '1' ? 'selected' : '' ?>>Xuất bản</option><option value="0" <?= $status === '0' ? 'selected' : '' ?>>Bản nháp</option></select></label>
+            <label>Từ ngày <input type="date" name="from" value="<?= postListH($from) ?>"></label>
+            <label>Đến ngày <input type="date" name="to" value="<?= postListH($to) ?>"></label>
+            <label>Sắp xếp <select name="sort"><?php foreach (['new'=>'Mới nhất','old'=>'Cũ nhất','views'=>'Lượt xem cao nhất','low'=>'Lượt xem thấp nhất','az'=>'Tiêu đề A-Z'] as $key=>$label): ?><option value="<?= $key ?>" <?= $sort === $key ? 'selected' : '' ?>><?= postListH($label) ?></option><?php endforeach; ?></select></label>
             <button class="pl-btn" type="submit">Lọc</button><a class="pl-btn" href="index.php">Đặt lại</a>
         </form>
     </section>
