@@ -136,13 +136,13 @@ function qs(array $replace=[]): string { return '?'.http_build_query(array_merge
 </style></head><body class="admin-body">
 <?php require_once __DIR__.'/../includes/sidebar.php'; ?>
 <main class="admin-main cm-page">
-<section class="cm-card"><h1 class="cm-heading"><i class="fa-solid fa-users"></i> QUẢN LÝ KHÁCH HÀNG</h1><p class="cm-muted">Chỉ tài khoản Quản lý — thống kê khách đăng ký, giao dịch hoàn tất, đặt tour và đánh giá</p></section>
+<section class="cm-card"><h1 class="cm-heading"><i class="fa-solid fa-users"></i> QUẢN LÝ KHÁCH HÀNG</h1></section>
 <?php if($error):?><div class="cm-card" style="color:#b91c1c"><?=ch($error)?></div><?php endif;?>
 <section class="cm-stats" style="margin-bottom:18px">
 <div class="cm-stat"><span>Khách phù hợp bộ lọc</span><strong><?=number_format($total,0,',','.')?></strong></div>
 <div class="cm-stat"><span>Đơn hàng hoàn tất</span><strong><?=number_format($stats['orders'],0,',','.')?></strong></div>
 <div class="cm-stat"><span>Tour đã thanh toán/hoàn thành</span><strong><?=number_format($stats['tours'],0,',','.')?></strong></div>
-<div class="cm-stat"><span>Tổng giao dịch tính theo quy tắc</span><strong><?=money($stats['spend'])?></strong></div>
+<div class="cm-stat"><span>Tổng giao dịch</span><strong><?=money($stats['spend'])?></strong></div>
 </section>
 <section class="cm-card">
 <form class="cm-filter" method="GET" action="index.php">
