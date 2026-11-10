@@ -66,8 +66,8 @@ $prices = [
 $seatChoices = [
     '' => 'Tất cả tình trạng',
     'empty' => 'Hết chỗ (0)',
-    'low' => 'Sắp hết chỗ (1–5)',
-    'available' => 'Còn nhiều chỗ (từ 6)',
+    'low' => 'Sắp hết chỗ (1–9)',
+    'available' => 'Còn nhiều chỗ (từ 10)',
 ];
 $sortChoices = [
     'new' => 'Tour mới nhất',
@@ -162,8 +162,8 @@ try {
     }
     if ($date !== '') $where[] = 'availability.open_departures > 0';
     if ($seats === 'empty') $where[] = 'availability.free_slots = 0';
-    if ($seats === 'low') $where[] = 'availability.free_slots BETWEEN 1 AND 5';
-    if ($seats === 'available') $where[] = 'availability.free_slots >= 6';
+    if ($seats === 'low') $where[] = 'availability.free_slots BETWEEN 1 AND 9';
+    if ($seats === 'available') $where[] = 'availability.free_slots >= 10';
     $whereSql = ' WHERE ' . implode(' AND ', $where);
 
     $countStmt = $pdo->prepare('SELECT COUNT(*) ' . $sqlFrom . $whereSql);
@@ -231,7 +231,7 @@ function tourListPageUrl(int $n): string {
 .tour-difficulty{display:inline-block;padding:5px 8px;border-radius:7px;background:#059669;color:#fff;font-size:12px;font-weight:700}
 .tour-price{color:#ea580c;font-weight:800;white-space:nowrap}
 .tour-seats{display:block;font-weight:700;color:#166534}
-.tour-seats.low{color:#b45309}.tour-seats.empty{color:#dc2626}.tour-seats.none{color:#64748b;font-weight:400}
+.tour-seats.low{color:#ca8a04}.tour-seats.empty{color:#dc2626}.tour-seats.none{color:#64748b;font-weight:400}
 .tour-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .tour-actions form{margin:0}
 .tour-icon-btn{display:inline-flex;width:38px;height:36px;justify-content:center;align-items:center;border:0;border-radius:9px;color:white;text-decoration:none;cursor:pointer}
@@ -328,8 +328,8 @@ function tourListPageUrl(int $n): string {
                         <?php foreach ($tours as $tour): ?>
                             <?php
                                 $free = $tour['free_slots'];
-                                $seatClass = $free === null ? 'none' : ((int)$free === 0 ? 'empty' : ((int)$free <= 5 ? 'low' : ''));
-                                $seatLabel = $free === null ? 'Chưa có lịch mở' : ((int)$free . ' / ' . (int)$tour['total_capacity'] . ' chỗ');
+                                $seatClass = $free === null ? 'none' : ((int)$free === 0 ? 'empty' : ((int)$free < 10 ? 'low' : ''));
+                                $seatLabel = $free === null ? 'Chưa có lịch mở' : ((int)$free . ' / ' . (int)$tour['total_capacity'] );
                             ?>
                             <tr>
                                 <td><img src="<?= tourListH($tour['image']) ?>" alt="<?= tourListH($tour['title']) ?>" loading="lazy"></td>
@@ -338,7 +338,7 @@ function tourListPageUrl(int $n): string {
                                 <td><span class="tour-difficulty"><?= tourListH($tour['difficulty']) ?></span></td>
                                 <td><?= tourListH($tour['duration']) ?></td>
                                 <td class="tour-price"><?= format_price($tour['price']) ?></td>
-                                <td><span class="tour-seats <?= $seatClass ?>"><?= tourListH($seatLabel) ?></span><?php if ($free !== null): ?><br><small>Đã đặt: <?= (int)$tour['total_booked'] ?> · <?= (int)$tour['open_departures'] ?> lịch</small><?php endif; ?></td>
+                                <td><span class="tour-seats <?= $seatClass ?>"><?= tourListH($seatLabel) ?></span></td>
                                 <td><div class="tour-actions">
                                     <a class="tour-icon-btn edit" href="edit.php?id=<?= (int)$tour['id'] ?>" title="Sửa Tour" aria-label="Sửa Tour"><i class="fa-solid fa-pen-to-square"></i></a>
                                     <form class="tour-delete-form" method="POST" action="index.php" onsubmit="return confirm('Bạn có chắc muốn xóa Tour này?');">
