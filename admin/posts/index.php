@@ -107,16 +107,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $posts = [];
-
+$search = trim((string)($_GET['search'] ?? ''));
+$status = (string)($_GET['status'] ?? '');
+if (!in_array($status, ['', '0', '1'], true)) $status = '';
+function postDate($value): string {
+    $value = (string)$value;
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+    return $d && $d->format('Y-m-d') === $value ? $value : '';
+}
+$from = postDate($_GET['from'] ?? '');
+$to = postDate($_GET['to'] ?? '');
+$orders = ['new'=>'created_at DESC, id DESC','old'=>'created_at ASC, id ASC','views'=>'views DESC, id DESC','low'=>'views ASC, id DESC','az'=>'title ASC, id ASC'];
+$sort = (string)($_GET['sort'] ?? 'new');
+if (!isset($orders[$sort])) $sort = 'new';
 try {
-    $posts = $pdo->query(
-        'SELECT id,title,image,views,status,created_at
-         FROM posts ORDER BY id DESC'
-    )->fetchAll(PDO::FETCH_ASSOC);
+    $where = []; $params = [];
+    if ($search !== '') { $where[] = 'title LIKE ?'; $params[] = '%'.$search.'%'; }
+    if ($status !== '') { $where[] = 'status = ?'; $params[] = (int)$status; }
+    if ($from !== '' && $to !== '' && $from > $to) throw new RuntimeException('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.');
+    if ($from !== '') { $where[] = 'created_at >= ?'; $params[] = $from; }
+    if ($to !== '') { $where[] = 'created_at < DATE_ADD(?, INTERVAL 1 DAY)'; $params[] = $to; }
+    $stmt = $pdo->prepare('SELECT id,title,image,views,status,created_at FROM posts'.($where ? ' WHERE '.implode(' AND ', $where) : '').' ORDER BY '.$orders[$sort]);
+    $stmt->execute($params);
+    $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (Throwable $e) {
     error_log('Post listing: ' . $e->getMessage());
-    $error = 'Không tải được danh sách bài viết.';
+    $error = $e instanceof RuntimeException ? $e->getMessage() : 'Không tải được danh sách bài viết.';
 }
 ?>
 <!DOCTYPE html>
@@ -320,6 +337,16 @@ try {
         </a>
     </div>
 
+    <section class="pl-panel" style="padding:16px">
+        <form method="GET" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+            <label>Tiêu đề <input name="search" value="<?= postListH($search) ?>" placeholder="Tìm bài viết" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"></label>
+            <label>Trạng thái <select name="status" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"><option value="">Tất cả</option><option value="1" <?= $status === '1' ? 'selected' : '' ?>>Xuất bản</option><option value="0" <?= $status === '0' ? 'selected' : '' ?>>Bản nháp</option></select></label>
+            <label>Từ ngày <input type="date" name="from" value="<?= postListH($from) ?>" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"></label>
+            <label>Đến ngày <input type="date" name="to" value="<?= postListH($to) ?>" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"></label>
+            <label>Sắp xếp <select name="sort" style="display:block;padding:10px;border:1px solid #cbd5e1;border-radius:8px"><?php foreach (['new'=>'Mới nhất','old'=>'Cũ nhất','views'=>'Lượt xem cao nhất','low'=>'Lượt xem thấp nhất','az'=>'Tiêu đề A-Z'] as $key=>$label): ?><option value="<?= $key ?>" <?= $sort === $key ? 'selected' : '' ?>><?= postListH($label) ?></option><?php endforeach; ?></select></label>
+            <button class="pl-btn" type="submit">Lọc</button><a class="pl-btn" href="index.php">Đặt lại</a>
+        </form>
+    </section>
     <section class="pl-panel">
         <div class="pl-tablewrap">
             <table class="pl-table">
