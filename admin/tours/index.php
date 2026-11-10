@@ -103,7 +103,7 @@ try {
      * Khi chọn ngày, mọi điều kiện liên quan đến chỗ đều được xét trên
      * CHÍNH NGÀY ĐÓ; không dùng chỗ của một lịch khác cùng tour.
      * Khi chưa chọn ngày, xét các lịch đang mở chưa diễn ra và chọn
-     * số chỗ còn nhận CAO NHẤT để thể hiện tình trạng của tour.
+     * tổng số chỗ còn nhận trên các lịch đang mở.
      */
     $dateCondition = $date !== '' ? 'd.departure_date = ?' : 'd.departure_date >= CURDATE()';
     $sqlFrom = "
@@ -111,10 +111,12 @@ try {
         LEFT JOIN locations l ON l.id = t.location_id
         LEFT JOIN (
             SELECT s.tour_id,
-                   MAX(s.remaining_slots) AS free_slots,
+                   SUM(s.remaining_slots) AS free_slots,
+                   SUM(s.capacity) AS total_capacity,
+                   SUM(s.booked) AS total_booked,
                    COUNT(*) AS open_departures
             FROM (
-                SELECT d.tour_id,
+                SELECT d.tour_id, d.available_slots AS capacity, COALESCE(b.booked,0) AS booked,
                        GREATEST(0, d.available_slots - COALESCE(b.booked, 0)) AS remaining_slots
                 FROM tour_departures d
                 LEFT JOIN (
@@ -178,7 +180,7 @@ try {
         'seats' => 'availability.free_slots DESC, t.id DESC',
         default => 't.id DESC',
     };
-    $query = 'SELECT t.*, l.name AS loc_name, availability.free_slots, availability.open_departures '
+    $query = 'SELECT t.*, l.name AS loc_name, availability.free_slots, availability.total_capacity, availability.total_booked, availability.open_departures '
         . $sqlFrom . $whereSql . ' ORDER BY ' . $orderBy . ' LIMIT ' . $pageSize . ' OFFSET ' . $offset;
     $stmt = $pdo->prepare($query);
     $stmt->execute($params);
@@ -327,7 +329,7 @@ function tourListPageUrl(int $n): string {
                             <?php
                                 $free = $tour['free_slots'];
                                 $seatClass = $free === null ? 'none' : ((int)$free === 0 ? 'empty' : ((int)$free <= 5 ? 'low' : ''));
-                                $seatLabel = $free === null ? 'Chưa có lịch mở' : ((int)$free . ' chỗ');
+                                $seatLabel = $free === null ? 'Chưa có lịch mở' : ((int)$free . ' / ' . (int)$tour['total_capacity'] . ' chỗ');
                             ?>
                             <tr>
                                 <td><img src="<?= tourListH($tour['image']) ?>" alt="<?= tourListH($tour['title']) ?>" loading="lazy"></td>
@@ -336,7 +338,7 @@ function tourListPageUrl(int $n): string {
                                 <td><span class="tour-difficulty"><?= tourListH($tour['difficulty']) ?></span></td>
                                 <td><?= tourListH($tour['duration']) ?></td>
                                 <td class="tour-price"><?= format_price($tour['price']) ?></td>
-                                <td><span class="tour-seats <?= $seatClass ?>"><?= tourListH($seatLabel) ?></span></td>
+                                <td><span class="tour-seats <?= $seatClass ?>"><?= tourListH($seatLabel) ?></span><?php if ($free !== null): ?><br><small>Đã đặt: <?= (int)$tour['total_booked'] ?> · <?= (int)$tour['open_departures'] ?> lịch</small><?php endif; ?></td>
                                 <td><div class="tour-actions">
                                     <a class="tour-icon-btn edit" href="edit.php?id=<?= (int)$tour['id'] ?>" title="Sửa Tour" aria-label="Sửa Tour"><i class="fa-solid fa-pen-to-square"></i></a>
                                     <form class="tour-delete-form" method="POST" action="index.php" onsubmit="return confirm('Bạn có chắc muốn xóa Tour này?');">
