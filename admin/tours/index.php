@@ -1,3 +1,4 @@
+
 <?php
 ob_start();
 require_once __DIR__ . '/../../config/database.php';
@@ -329,7 +330,7 @@ function tourListPageUrl(int $n): string {
                             <?php
                                 $free = $tour['free_slots'];
                                 $seatClass = $free === null ? 'none' : ((int)$free === 0 ? 'empty' : ((int)$free < 10 ? 'low' : ''));
-                                $seatLabel = $free === null ? 'Chưa có lịch mở' : ((int)$free . ' / ' . (int)$tour['total_capacity'] );
+                                $seatLabel = $free === null ? 'Chưa có lịch mở' : (string)(int)$free;
                             ?>
                             <tr>
                                 <td><img src="<?= tourListH($tour['image']) ?>" alt="<?= tourListH($tour['title']) ?>" loading="lazy"></td>
